@@ -33,6 +33,7 @@ const {
   cpu
 } = osu;
 import axios from 'axios';
+import express from 'express';
 
 import config from './config.js';
 import {
@@ -54,18 +55,21 @@ import {
 
 initialize().catch(console.error);
 
+// <=====[Web Server Setup]=====>
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// <=====[Configuration]=====>
+app.get('/', (req, res) => {
+    res.send('Gemini Discord Bot is online!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Web server listening on port ${PORT}`);
+});
+// <==========>
 
 const MODEL = "gemini-2.5-flash";
 
-/*
-`BLOCK_NONE`  -  Always show regardless of probability of unsafe content
-`BLOCK_ONLY_HIGH`  -  Block when high probability of unsafe content
-`BLOCK_MEDIUM_AND_ABOVE`  -  Block when medium or high probability of unsafe content
-`BLOCK_LOW_AND_ABOVE`  -  Block when low, medium or high probability of unsafe content
-`HARM_BLOCK_THRESHOLD_UNSPECIFIED`  -  Threshold is unspecified, block using default threshold
-*/
 const safetySettings = [{
     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
     threshold: HarmBlockThreshold.BLOCK_NONE,
@@ -107,17 +111,11 @@ const shouldDisplayPersonalityButtons = config.shouldDisplayPersonalityButtons;
 const SEND_RETRY_ERRORS_TO_DISCORD = config.SEND_RETRY_ERRORS_TO_DISCORD;
 
 
-
 import {
   delay,
   retryOperation,
 } from './tools/others.js';
 
-// <==========>
-
-
-
-// <=====[Register Commands And Activities]=====>
 
 import {
   commands
@@ -155,12 +153,6 @@ client.once('ready', async () => {
     });
   }, 30000);
 });
-
-// <==========>
-
-
-
-// <=====[Messages And Interaction]=====>
 
 client.on('messageCreate', async (message) => {
   try {
@@ -405,12 +397,6 @@ async function editShowSettings(interaction) {
   await showSettings(interaction, true);
 }
 
-// <==========>
-
-
-
-// <=====[Messages Handling]=====>
-
 async function handleTextMessage(message) {
   const botId = client.user.id;
   const userId = message.author.id;
@@ -502,14 +488,12 @@ async function handleTextMessage(message) {
   const finalInstructions = isServerChatHistoryEnabled ? instructions + infoStr : instructions;
   const historyId = isChannelChatHistoryEnabled ? (isServerChatHistoryEnabled ? guildId : channelId) : userId;
 
-  // Always enable all three tools: Google Search, URL Context, and Code Execution
   const tools = [
     { googleSearch: {} },
     { urlContext: {} },
     { codeExecution: {} }
   ];
 
-  // Create chat with new Google GenAI API format
   const chat = genAI.chats.create({
     model: MODEL,
     config: {
@@ -590,7 +574,6 @@ async function processPromptAndMediaAttachments(prompt, message) {
 
           try {
             await downloadFile(attachment.url, filePath);
-            // Upload file using new Google GenAI API format
             const uploadResult = await genAI.files.upload({
               file: filePath,
               config: {
@@ -605,7 +588,6 @@ async function processPromptAndMediaAttachments(prompt, message) {
             }
 
             if (attachment.contentType.startsWith('video/')) {
-              // Wait for video processing to complete using new API
               let file = await genAI.files.get({ name: name });
               while (file.state === 'PROCESSING') {
                 process.stdout.write(".");
@@ -674,12 +656,6 @@ async function downloadAndReadFile(url, fileType) {
       return await response.text();
   }
 }
-
-// <==========>
-
-
-
-// <=====[Interaction Reply]=====>
 
 async function handleModalSubmit(interaction) {
   if (interaction.customId === 'custom-personality-modal') {
@@ -1823,12 +1799,6 @@ async function showDashboard(interaction) {
   });
 }
 
-// <==========>
-
-
-
-// <=====[Others]=====>
-
 async function addDownloadButton(botMessage) {
   try {
     const messageComponents = botMessage.components || [];
@@ -1898,12 +1868,6 @@ async function addSettingsButton(botMessage) {
   }
 }
 
-// <==========>
-
-
-
-// <=====[Model Response Handling]=====>
-
 async function handleModelResponse(initialBotMessage, chat, parts, originalMessage, typingInterval, historyId) {
   const userId = originalMessage.author.id;
   const userResponsePreference = originalMessage.guild && state.serverSettings[originalMessage.guild.id]?.serverResponsePreference ? state.serverSettings[originalMessage.guild.id].responseStyle : getUserResponsePreference(userId);
@@ -1912,7 +1876,6 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
 
   let updateTimeout;
   let tempResponse = '';
-  // Metadata from Google Search with URL Context tool
   let groundingMetadata = null;
   let urlContextMetadata = null;
 
@@ -2028,12 +1991,10 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
             newResponse += chunkText;
           }
 
-          // Capture grounding metadata from Google Search with URL Context tool
           if (chunk.candidates && chunk.candidates[0]?.groundingMetadata) {
             groundingMetadata = chunk.candidates[0].groundingMetadata;
           }
 
-          // Capture URL context metadata from Google Search with URL Context tool
           if (chunk.candidates && chunk.candidates[0]?.url_context_metadata) {
             urlContextMetadata = chunk.candidates[0].url_context_metadata;
           }
@@ -2063,7 +2024,6 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
       }
       await getResponse(parts);
 
-      // Final update to ensure grounding and URL context metadata is displayed in embedded responses
       if (!isLargeResponse && userResponsePreference === 'Embedded') {
         updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata);
       }
@@ -2154,12 +2114,10 @@ function updateEmbed(botMessage, finalResponse, message, groundingMetadata = nul
       })
       .setTimestamp();
 
-    // Add grounding metadata if user has Google Search tool enabled and Embedded responses selected
     if (groundingMetadata && shouldShowGroundingMetadata(message)) {
       addGroundingMetadataToEmbed(embed, groundingMetadata);
     }
 
-    // Add URL context metadata if user has Google Search tool enabled and Embedded responses selected
     if (urlContextMetadata && shouldShowGroundingMetadata(message)) {
       addUrlContextMetadataToEmbed(embed, urlContextMetadata);
     }
@@ -2181,7 +2139,6 @@ function updateEmbed(botMessage, finalResponse, message, groundingMetadata = nul
 }
 
 function addGroundingMetadataToEmbed(embed, groundingMetadata) {
-  // Add search queries used by the model
   if (groundingMetadata.webSearchQueries && groundingMetadata.webSearchQueries.length > 0) {
     embed.addFields({
       name: '🔍 Search Queries',
@@ -2190,10 +2147,9 @@ function addGroundingMetadataToEmbed(embed, groundingMetadata) {
     });
   }
 
-  // Add grounding sources with clickable links
   if (groundingMetadata.groundingChunks && groundingMetadata.groundingChunks.length > 0) {
     const chunks = groundingMetadata.groundingChunks
-      .slice(0, 5) // Limit to first 5 chunks to avoid embed limits
+      .slice(0, 5)
       .map((chunk, index) => {
         if (chunk.web) {
           return `• [${chunk.web.title || 'Source'}](${chunk.web.uri})`;
@@ -2211,7 +2167,6 @@ function addGroundingMetadataToEmbed(embed, groundingMetadata) {
 }
 
 function addUrlContextMetadataToEmbed(embed, urlContextMetadata) {
-  // Add URL retrieval status with success/failure indicators
   if (urlContextMetadata.url_metadata && urlContextMetadata.url_metadata.length > 0) {
     const urlList = urlContextMetadata.url_metadata
       .map(urlData => {
@@ -2229,7 +2184,6 @@ function addUrlContextMetadataToEmbed(embed, urlContextMetadata) {
 }
 
 function shouldShowGroundingMetadata(message) {
-  // Tools are always enabled; only show when user prefers Embedded responses
   const userId = message.author.id;
   const userResponsePreference = message.guild && state.serverSettings[message.guild.id]?.serverResponsePreference
     ? state.serverSettings[message.guild.id].responseStyle
@@ -2256,7 +2210,5 @@ async function sendAsTextFile(text, message, orgId) {
     console.error('An error occurred:', error);
   }
 }
-
-// <==========>
 
 client.login(token);
