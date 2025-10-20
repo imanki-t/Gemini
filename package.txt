@@ -1,0 +1,16 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@google/genai": "*",
+    "axios": "*",
+    "discord.js": "*",
+    "dotenv": "*",
+    "fs": "*",
+    "sharp": "*",
+    "office-text-extractor": "*",
+    "node-os-utils": "*"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
