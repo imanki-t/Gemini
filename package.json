@@ -8,9 +8,11 @@
     "fs": "*",
     "sharp": "*",
     "office-text-extractor": "*",
-    "node-os-utils": "*"
+    "node-os-utils": "*",
+    "express": "^4.19.2"
   },
   "scripts": {
     "start": "node index.js"
   }
 }
+
