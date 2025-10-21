@@ -94,6 +94,7 @@ let userActionButtons = {}; // New state for user action buttons preference
 let userContinuousReply = {}; // New state for user continuous reply preference
 let userEmbedColor = {}; // New state for user custom embed color
 
+
 export const state = {
   get chatHistories() {
     return chatHistories;
@@ -316,4 +317,95 @@ function scheduleDailyReset() {
     }
     const timeUntilNextReset = nextReset - now;
 
-    setTimeout(async ()       
+    setTimeout(async () => {
+      console.log('Running daily cleanup task...');
+      await chatHistoryLock.runExclusive(async () => {
+        removeFileData(chatHistories);
+        await saveStateToFile();
+      });
+      console.log('Daily cleanup task finished.');
+      scheduleDailyReset();
+    }, timeUntilNextReset);
+
+  } catch (error) {
+    console.error('An error occurred while scheduling the daily reset:', error);
+  }
+}
+
+export async function initialize() {
+  scheduleDailyReset();
+  await loadStateFromFile();
+  console.log('Bot state loaded and initialized.');
+}
+
+
+// --- State Helper Functions ---
+
+export function getHistory(id) {
+  const historyObject = chatHistories[id] || {};
+  let combinedHistory = [];
+
+  // Combine all message histories for this ID, ordered by the original message ID (which is sequential)
+  const sortedMessageIds = Object.keys(historyObject).sort();
+  
+  for (const messageId of sortedMessageIds) {
+    if (historyObject.hasOwnProperty(messageId)) {
+      // Each entry in historyObject[messageId] is usually a pair: [user_part, model_part]
+      combinedHistory = [...combinedHistory, ...historyObject[messageId]];
+    }
+  }
+
+  // Transform to format expected by new Google GenAI API
+  return combinedHistory.map(entry => {
+    // Content can be an array of parts or a single string (legacy), normalize it
+    const parts = Array.isArray(entry.content) ? entry.content : [{ text: entry.content }];
+
+    // Filter out parts without text or inlineData/fileData (e.g., empty fileData parts after cleanup)
+    const validParts = parts.filter(part => part.text || part.inlineData || part.fileData);
+
+    return {
+      role: entry.role === 'assistant' ? 'model' : entry.role,
+      parts: validParts.length > 0 ? validParts : [{ text: '' }]
+    };
+  }).filter(entry => entry.parts.length > 0); // Remove entries with no valid parts
+}
+
+export function updateChatHistory(id, newHistory, messagesId) {
+  if (!chatHistories[id]) {
+    chatHistories[id] = {};
+  }
+  
+  // Store history against the user's original message ID
+  chatHistories[id][messagesId] = newHistory;
+}
+
+export function getUserResponsePreference(userId) {
+  return state.userResponsePreference[userId] || config.defaultResponseFormat;
+}
+
+export function getUserModelPreference(userId) {
+  return state.userModelPreference[userId] || config.defaultTextModel;
+}
+
+export function getUserContinuousReply(userId) {
+  return state.userContinuousReply[userId] ?? config.defaultContinuousReply;
+}
+
+export function getUserActionButtons(userId) {
+  return state.userActionButtons[userId] ?? config.defaultActionButtons;
+}
+
+export function getUserEmbedColor(userId) {
+  return state.userEmbedColor[userId] || config.hexColour;
+}
+
+export function initializeBlacklistForGuild(guildId) {
+  try {
+    if (!state.blacklistedUsers[guildId]) {
+      state.blacklistedUsers[guildId] = [];
+    }
+    if (!state.serverSettings[guildId]) {
+      state.serverSettings[guildId] = config.defaultServerSettings;
+    }
+  } catch (error) {}
+  }
