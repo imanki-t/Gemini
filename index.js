@@ -1961,4 +1961,5 @@ async function handleDeleteMessageInteraction(interaction, msgId) {
  }
 }
 
+
 client.login(token);
