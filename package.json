@@ -9,10 +9,9 @@
     "sharp": "*",
     "office-text-extractor": "*",
     "node-os-utils": "*",
-    "express": "^4.19.2"
+    "express": "*"
   },
   "scripts": {
     "start": "node index.js"
   }
 }
-
