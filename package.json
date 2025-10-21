@@ -5,6 +5,7 @@
     "axios": "*",
     "discord.js": "*",
     "dotenv": "*",
+    "express": "*",
     "fs": "*",
     "sharp": "*",
     "office-text-extractor": "*",
