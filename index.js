@@ -78,7 +78,7 @@ const safetySettings = [{
    threshold: HarmBlockThreshold.BLOCK_NONE,
  },
  {
-   category: HarmCategory.HARM_CATEGORY.HARM_CATEGORY_DANGEROUS_CONTENT,
+   category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
    threshold: HarmBlockThreshold.BLOCK_NONE,
  },
 ];
@@ -1963,3 +1963,4 @@ async function handleDeleteMessageInteraction(interaction, msgId) {
 
 
 client.login(token);
+
