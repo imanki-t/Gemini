@@ -27,8 +27,9 @@ export const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMessageReactions, // Needed for message update/edit logic
   ],
-  partials: [Partials.Channel],
+  partials: [Partials.Channel, Partials.Message], // Needed for message update/edit logic
 });
 
 // Initialize with new API format that requires apiKey object
@@ -89,10 +90,10 @@ let userResponsePreference = {};
 let alwaysRespondChannels = {};
 let channelWideChatHistory = {};
 let blacklistedUsers = {};
-let userModelPreference = {}; // New state for user model selection
-let userActionButtons = {}; // New state for user action buttons preference
-let userContinuousReply = {}; // New state for user continuous reply preference
-let userEmbedColor = {}; // New state for user custom embed color
+let userModelPreference = {}; 
+let userActionButtons = {}; 
+let userContinuousReply = {}; 
+let userEmbedColor = {}; 
 
 
 export const state = {
@@ -171,11 +172,13 @@ export const state = {
 };
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(path.dirname(__filename)); // Corrected dirname path
+const ROOT_DIR = path.dirname(__filename);
 
-const CONFIG_DIR = path.join(__dirname, 'config');
+
+const CONFIG_DIR = path.join(ROOT_DIR, 'config');
 const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_4');
-export const TEMP_DIR = path.join(__dirname, 'temp');
+export const TEMP_DIR = path.join(ROOT_DIR, 'temp');
 
 const FILE_PATHS = {
   activeUsersInChannels: path.join(CONFIG_DIR, 'active_users_in_channels.json'),
@@ -379,6 +382,7 @@ export function updateChatHistory(id, newHistory, messagesId) {
   chatHistories[id][messagesId] = newHistory;
 }
 
+// Getters for User Preferences
 export function getUserResponsePreference(userId) {
   return state.userResponsePreference[userId] || config.defaultResponseFormat;
 }
@@ -399,13 +403,15 @@ export function getUserEmbedColor(userId) {
   return state.userEmbedColor[userId] || config.hexColour;
 }
 
+// Guild Initialization
 export function initializeBlacklistForGuild(guildId) {
   try {
     if (!state.blacklistedUsers[guildId]) {
       state.blacklistedUsers[guildId] = [];
     }
     if (!state.serverSettings[guildId]) {
-      state.serverSettings[guildId] = config.defaultServerSettings;
+      // Use structuredClone for deep copy of defaults
+      state.serverSettings[guildId] = structuredClone(config.defaultServerSettings);
     }
   } catch (error) {}
-  }
+               }
