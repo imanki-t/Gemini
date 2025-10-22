@@ -1,52 +1,37 @@
-// config.js
-
 export default {
-  // New: Default Model Preference for users
-  defaultModel: "gemini-2.5-flash", // Options: "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"
-
-  // New: Continuous Reply behavior
-  defaultContinuousReply: false, // If true, bot replies with channel.send() instead of message.reply() (no mention)
-
-  // Default UI/Formatting Settings
-  defaultResponseFormat: "Embedded", // Options: "Normal" or "Embedded"
-  defaultResponseColor: "#007ACC", // Default Hex color for embeds (e.g., professional blue)
-  
-  // New: Action Buttons toggle
-  defaultActionButtons: true, // Show/Hide "Stop Generating", "Save", "Delete" buttons
-
+  hexColour: "#505050",
   workInDMs: true,
-  shouldDisplayPersonalityButtons: true,
   SEND_RETRY_ERRORS_TO_DISCORD: false,
-  
-  // Updated Personality to mention multimodal capability
-  defaultPersonality: "You are Gemini, a large language model trained by Google. You are chatting with the user via the Gemini Discord bot. Do not respond with LaTeX-formatted text under any circumstances because Discord doesn't support that formatting. You are a highly professional multimodal model, equipped with the ability to analyze images, videos, audio, GIFs, and documents.",
-  
+  defaultPersonality: "You are Gemini, a large language model trained by Google. You are chatting with the user via the Gemini Discord bot. Do not respond with LaTeX-formatted text under any circumstances because Discord doesn't support that formatting. You are a multimodal model, equipped with the ability to read images, videos, audio files, and GIFs.",
   activities: [
     {
-      name: "Multimodal Analysis",
-      type: "Watching" // Replaced "With Code"
+      name: "With Code",
+      type: "Playing"
     },
     {
-      name: "Configuration Overhaul",
+      name: "Something",
       type: "Listening"
     },
     {
-      name: "User Settings",
-      type: "Playing"
+      name: "You",
+      type: "Watching"
     }
   ],
-  defaultServerSettings: {
-    serverChatHistory: false,
-    settingsSaveButton: true, // Legacy setting, repurposed for Action Buttons toggle
-    customServerPersonality: false,
-    serverResponsePreference: false,
-    responseStyle: "Embedded",
-    
-    // New Server Settings
-    modelPreference: "gemini-2.5-flash",
+  defaultGlobalUserSettings: {
+    model: "gemini-2.5-flash",
     continuousReply: false,
-    responseColor: "#007ACC",
-    actionButtons: true,
-    overrideEnabled: false, // If true, server settings override user settings
+    responseFormat: "Embedded",
+    responseColor: "#505050",
+    showActionButtons: true,
+    customPersonality: null
+  },
+  defaultServerSettings: {
+    model: "gemini-2.5-flash",
+    continuousReply: false,
+    responseFormat: "Embedded",
+    responseColor: "#505050",
+    showActionButtons: true,
+    customPersonality: null,
+    overrideUserSettings: false
   }
 };
