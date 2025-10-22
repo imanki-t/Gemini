@@ -33,7 +33,8 @@ export default {
     customPersonality: null,
     embedColor: "#5865F2",
     overrideUserSettings: false,
-    serverChatHistory: false
+    serverChatHistory: false,
+    allowedChannels: []
   },
   defaultUserSettings: {
     selectedModel: "gemini-2.5-flash",
