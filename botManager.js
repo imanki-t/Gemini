@@ -1,4 +1,4 @@
-// botManager.js
+// botManager.txt
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -87,10 +87,16 @@ let chatHistories = {};
 let activeUsersInChannels = {};
 let customInstructions = {};
 let serverSettings = {};
-let userSettings = {}; // NEW: Unified user settings
-let alwaysRespondChannels = {};
-let channelWideChatHistory = {};
+let userResponsePreference = {}; // legacy: Embedded/Normal
+let alwaysRespondChannels = {}; // legacy: channel-wide always respond
+let channelWideChatHistory = {}; // legacy: channel-wide history toggle
 let blacklistedUsers = {};
+
+// New state fields for per-user preferences
+let userModelPreference = {};
+let userContinuousReply = {};
+let userResponseColor = {};
+let userActionButtons = {};
 
 export const state = {
   get chatHistories() {
@@ -117,11 +123,11 @@ export const state = {
   set serverSettings(v) {
     serverSettings = v;
   },
-  get userSettings() { // NEW
-    return userSettings;
+  get userResponsePreference() {
+    return userResponsePreference;
   },
-  set userSettings(v) { // NEW
-    userSettings = v;
+  set userResponsePreference(v) {
+    userResponsePreference = v;
   },
   get alwaysRespondChannels() {
     return alwaysRespondChannels;
@@ -141,6 +147,31 @@ export const state = {
   set blacklistedUsers(v) {
     blacklistedUsers = v;
   },
+  // New state accessors
+  get userModelPreference() {
+    return userModelPreference;
+  },
+  set userModelPreference(v) {
+    userModelPreference = v;
+  },
+  get userContinuousReply() {
+    return userContinuousReply;
+  },
+  set userContinuousReply(v) {
+    userContinuousReply = v;
+  },
+  get userResponseColor() {
+    return userResponseColor;
+  },
+  set userResponseColor(v) {
+    userResponseColor = v;
+  },
+  get userActionButtons() {
+    return userActionButtons;
+  },
+  set userActionButtons(v) {
+    userActionButtons = v;
+  }
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -150,15 +181,20 @@ const CONFIG_DIR = path.join(__dirname, 'config');
 const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_4');
 export const TEMP_DIR = path.join(__dirname, 'temp');
 
-// Updated to include new userSettings file path
 const FILE_PATHS = {
   activeUsersInChannels: path.join(CONFIG_DIR, 'active_users_in_channels.json'),
   customInstructions: path.join(CONFIG_DIR, 'custom_instructions.json'),
   serverSettings: path.join(CONFIG_DIR, 'server_settings.json'),
-  userSettings: path.join(CONFIG_DIR, 'user_settings.json'), // NEW
+  userResponsePreference: path.join(CONFIG_DIR, 'user_response_preference.json'),
   alwaysRespondChannels: path.join(CONFIG_DIR, 'always_respond_channels.json'),
   channelWideChatHistory: path.join(CONFIG_DIR, 'channel_wide_chathistory.json'),
-  blacklistedUsers: path.join(CONFIG_DIR, 'blacklisted_users.json')
+  blacklistedUsers: path.join(CONFIG_DIR, 'blacklisted_users.json'),
+  
+  // New paths
+  userModelPreference: path.join(CONFIG_DIR, 'user_model_preference.json'),
+  userContinuousReply: path.join(CONFIG_DIR, 'user_continuous_reply.json'),
+  userResponseColor: path.join(CONFIG_DIR, 'user_response_color.json'),
+  userActionButtons: path.join(CONFIG_DIR, 'user_action_buttons.json')
 };
 
 // --- Data Persistence Functions ---
@@ -187,8 +223,9 @@ export async function saveStateToFile() {
     });
 
     const filePromises = Object.entries(FILE_PATHS).map(([key, filePath]) => {
-      // Use state[key] for dynamic access
-      return fs.writeFile(filePath, JSON.stringify(state[key], null, 2), 'utf-8');
+      // Ensure all new keys are correctly being saved from the state object
+      const dataToSave = state[key] || {};
+      return fs.writeFile(filePath, JSON.stringify(dataToSave, null, 2), 'utf-8');
     });
 
     await Promise.all([...chatHistoryPromises, ...filePromises]);
@@ -252,13 +289,12 @@ async function loadStateFromFile() {
 function removeFileData(histories) {
   try {
     Object.values(histories).forEach(subIdEntries => {
-      Object.values(subIdEntries).forEach(message => { // Iterating over the array of messages
+      subIdEntries.forEach(message => {
         if (message.content) {
           message.content = message.content.filter(contentItem => {
             if (contentItem.fileData) {
               delete contentItem.fileData;
             }
-            // Ensure we keep text parts or other valid content parts
             return Object.keys(contentItem).length > 0;
           });
         }
@@ -333,37 +369,34 @@ export function updateChatHistory(id, newHistory, messagesId) {
     chatHistories[id][messagesId] = [];
   }
 
+  // The newHistory is an array of content objects from the new API structure
   chatHistories[id][messagesId] = [...chatHistories[id][messagesId], ...newHistory];
 }
 
-// NEW: Function to get effective user configuration (handles server override)
-export function getEffectiveUserConfig(userId, guildId) {
-  const userConfig = state.userSettings[userId] || config.defaultUserSettings;
-  let serverConfig = config.defaultServerSettings;
-  let serverOverride = false;
-  let serverOverrideMessage = '';
+// Global Preference Helper (User or Server Override)
+export function getBotPreference(guildId, userId, key, defaultValue) {
+    let finalValue = state[`user${key.charAt(0).toUpperCase() + key.slice(1)}`]?.[userId];
+    let serverSettings = guildId ? state.serverSettings[guildId] : null;
 
-  if (guildId && state.serverSettings[guildId]) {
-    serverConfig = { ...config.defaultServerSettings, ...state.serverSettings[guildId] };
-    serverOverride = serverConfig.overrideUser;
-  }
+    if (serverSettings && serverSettings.overrideEnabled) {
+        if (serverSettings.hasOwnProperty(key)) {
+            finalValue = serverSettings[key];
+        }
+    } else if (finalValue === undefined) {
+        // Fallback to server setting if no user override is active
+        if (serverSettings && serverSettings.hasOwnProperty(key)) {
+             finalValue = serverSettings[key];
+        } else {
+             finalValue = defaultValue;
+        }
+    }
+    
+    // Final fallback to config default
+    if (finalValue === undefined) {
+      finalValue = defaultValue;
+    }
 
-  if (serverOverride) {
-    serverOverrideMessage = `\n\n⚠️ **Server Override Active:** The server's administrator settings are overriding your personal preferences in this channel.`;
-    return {
-      ...serverConfig,
-      effectiveConfig: serverConfig,
-      overrideMessage: serverOverrideMessage,
-    };
-  }
-
-  // Combine user config with server defaults (if no override)
-  return {
-    ...serverConfig, // Start with server defaults (for properties not in user settings like hexColour)
-    ...userConfig, // Overlay user's saved preferences
-    effectiveConfig: userConfig,
-    overrideMessage: ''
-  };
+    return finalValue;
 }
 
 export function initializeBlacklistForGuild(guildId) {
@@ -371,14 +404,26 @@ export function initializeBlacklistForGuild(guildId) {
     if (!state.blacklistedUsers[guildId]) {
       state.blacklistedUsers[guildId] = [];
     }
+    // Initialize server settings with defaults if missing
     if (!state.serverSettings[guildId]) {
-      state.serverSettings[guildId] = config.defaultServerSettings;
+      state.serverSettings[guildId] = {
+        ...config.defaultServerSettings,
+        // Ensure new settings are initialized if old config is loaded
+        modelPreference: config.defaultServerSettings.modelPreference,
+        continuousReply: config.defaultServerSettings.continuousReply,
+        responseColor: config.defaultServerSettings.responseColor,
+        actionButtons: config.defaultServerSettings.actionButtons,
+        overrideEnabled: config.defaultServerSettings.overrideEnabled
+      };
+    } else {
+      // Ensure existing server settings objects have the new properties
+      const currentSettings = state.serverSettings[guildId];
+      const defaultSettings = config.defaultServerSettings;
+      for (const key in defaultSettings) {
+        if (!currentSettings.hasOwnProperty(key)) {
+          currentSettings[key] = defaultSettings[key];
+        }
+      }
     }
   } catch (error) {}
 }
-
-export function initializeUserSettings(userId) {
-  if (!state.userSettings[userId]) {
-    state.userSettings[userId] = config.defaultUserSettings;
-  }
-                               }
