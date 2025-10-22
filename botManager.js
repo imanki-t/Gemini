@@ -352,10 +352,14 @@ export function initializeBlacklistForGuild(guildId) {
         customPersonality: null,
         embedColor: config.hexColour,
         overrideUserSettings: false,
-        serverChatHistory: false
+        serverChatHistory: false,
+        allowedChannels: []
       };
+    } else if (!state.serverSettings[guildId].allowedChannels) {
+      // Add allowedChannels to existing server settings if missing
+      state.serverSettings[guildId].allowedChannels = [];
     }
   } catch (error) {
     console.error('Error initializing blacklist for guild:', error);
   }
-}
+                             }
