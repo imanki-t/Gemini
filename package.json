@@ -6,9 +6,12 @@
     "discord.js": "*",
     "dotenv": "*",
     "express": "*",
+    "ffmpeg-static": "*",
+    "fluent-ffmpeg": "*",
     "fs": "*",
+    "node-os-utils": "*",
     "office-text-extractor": "*",
-    "node-os-utils": "*"
+    "sharp": "*"
   },
   "scripts": {
     "start": "node index.js"
