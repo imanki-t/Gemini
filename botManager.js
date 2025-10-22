@@ -1,5 +1,3 @@
-// botManager.txt
-
 import dotenv from 'dotenv';
 dotenv.config();
 import {
@@ -20,9 +18,6 @@ import {
 
 import config from './config.js';
 
-// --- Core Client and API Initialization ---
-// Using new Google GenAI library instead of deprecated @google/generative-ai
-
 export const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -33,14 +28,12 @@ export const client = new Client({
   partials: [Partials.Channel],
 });
 
-// Initialize with new API format that requires apiKey object
 export const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 export { createUserContent, createPartFromUri };
 export const token = process.env.DISCORD_BOT_TOKEN;
 
-// --- Concurrency and Request Management ---
-
 export const activeRequests = new Set();
+export const activeSettingsInteractions = new Map();
 
 class Mutex {
   constructor() {
@@ -54,7 +47,7 @@ class Mutex {
         this._locked = true;
         resolve();
       } else {
-        this._queue.push(resolve);
+        this_queue.push(resolve);
       }
     });
   }
@@ -80,23 +73,9 @@ class Mutex {
 
 export const chatHistoryLock = new Mutex();
 
-
-// --- State and Data Management ---
-
 let chatHistories = {};
-let activeUsersInChannels = {};
-let customInstructions = {};
 let serverSettings = {};
-let userResponsePreference = {}; // legacy: Embedded/Normal
-let alwaysRespondChannels = {}; // legacy: channel-wide always respond
-let channelWideChatHistory = {}; // legacy: channel-wide history toggle
-let blacklistedUsers = {};
-
-// New state fields for per-user preferences
-let userModelPreference = {};
-let userContinuousReply = {};
-let userResponseColor = {};
-let userActionButtons = {};
+let globalUserSettings = {};
 
 export const state = {
   get chatHistories() {
@@ -105,99 +84,31 @@ export const state = {
   set chatHistories(v) {
     chatHistories = v;
   },
-  get activeUsersInChannels() {
-    return activeUsersInChannels;
-  },
-  set activeUsersInChannels(v) {
-    activeUsersInChannels = v;
-  },
-  get customInstructions() {
-    return customInstructions;
-  },
-  set customInstructions(v) {
-    customInstructions = v;
-  },
   get serverSettings() {
     return serverSettings;
   },
   set serverSettings(v) {
     serverSettings = v;
   },
-  get userResponsePreference() {
-    return userResponsePreference;
+  get globalUserSettings() {
+    return globalUserSettings;
   },
-  set userResponsePreference(v) {
-    userResponsePreference = v;
+  set globalUserSettings(v) {
+    globalUserSettings = v;
   },
-  get alwaysRespondChannels() {
-    return alwaysRespondChannels;
-  },
-  set alwaysRespondChannels(v) {
-    alwaysRespondChannels = v;
-  },
-  get channelWideChatHistory() {
-    return channelWideChatHistory;
-  },
-  set channelWideChatHistory(v) {
-    channelWideChatHistory = v;
-  },
-  get blacklistedUsers() {
-    return blacklistedUsers;
-  },
-  set blacklistedUsers(v) {
-    blacklistedUsers = v;
-  },
-  // New state accessors
-  get userModelPreference() {
-    return userModelPreference;
-  },
-  set userModelPreference(v) {
-    userModelPreference = v;
-  },
-  get userContinuousReply() {
-    return userContinuousReply;
-  },
-  set userContinuousReply(v) {
-    userContinuousReply = v;
-  },
-  get userResponseColor() {
-    return userResponseColor;
-  },
-  set userResponseColor(v) {
-    userResponseColor = v;
-  },
-  get userActionButtons() {
-    return userActionButtons;
-  },
-  set userActionButtons(v) {
-    userActionButtons = v;
-  }
 };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CONFIG_DIR = path.join(__dirname, 'config');
-const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_4');
+const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_new');
 export const TEMP_DIR = path.join(__dirname, 'temp');
 
 const FILE_PATHS = {
-  activeUsersInChannels: path.join(CONFIG_DIR, 'active_users_in_channels.json'),
-  customInstructions: path.join(CONFIG_DIR, 'custom_instructions.json'),
-  serverSettings: path.join(CONFIG_DIR, 'server_settings.json'),
-  userResponsePreference: path.join(CONFIG_DIR, 'user_response_preference.json'),
-  alwaysRespondChannels: path.join(CONFIG_DIR, 'always_respond_channels.json'),
-  channelWideChatHistory: path.join(CONFIG_DIR, 'channel_wide_chathistory.json'),
-  blacklistedUsers: path.join(CONFIG_DIR, 'blacklisted_users.json'),
-  
-  // New paths
-  userModelPreference: path.join(CONFIG_DIR, 'user_model_preference.json'),
-  userContinuousReply: path.join(CONFIG_DIR, 'user_continuous_reply.json'),
-  userResponseColor: path.join(CONFIG_DIR, 'user_response_color.json'),
-  userActionButtons: path.join(CONFIG_DIR, 'user_action_buttons.json')
+  serverSettings: path.join(CONFIG_DIR, 'server_settings_new.json'),
+  globalUserSettings: path.join(CONFIG_DIR, 'global_user_settings.json'),
 };
-
-// --- Data Persistence Functions ---
 
 let isSaving = false;
 let savePending = false;
@@ -223,9 +134,7 @@ export async function saveStateToFile() {
     });
 
     const filePromises = Object.entries(FILE_PATHS).map(([key, filePath]) => {
-      // Ensure all new keys are correctly being saved from the state object
-      const dataToSave = state[key] || {};
-      return fs.writeFile(filePath, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      return fs.writeFile(filePath, JSON.stringify(state[key], null, 2), 'utf-8');
     });
 
     await Promise.all([...chatHistoryPromises, ...filePromises]);
@@ -284,8 +193,6 @@ async function loadStateFromFile() {
   }
 }
 
-// --- Daily Cleanup and Initialization ---
-
 function removeFileData(histories) {
   try {
     Object.values(histories).forEach(subIdEntries => {
@@ -337,21 +244,16 @@ export async function initialize() {
   console.log('Bot state loaded and initialized.');
 }
 
-
-// --- State Helper Functions ---
-
 export function getHistory(id) {
   const historyObject = chatHistories[id] || {};
   let combinedHistory = [];
 
-  // Combine all message histories for this ID
   for (const messagesId in historyObject) {
     if (historyObject.hasOwnProperty(messagesId)) {
       combinedHistory = [...combinedHistory, ...historyObject[messagesId]];
     }
   }
 
-  // Transform to format expected by new Google GenAI API
   return combinedHistory.map(entry => {
     return {
       role: entry.role === 'assistant' ? 'model' : entry.role,
@@ -369,61 +271,32 @@ export function updateChatHistory(id, newHistory, messagesId) {
     chatHistories[id][messagesId] = [];
   }
 
-  // The newHistory is an array of content objects from the new API structure
   chatHistories[id][messagesId] = [...chatHistories[id][messagesId], ...newHistory];
 }
 
-// Global Preference Helper (User or Server Override)
-export function getBotPreference(guildId, userId, key, defaultValue) {
-    let finalValue = state[`user${key.charAt(0).toUpperCase() + key.slice(1)}`]?.[userId];
-    let serverSettings = guildId ? state.serverSettings[guildId] : null;
-
-    if (serverSettings && serverSettings.overrideEnabled) {
-        if (serverSettings.hasOwnProperty(key)) {
-            finalValue = serverSettings[key];
-        }
-    } else if (finalValue === undefined) {
-        // Fallback to server setting if no user override is active
-        if (serverSettings && serverSettings.hasOwnProperty(key)) {
-             finalValue = serverSettings[key];
-        } else {
-             finalValue = defaultValue;
-        }
-    }
-    
-    // Final fallback to config default
-    if (finalValue === undefined) {
-      finalValue = defaultValue;
-    }
-
-    return finalValue;
+export function getUserSettings(userId) {
+  if (!state.globalUserSettings[userId]) {
+    state.globalUserSettings[userId] = { ...config.defaultGlobalUserSettings };
+  }
+  return state.globalUserSettings[userId];
 }
 
-export function initializeBlacklistForGuild(guildId) {
-  try {
-    if (!state.blacklistedUsers[guildId]) {
-      state.blacklistedUsers[guildId] = [];
-    }
-    // Initialize server settings with defaults if missing
-    if (!state.serverSettings[guildId]) {
-      state.serverSettings[guildId] = {
-        ...config.defaultServerSettings,
-        // Ensure new settings are initialized if old config is loaded
-        modelPreference: config.defaultServerSettings.modelPreference,
-        continuousReply: config.defaultServerSettings.continuousReply,
-        responseColor: config.defaultServerSettings.responseColor,
-        actionButtons: config.defaultServerSettings.actionButtons,
-        overrideEnabled: config.defaultServerSettings.overrideEnabled
-      };
-    } else {
-      // Ensure existing server settings objects have the new properties
-      const currentSettings = state.serverSettings[guildId];
-      const defaultSettings = config.defaultServerSettings;
-      for (const key in defaultSettings) {
-        if (!currentSettings.hasOwnProperty(key)) {
-          currentSettings[key] = defaultSettings[key];
-        }
-      }
-    }
-  } catch (error) {}
+export function getServerSettings(guildId) {
+  if (!state.serverSettings[guildId]) {
+    state.serverSettings[guildId] = { ...config.defaultServerSettings };
+  }
+  return state.serverSettings[guildId];
 }
+
+export function getEffectiveSettings(userId, guildId) {
+  const userSettings = getUserSettings(userId);
+  
+  if (guildId) {
+    const serverSettings = getServerSettings(guildId);
+    if (serverSettings.overrideUserSettings) {
+      return { ...serverSettings, isOverride: true };
+    }
+  }
+  
+  return { ...userSettings, isOverride: false };
+                                     }
