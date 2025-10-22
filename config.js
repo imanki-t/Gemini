@@ -1,40 +1,46 @@
-// config.js
 export default {
-  defaultResponseFormat: "Embedded",
-  hexColour: "#505050",
+  defaultResponseFormat: "Normal",
+  hexColour: "#5865F2",
   workInDMs: true,
-  SEND_RETRY_ERRORS_TO_DISCORD: false,
-  defaultPersonality: "You are Gemini, a large language model trained by Google. You are chatting with the user via the Gemini Discord bot. Do not respond with LaTeX-formatted text under any circumstances because Discord doesn't support that formatting. You are a multimodal model, equipped with the ability to read images, videos, audio, and GIFs.",
+  defaultPersonality: "You are Gemini, a large language model trained by Google. You are chatting with the user via the Gemini Discord bot. Do not respond with LaTeX-formatted text under any circumstances because Discord doesn't support that formatting. You are a multimodal model, equipped with the ability to read images, videos, audio files, and GIFs. Always be helpful, professional, and engaging in your responses.",
   activities: [
-    { name: "With Code", type: "Playing" },
-    { name: "Something", type: "Listening" },
-    { name: "You", type: "Watching" }
+    {
+      name: "with AI Magic",
+      type: "Playing"
+    },
+    {
+      name: "your questions",
+      type: "Listening"
+    },
+    {
+      name: "the world learn",
+      type: "Watching"
+    },
+    {
+      name: "conversations flow",
+      type: "Watching"
+    },
+    {
+      name: "/settings for options",
+      type: "Playing"
+    }
   ],
-  models: {
-    "gemini-2.0-flash": "gemini-2.0-flash",
-    "gemini-2.5-flash": "gemini-2.5-flash",
-    "gemini-2.0-flash-lite": "gemini-2.0-flash-lite",
-    "gemini-2.5-flash-lite": "gemini-2.5-flash-lite"
-  },
-  defaultModel: "gemini-2.5-flash",
   defaultServerSettings: {
-    model: null,
-    continuousReply: false,
-    responseFormat: null,
-    responseColor: null,
+    selectedModel: "gemini-2.5-flash",
+    responseFormat: "Normal",
     showActionButtons: true,
+    continuousReply: false,
     customPersonality: null,
+    embedColor: "#5865F2",
     overrideUserSettings: false,
-    serverChatHistory: false,
-    blacklist: []
+    serverChatHistory: false
   },
   defaultUserSettings: {
-    model: "gemini-2.5-flash",
-    continuousReply: false,
-    responseFormat: "Embedded",
-    responseColor: "#505050",
+    selectedModel: "gemini-2.5-flash",
+    responseFormat: "Normal",
     showActionButtons: true,
-    customPersonality: null
-  },
-  PORT: process.env.PORT || 3000
+    continuousReply: false,
+    customPersonality: null,
+    embedColor: "#5865F2"
+  }
 };
