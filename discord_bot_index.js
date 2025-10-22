@@ -697,9 +697,7 @@ async function handleSelectMenuInteraction(interaction) {
     await saveStateToFile();
     await showServerSettings(interaction, true);
   }
-          }
-
-
+          
 async function handleModalSubmit(interaction) {
   const userId = interaction.user.id;
   const guildId = interaction.guild?.id;
