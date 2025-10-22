@@ -21,7 +21,7 @@ export default {
       type: "Watching"
     },
     {
-      name: "/settings for options",
+      name: "with code",
       type: "Playing"
     }
   ],
