@@ -79,7 +79,7 @@ const safetySettings = [{
  threshold: HarmBlockThreshold.BLOCK_NONE,
 },
 {
- category: HarmCategory.HARM_CATEGORY.HARM_CATEGORY_DANGEROUS_CONTENT,
+ category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
  threshold: HarmBlockThreshold.BLOCK_NONE,
 },
 ];
@@ -1994,3 +1994,4 @@ console.log(`Web server started and listening on port ${PORT}`);
 client.login(token);
 
 }
+
