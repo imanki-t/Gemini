@@ -675,17 +675,8 @@ async function handleSelectMenuInteraction(interaction) {
     }
     state.serverSettings[guildId].overrideUserSettings = selectedValue === 'enabled';
     await saveStateToFile();
-
-    if (selectedValue === 'enabled') {
-      const embed = new EmbedBuilder()
-        .setColor(0xFFAA00)
-        .setTitle('⚠️ Override Enabled')
-        .setDescription('Server settings will now override all user settings. Users will be notified when this affects them.');
-      await interaction.reply({
-        embeds: [embed],
-        flags: MessageFlags.Ephemeral
-      });
-    }
+    
+    // Don't show separate notification, just update the settings panel
     await showServerSettings(interaction, true);
   } else if (interaction.customId === 'server_chat_history') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
@@ -706,7 +697,8 @@ async function handleSelectMenuInteraction(interaction) {
     await saveStateToFile();
     await showServerSettings(interaction, true);
   }
-}
+          }
+
 
 async function handleModalSubmit(interaction) {
   const userId = interaction.user.id;
