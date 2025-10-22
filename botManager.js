@@ -1,3 +1,4 @@
+// botManager.js
 import dotenv from 'dotenv';
 dotenv.config();
 import {
@@ -28,12 +29,16 @@ export const client = new Client({
   partials: [Partials.Channel],
 });
 
-export const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
-export { createUserContent, createPartFromUri };
+export const genAI = new GoogleGenAI({
+  apiKey: process.env.GOOGLE_API_KEY
+});
+export {
+  createUserContent,
+  createPartFromUri
+};
 export const token = process.env.DISCORD_BOT_TOKEN;
 
 export const activeRequests = new Set();
-export const activeSettingsInteractions = new Map();
 
 class Mutex {
   constructor() {
@@ -47,7 +52,7 @@ class Mutex {
         this._locked = true;
         resolve();
       } else {
-        this_queue.push(resolve);
+        this._queue.push(resolve);
       }
     });
   }
@@ -76,6 +81,8 @@ export const chatHistoryLock = new Mutex();
 let chatHistories = {};
 let serverSettings = {};
 let globalUserSettings = {};
+let alwaysRespondChannels = {};
+let channelWideChatHistory = {};
 
 export const state = {
   get chatHistories() {
@@ -96,18 +103,33 @@ export const state = {
   set globalUserSettings(v) {
     globalUserSettings = v;
   },
+  get alwaysRespondChannels() {
+    return alwaysRespondChannels;
+  },
+  set alwaysRespondChannels(v) {
+    alwaysRespondChannels = v;
+  },
+  get channelWideChatHistory() {
+    return channelWideChatHistory;
+  },
+  set channelWideChatHistory(v) {
+    channelWideChatHistory = v;
+  },
 };
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename = fileURLToPath(
+  import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CONFIG_DIR = path.join(__dirname, 'config');
-const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_new');
+const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_global');
 export const TEMP_DIR = path.join(__dirname, 'temp');
 
 const FILE_PATHS = {
-  serverSettings: path.join(CONFIG_DIR, 'server_settings_new.json'),
+  serverSettings: path.join(CONFIG_DIR, 'server_settings.json'),
   globalUserSettings: path.join(CONFIG_DIR, 'global_user_settings.json'),
+  alwaysRespondChannels: path.join(CONFIG_DIR, 'always_respond_channels.json'),
+  channelWideChatHistory: path.join(CONFIG_DIR, 'channel_wide_chathistory.json'),
 };
 
 let isSaving = false;
@@ -196,22 +218,39 @@ async function loadStateFromFile() {
 function removeFileData(histories) {
   try {
     Object.values(histories).forEach(subIdEntries => {
-      subIdEntries.forEach(message => {
-        if (message.content) {
-          message.content = message.content.filter(contentItem => {
-            if (contentItem.fileData) {
-              delete contentItem.fileData;
-            }
-            return Object.keys(contentItem).length > 0;
-          });
-        }
-      });
+      if (Array.isArray(subIdEntries)) {
+        subIdEntries.forEach(message => {
+          if (message.content && Array.isArray(message.content)) {
+            message.content = message.content.filter(contentItem => {
+              if (contentItem.fileData) {
+                delete contentItem.fileData;
+              }
+              return Object.keys(contentItem).length > 0;
+            });
+          }
+        });
+      } else if (typeof subIdEntries === 'object' && subIdEntries !== null) {
+        Object.values(subIdEntries).forEach(messages => {
+          if (Array.isArray(messages)) {
+            messages.forEach(message => {
+              if (message.content && Array.isArray(message.content)) {
+                message.content = message.content.filter(contentItem => {
+                  if (contentItem.fileData) {
+                    delete contentItem.fileData;
+                  }
+                  return Object.keys(contentItem).length > 0;
+                });
+              }
+            });
+          }
+        });
+      }
     });
-    console.log('fileData elements have been removed from chat histories.');
   } catch (error) {
     console.error('An error occurred while removing fileData elements:', error);
   }
 }
+
 
 function scheduleDailyReset() {
   try {
@@ -224,12 +263,10 @@ function scheduleDailyReset() {
     const timeUntilNextReset = nextReset - now;
 
     setTimeout(async () => {
-      console.log('Running daily cleanup task...');
       await chatHistoryLock.runExclusive(async () => {
         removeFileData(chatHistories);
         await saveStateToFile();
       });
-      console.log('Daily cleanup task finished.');
       scheduleDailyReset();
     }, timeUntilNextReset);
 
@@ -241,7 +278,6 @@ function scheduleDailyReset() {
 export async function initialize() {
   scheduleDailyReset();
   await loadStateFromFile();
-  console.log('Bot state loaded and initialized.');
 }
 
 export function getHistory(id) {
@@ -249,7 +285,7 @@ export function getHistory(id) {
   let combinedHistory = [];
 
   for (const messagesId in historyObject) {
-    if (historyObject.hasOwnProperty(messagesId)) {
+    if (Object.hasOwnProperty.call(historyObject, messagesId)) {
       combinedHistory = [...combinedHistory, ...historyObject[messagesId]];
     }
   }
@@ -274,29 +310,54 @@ export function updateChatHistory(id, newHistory, messagesId) {
   chatHistories[id][messagesId] = [...chatHistories[id][messagesId], ...newHistory];
 }
 
-export function getUserSettings(userId) {
+export function initializeUserSettings(userId) {
   if (!state.globalUserSettings[userId]) {
-    state.globalUserSettings[userId] = { ...config.defaultGlobalUserSettings };
+    state.globalUserSettings[userId] = { ...config.defaultUserSettings
+    };
   }
+}
+
+export function initializeServerSettings(guildId) {
+  if (!state.serverSettings[guildId]) {
+    state.serverSettings[guildId] = { ...config.defaultServerSettings,
+      blacklist: []
+    };
+  }
+  if (!state.serverSettings[guildId].blacklist) {
+    state.serverSettings[guildId].blacklist = [];
+  }
+}
+
+export function getUserSettings(userId) {
+  initializeUserSettings(userId);
   return state.globalUserSettings[userId];
 }
 
 export function getServerSettings(guildId) {
-  if (!state.serverSettings[guildId]) {
-    state.serverSettings[guildId] = { ...config.defaultServerSettings };
-  }
+  if (!guildId) return null;
+  initializeServerSettings(guildId);
   return state.serverSettings[guildId];
 }
 
 export function getEffectiveSettings(userId, guildId) {
   const userSettings = getUserSettings(userId);
-  
-  if (guildId) {
-    const serverSettings = getServerSettings(guildId);
-    if (serverSettings.overrideUserSettings) {
-      return { ...serverSettings, isOverride: true };
-    }
+  const serverSettings = getServerSettings(guildId);
+
+  if (serverSettings && serverSettings.overrideUserSettings) {
+    return {
+      model: serverSettings.model || userSettings.model,
+      continuousReply: serverSettings.continuousReply,
+      responseFormat: serverSettings.responseFormat || userSettings.responseFormat,
+      responseColor: serverSettings.responseColor || userSettings.responseColor,
+      showActionButtons: serverSettings.showActionButtons,
+      customPersonality: serverSettings.customPersonality || userSettings.customPersonality,
+      isOverride: true,
+      source: "server"
+    };
   }
-  
-  return { ...userSettings, isOverride: false };
-                                     }
+
+  return { ...userSettings,
+    isOverride: false,
+    source: "user"
+  };
+}
