@@ -5,14 +5,12 @@
     "axios": "*",
     "discord.js": "*",
     "dotenv": "*",
+    "express": "*",
     "fs": "*",
-    "sharp": "*",
     "office-text-extractor": "*",
-    "node-os-utils": "*",
-    "express": "*"
+    "node-os-utils": "*"
   },
   "scripts": {
     "start": "node index.js"
   }
 }
-
