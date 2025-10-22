@@ -675,17 +675,31 @@ async function handleSelectMenuInteraction(interaction) {
     }
     state.serverSettings[guildId].overrideUserSettings = selectedValue === 'enabled';
     await saveStateToFile();
-
-    if (selectedValue === 'enabled') {
+    
+    // Don't show separate notification, just update the settings panel
+    await showServerSettings(interaction, true);
+  } else if (interaction.customId === 'server_chat_history') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       const embed = new EmbedBuilder()
-        .setColor(0xFFAA00)
-        .setTitle('⚠️ Override Enabled')
-        .setDescription('Server settings will now override all user settings. Users will be notified when this affects them.');
-      await interaction.reply({
+        .setColor(0xFF0000)
+        .setTitle('🚫 Permission Denied')
+        .setDescription('You need "Manage Server" permission to change server settings.');
+      return interaction.reply({
         embeds: [embed],
         flags: MessageFlags.Ephemeral
       });
     }
+    const selectedValue = interaction.values[0];
+    if (!state.serverSettings[guildId]) {
+      state.serverSettings[guildId] = {};
+    }
+    state.serverSettings[guildId].serverChatHistory = selectedValue === 'enabled';
+    await saveStateToFile();
+    await showServerSettings(interaction, true);
+  }
+                             }
+  
+    
     await showServerSettings(interaction, true);
   } else if (interaction.customId === 'server_chat_history') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
