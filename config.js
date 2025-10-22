@@ -1,58 +1,52 @@
 // config.js
 
 export default {
-  // Global defaults
-  defaultResponseFormat: "Embedded",
-  hexColour: "#3498db", // Updated to a more professional blue
+  // New: Default Model Preference for users
+  defaultModel: "gemini-2.5-flash", // Options: "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"
+
+  // New: Continuous Reply behavior
+  defaultContinuousReply: false, // If true, bot replies with channel.send() instead of message.reply() (no mention)
+
+  // Default UI/Formatting Settings
+  defaultResponseFormat: "Embedded", // Options: "Normal" or "Embedded"
+  defaultResponseColor: "#007ACC", // Default Hex color for embeds (e.g., professional blue)
+  
+  // New: Action Buttons toggle
+  defaultActionButtons: true, // Show/Hide "Stop Generating", "Save", "Delete" buttons
+
   workInDMs: true,
   shouldDisplayPersonalityButtons: true,
   SEND_RETRY_ERRORS_TO_DISCORD: false,
-
-  // Available Models
-  AVAILABLE_MODELS: [
-    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Fast and highly capable model for general tasks." },
-    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "A previous generation of the fast model." },
-    { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", description: "A highly optimized version for very quick responses." },
-  ],
-
-  // Default Personality
-  defaultPersonality: "You are Gemini, a large language model trained by Google. You are chatting with the user via the Gemini Discord bot. Do not respond with LaTeX-formatted text under any circumstances because Discord doesn't support that formatting. You are a multimodal model, equipped with the ability to read images, videos, and audio files. Your tone is professional and helpful.",
-
-  // Bot Status Activities
+  
+  // Updated Personality to mention multimodal capability
+  defaultPersonality: "You are Gemini, a large language model trained by Google. You are chatting with the user via the Gemini Discord bot. Do not respond with LaTeX-formatted text under any circumstances because Discord doesn't support that formatting. You are a highly professional multimodal model, equipped with the ability to analyze images, videos, audio, GIFs, and documents.",
+  
   activities: [
     {
-      name: "With Code & AI",
-      type: "Playing"
+      name: "Multimodal Analysis",
+      type: "Watching" // Replaced "With Code"
     },
     {
-      name: "User Queries",
+      name: "Configuration Overhaul",
       type: "Listening"
     },
     {
-      name: "The Future",
-      type: "Watching"
+      name: "User Settings",
+      type: "Playing"
     }
   ],
-
-  // Default Server Settings (per guild)
   defaultServerSettings: {
-    model: "gemini-2.5-flash", // Server model preference
-    continuousReply: false, // If true, bot doesn't mention user in response
-    responseStyle: "Embedded", // Embedded or Normal (Text)
-    responseColor: "#3498db", // Customizable embed color
-    actionButtonsDisplay: true, // Show/Hide Save/Delete/Stop buttons
-    customServerPersonality: false, // If true, custom instructions are used
-    overrideUser: false, // If true, server settings override user settings
-    serverChatHistory: false, // If true, all users share chat history
-    settingsSaveButton: true, // Display save button on bot responses
-  },
-
-  // Default User Settings (per user)
-  defaultUserSettings: {
-    model: "gemini-2.5-flash",
-    continuousReply: false,
+    serverChatHistory: false,
+    settingsSaveButton: true, // Legacy setting, repurposed for Action Buttons toggle
+    customServerPersonality: false,
+    serverResponsePreference: false,
     responseStyle: "Embedded",
-    responseColor: "#3498db",
-    actionButtonsDisplay: true,
+    
+    // New Server Settings
+    modelPreference: "gemini-2.5-flash",
+    continuousReply: false,
+    responseColor: "#007ACC",
+    actionButtons: true,
+    overrideEnabled: false, // If true, server settings override user settings
   }
 };
