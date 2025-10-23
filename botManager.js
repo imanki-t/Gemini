@@ -17,6 +17,7 @@ import {
 } from 'url';
 
 import config from './config.js';
+import * as db from './database.js';
 
 export const client = new Client({
   intents: [
@@ -77,6 +78,7 @@ class Mutex {
 
 export const chatHistoryLock = new Mutex();
 
+// In-memory state (synced with MongoDB)
 let chatHistories = {};
 let activeUsersInChannels = {};
 let customInstructions = {};
@@ -154,21 +156,7 @@ export const state = {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CONFIG_DIR = path.join(__dirname, 'config');
-const CHAT_HISTORIES_DIR = path.join(CONFIG_DIR, 'chat_histories_5');
 export const TEMP_DIR = path.join(__dirname, 'temp');
-
-const FILE_PATHS = {
-  activeUsersInChannels: path.join(CONFIG_DIR, 'active_users_in_channels.json'),
-  customInstructions: path.join(CONFIG_DIR, 'custom_instructions.json'),
-  serverSettings: path.join(CONFIG_DIR, 'server_settings.json'),
-  userSettings: path.join(CONFIG_DIR, 'user_settings.json'),
-  userResponsePreference: path.join(CONFIG_DIR, 'user_response_preference.json'),
-  alwaysRespondChannels: path.join(CONFIG_DIR, 'always_respond_channels.json'),
-  channelWideChatHistory: path.join(CONFIG_DIR, 'channel_wide_chathistory.json'),
-  blacklistedUsers: path.join(CONFIG_DIR, 'blacklisted_users.json'),
-  continuousReplyChannels: path.join(CONFIG_DIR, 'continuous_reply_channels.json')
-};
 
 let isSaving = false;
 let savePending = false;
@@ -181,25 +169,56 @@ export async function saveStateToFile() {
   isSaving = true;
 
   try {
-    await fs.mkdir(CONFIG_DIR, {
-      recursive: true
-    });
-    await fs.mkdir(CHAT_HISTORIES_DIR, {
-      recursive: true
-    });
+    // Save to MongoDB instead of files
+    const savePromises = [];
 
-    const chatHistoryPromises = Object.entries(chatHistories).map(([key, value]) => {
-      const filePath = path.join(CHAT_HISTORIES_DIR, `${key}.json`);
-      return fs.writeFile(filePath, JSON.stringify(value, null, 2), 'utf-8');
-    });
+    // Save user settings
+    for (const [userId, settings] of Object.entries(userSettings)) {
+      savePromises.push(db.saveUserSettings(userId, settings));
+    }
 
-    const filePromises = Object.entries(FILE_PATHS).map(([key, filePath]) => {
-      return fs.writeFile(filePath, JSON.stringify(state[key], null, 2), 'utf-8');
-    });
+    // Save server settings
+    for (const [guildId, settings] of Object.entries(serverSettings)) {
+      savePromises.push(db.saveServerSettings(guildId, settings));
+    }
 
-    await Promise.all([...chatHistoryPromises, ...filePromises]);
+    // Save chat histories
+    for (const [id, history] of Object.entries(chatHistories)) {
+      savePromises.push(db.saveChatHistory(id, history));
+    }
+
+    // Save custom instructions
+    for (const [id, instructions] of Object.entries(customInstructions)) {
+      savePromises.push(db.saveCustomInstructions(id, instructions));
+    }
+
+    // Save blacklisted users
+    for (const [guildId, users] of Object.entries(blacklistedUsers)) {
+      savePromises.push(db.saveBlacklistedUsers(guildId, users));
+    }
+
+    // Save channel settings
+    for (const [channelId, value] of Object.entries(alwaysRespondChannels)) {
+      savePromises.push(db.saveChannelSetting(channelId, 'alwaysRespond', value));
+    }
+    for (const [channelId, value] of Object.entries(channelWideChatHistory)) {
+      savePromises.push(db.saveChannelSetting(channelId, 'wideChatHistory', value));
+    }
+    for (const [channelId, value] of Object.entries(continuousReplyChannels)) {
+      savePromises.push(db.saveChannelSetting(channelId, 'continuousReply', value));
+    }
+
+    // Save user response preferences
+    for (const [userId, preference] of Object.entries(userResponsePreference)) {
+      savePromises.push(db.saveUserResponsePreference(userId, preference));
+    }
+
+    // Save active users (optional - this is temporary data)
+    savePromises.push(db.saveActiveUsersInChannels(activeUsersInChannels));
+
+    await Promise.all(savePromises);
   } catch (error) {
-    console.error('Error saving state to files:', error);
+    console.error('Error saving state to MongoDB:', error);
   } finally {
     isSaving = false;
     if (savePending) {
@@ -209,63 +228,63 @@ export async function saveStateToFile() {
   }
 }
 
-async function loadStateFromFile() {
+async function loadStateFromDB() {
   try {
-    await fs.mkdir(CONFIG_DIR, {
-      recursive: true
-    });
-    await fs.mkdir(CHAT_HISTORIES_DIR, {
-      recursive: true
-    });
     await fs.mkdir(TEMP_DIR, {
       recursive: true
     });
 
-    const files = await fs.readdir(CHAT_HISTORIES_DIR);
-    const chatHistoryPromises = files
-      .filter(file => file.endsWith('.json'))
-      .map(async file => {
-        const user = path.basename(file, '.json');
-        const filePath = path.join(CHAT_HISTORIES_DIR, file);
-        try {
-          const data = await fs.readFile(filePath, 'utf-8');
-          chatHistories[user] = JSON.parse(data);
-        } catch (readError) {
-          console.error(`Error reading chat history for ${user}:`, readError);
-        }
-      });
-    await Promise.all(chatHistoryPromises);
+    // Load all data from MongoDB
+    console.log('Loading data from MongoDB...');
 
-    const filePromises = Object.entries(FILE_PATHS).map(async ([key, filePath]) => {
-      try {
-        const data = await fs.readFile(filePath, 'utf-8');
-        state[key] = JSON.parse(data);
-      } catch (readError) {
-        if (readError.code !== 'ENOENT') {
-          console.error(`Error reading ${key} from ${filePath}:`, readError);
-        }
-      }
-    });
-    await Promise.all(filePromises);
+    [
+      chatHistories,
+      userSettings,
+      serverSettings,
+      customInstructions,
+      blacklistedUsers,
+      userResponsePreference,
+      activeUsersInChannels,
+    ] = await Promise.all([
+      db.getAllChatHistories(),
+      db.getAllUserSettings(),
+      db.getAllServerSettings(),
+      db.getAllCustomInstructions(),
+      db.getAllBlacklistedUsers(),
+      db.getAllUserResponsePreferences(),
+      db.getActiveUsersInChannels(),
+    ]);
 
+    // Load channel-specific settings
+    alwaysRespondChannels = await db.getAllChannelSettings('alwaysRespond');
+    channelWideChatHistory = await db.getAllChannelSettings('wideChatHistory');
+    continuousReplyChannels = await db.getAllChannelSettings('continuousReply');
+
+    console.log('✅ Data loaded from MongoDB');
   } catch (error) {
-    console.error('Error loading state from files:', error);
+    console.error('Error loading state from MongoDB:', error);
   }
 }
 
 function removeFileData(histories) {
   try {
     Object.values(histories).forEach(subIdEntries => {
-      subIdEntries.forEach(message => {
-        if (message.content) {
-          message.content = message.content.filter(contentItem => {
-            if (contentItem.fileData) {
-              delete contentItem.fileData;
-            }
-            return Object.keys(contentItem).length > 0;
-          });
-        }
-      });
+      if (typeof subIdEntries === 'object' && subIdEntries !== null) {
+        Object.values(subIdEntries).forEach(messages => {
+          if (Array.isArray(messages)) {
+            messages.forEach(message => {
+              if (message.content) {
+                message.content = message.content.filter(contentItem => {
+                  if (contentItem.fileData) {
+                    delete contentItem.fileData;
+                  }
+                  return Object.keys(contentItem).length > 0;
+                });
+              }
+            });
+          }
+        });
+      }
     });
     console.log('fileData elements have been removed from chat histories.');
   } catch (error) {
@@ -299,9 +318,21 @@ function scheduleDailyReset() {
 }
 
 export async function initialize() {
-  scheduleDailyReset();
-  await loadStateFromFile();
-  console.log('Bot state loaded and initialized.');
+  try {
+    // Connect to MongoDB first
+    await db.connectDB();
+    
+    // Load state from MongoDB
+    await loadStateFromDB();
+    
+    // Schedule daily cleanup
+    scheduleDailyReset();
+    
+    console.log('✅ Bot state loaded and initialized');
+  } catch (error) {
+    console.error('Error during initialization:', error);
+    throw error;
+  }
 }
 
 export function getHistory(id) {
@@ -356,10 +387,24 @@ export function initializeBlacklistForGuild(guildId) {
         allowedChannels: []
       };
     } else if (!state.serverSettings[guildId].allowedChannels) {
-      // Add allowedChannels to existing server settings if missing
       state.serverSettings[guildId].allowedChannels = [];
     }
   } catch (error) {
     console.error('Error initializing blacklist for guild:', error);
   }
-                             }
+}
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\nGracefully shutting down...');
+  await saveStateToFile();
+  await db.closeDB();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\nGracefully shutting down...');
+  await saveStateToFile();
+  await db.closeDB();
+  process.exit(0);
+});
