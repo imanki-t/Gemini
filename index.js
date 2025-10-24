@@ -607,13 +607,12 @@ const shouldUploadToAPI =
   contentType.startsWith('image/') ||
   contentType.startsWith('audio/') ||
   contentType.startsWith('video/') ||
-  contentType === 'image/gif' ||
   contentType.startsWith('application/pdf') ||
   contentType.startsWith('application/x-pdf') ||
   audioExtensions.includes(fileExtension) ||
   videoExtensions.includes(fileExtension) ||
   imageExtensions.includes(fileExtension) ||
-  ['.pdf', '.docx', '.pptx', '.xlsx', '.gif'].includes(fileExtension); 
+  ['.pdf', '.docx', '.pptx', '.xlsx'].includes(fileExtension); 
   
 if (shouldUploadToAPI) {
   const sanitizedFileName = sanitizeFileName(attachment.name);
@@ -622,10 +621,17 @@ if (shouldUploadToAPI) {
 
   try {
     await downloadFile(attachment.url, filePath);
+    
+    // Determine the correct MIME type
+    let mimeType = attachment.contentType;
+    if (fileExtension === '.gif' && !mimeType) {
+      mimeType = 'image/gif';
+    }
+    
     const uploadResult = await genAI.files.upload({
       file: filePath,
       config: {
-        mimeType: attachment.contentType,
+        mimeType: mimeType,
         displayName: sanitizedFileName,
       }
     });
@@ -635,7 +641,12 @@ if (shouldUploadToAPI) {
       throw new Error(`Unable to extract file name from upload result.`);
     }
 
-    if (contentType.startsWith('video/') || videoExtensions.includes(fileExtension)) {
+    // Only wait for processing on actual VIDEO files, not GIFs
+    const isActualVideo = (contentType.startsWith('video/') || videoExtensions.includes(fileExtension)) 
+                          && fileExtension !== '.gif' 
+                          && contentType !== 'image/gif';
+    
+    if (isActualVideo) {
       let file = await genAI.files.get({
         name: name
       });
@@ -3405,6 +3416,7 @@ try {
 
 
 client.login(token);
+
 
 
 
