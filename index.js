@@ -796,7 +796,7 @@ async function processAttachment(attachment, userId, interactionId) {
   }
 
   return null;
-                }
+}
 
 async function handleButtonInteraction(interaction) {
 if (!interaction.isButton()) return;
@@ -3494,6 +3494,7 @@ try {
 
 
 client.login(token);
+
 
 
 
