@@ -1314,7 +1314,7 @@ try {
       .setEmoji('🔥')
       .setDefault(selectedModel === 'gemini-2.5-flash'),
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash')
+      .setLabel('Gemini 2.0 Flash')
       .setDescription('Fast and efficient model')
       .setValue('gemini-2.0-flash')
       .setEmoji('⚡')
@@ -1605,7 +1605,7 @@ try {
       .setEmoji('🔥')
       .setDefault(selectedModel === 'gemini-2.5-flash'),
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash')
+      .setLabel('Gemini 2.0 Flash')
       .setDescription('Fast and efficient model')
       .setValue('gemini-2.0-flash')
       .setEmoji('⚡')
@@ -3559,6 +3559,7 @@ try {
 
 
 client.login(token);
+
 
 
 
