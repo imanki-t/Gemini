@@ -83,7 +83,9 @@ console.log(`Express server running on port ${PORT}`);
 const MODELS = {
 'gemini-2.0-flash': 'gemini-2.0-flash-exp',
 'gemini-2.5-flash': 'gemini-2.5-flash',
-'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite'
+'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
+'gemini-2.0-flash-lite': 'gemini-2.0-flash-lite',
+'gemini-2.0-flash-thinking': 'gemini-2.0-flash-thinking-exp-1219'
 };
 
 const safetySettings = [{
@@ -3547,6 +3549,7 @@ try {
 
 
 client.login(token);
+
 
 
 
