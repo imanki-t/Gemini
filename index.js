@@ -3036,14 +3036,12 @@ const updateMessage = () => {
   if (stopGeneration) {
     return;
   }
-  if (tempResponse.trim() === "") {} else if (responseFormat === 'Embedded') {
+  if (tempResponse.trim() === "") {
+    // Do nothing
+  } else if (responseFormat === 'Embedded') {
     updateEmbed(botMessage, tempResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-  } else {
-    botMessage.edit({
-      content: tempResponse,
-      embeds: []
-    }).catch(() => {});
   }
+  // Removed normal mode streaming - only show final result
   clearTimeout(updateTimeout);
   updateTimeout = null;
 };
@@ -3372,6 +3370,7 @@ try {
 
 
 client.login(token);
+
 
 
 
