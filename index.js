@@ -2274,49 +2274,69 @@ try {
 }
 }
 
+// Replace the existing showUserPersonalityModal function with this:
 async function showUserPersonalityModal(interaction) {
-const input = new TextInputBuilder()
-  .setCustomId('personality_input')
-  .setLabel("What should the bot's personality be like?")
-  .setStyle(TextInputStyle.Paragraph)
-  .setPlaceholder("Enter your custom personality instructions...")
-  .setMinLength(10)
-  .setMaxLength(4000);
+  const userId = interaction.user.id;
+  const userSettings = state.userSettings[userId] || {};
+  const existingPersonality = userSettings.customPersonality || '';
 
-const modal = new ModalBuilder()
-  .setCustomId('user_personality_modal')
-  .setTitle('Custom Personality')
-  .addComponents(new ActionRowBuilder().addComponents(input));
+  const input = new TextInputBuilder()
+    .setCustomId('personality_input')
+    .setLabel("What should the bot's personality be like?")
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder("Enter your custom personality instructions...")
+    .setMinLength(10)
+    .setMaxLength(4000);
 
-await interaction.showModal(modal);
+  // Pre-fill with existing personality if it exists
+  if (existingPersonality) {
+    input.setValue(existingPersonality);
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('user_personality_modal')
+    .setTitle('Custom Personality')
+    .addComponents(new ActionRowBuilder().addComponents(input));
+
+  await interaction.showModal(modal);
 }
 
+// Replace the existing showServerPersonalityModal function with this:
 async function showServerPersonalityModal(interaction) {
-if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-  const embed = new EmbedBuilder()
-    .setColor(0xFF0000)
-    .setTitle('🚫 Permission Denied')
-    .setDescription('You need "Manage Server" permission to set server personality.');
-  return interaction.reply({
-    embeds: [embed],
-    flags: MessageFlags.Ephemeral
-  });
-}
+  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF0000)
+      .setTitle('🚫 Permission Denied')
+      .setDescription('You need "Manage Server" permission to set server personality.');
+    return interaction.reply({
+      embeds: [embed],
+      flags: MessageFlags.Ephemeral
+    });
+  }
 
-const input = new TextInputBuilder()
-  .setCustomId('personality_input')
-  .setLabel("What should the bot's personality be like?")
-  .setStyle(TextInputStyle.Paragraph)
-  .setPlaceholder("Enter server custom personality instructions...")
-  .setMinLength(10)
-  .setMaxLength(4000);
+  const guildId = interaction.guild.id;
+  const serverSettings = state.serverSettings[guildId] || {};
+  const existingPersonality = serverSettings.customPersonality || '';
 
-const modal = new ModalBuilder()
-  .setCustomId('server_personality_modal')
-  .setTitle('Server Custom Personality')
-  .addComponents(new ActionRowBuilder().addComponents(input));
+  const input = new TextInputBuilder()
+    .setCustomId('personality_input')
+    .setLabel("What should the bot's personality be like?")
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder("Enter server custom personality instructions...")
+    .setMinLength(10)
+    .setMaxLength(4000);
 
-await interaction.showModal(modal);
+  // Pre-fill with existing personality if it exists
+  if (existingPersonality) {
+    input.setValue(existingPersonality);
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('server_personality_modal')
+    .setTitle('Server Custom Personality')
+    .addComponents(new ActionRowBuilder().addComponents(input));
+
+  await interaction.showModal(modal);
 }
 
 async function removeUserPersonality(interaction) {
@@ -3509,6 +3529,7 @@ try {
 
 
 client.login(token);
+
 
 
 
