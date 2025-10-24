@@ -341,6 +341,7 @@ try {
           hasMedia = true;
         }
       }
+    }
     } catch (error) {
       console.error(`Error processing attachment:`, error);
       const embed = new EmbedBuilder()
@@ -3497,6 +3498,7 @@ try {
 
 
 client.login(token);
+
 
 
 
