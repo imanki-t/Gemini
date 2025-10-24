@@ -2393,48 +2393,66 @@ try {
 }
 
 async function showUserEmbedColorModal(interaction) {
-const input = new TextInputBuilder()
-  .setCustomId('color_input')
-  .setLabel('Enter Hex Color Code')
-  .setStyle(TextInputStyle.Short)
-  .setPlaceholder('#FF5733 or FF5733')
-  .setMinLength(6)
-  .setMaxLength(7);
+  const userId = interaction.user.id;
+  const userSettings = state.userSettings[userId] || {};
+  const existingColor = userSettings.embedColor || hexColour;
 
-const modal = new ModalBuilder()
-  .setCustomId('user_embed_color_modal')
-  .setTitle('Embed Color Customization')
-  .addComponents(new ActionRowBuilder().addComponents(input));
+  const input = new TextInputBuilder()
+    .setCustomId('color_input')
+    .setLabel('Enter Hex Color Code')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('#FF5733 or FF5733')
+    .setMinLength(6)
+    .setMaxLength(7);
 
-await interaction.showModal(modal);
+  // Pre-fill with existing color if it exists
+  if (existingColor) {
+    input.setValue(existingColor);
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('user_embed_color_modal')
+    .setTitle('Embed Color Customization')
+    .addComponents(new ActionRowBuilder().addComponents(input));
+
+  await interaction.showModal(modal);
 }
 
 async function showServerEmbedColorModal(interaction) {
-if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-  const embed = new EmbedBuilder()
-    .setColor(0xFF0000)
-    .setTitle('🚫 Permission Denied')
-    .setDescription('You need "Manage Server" permission to change server embed color.');
-  return interaction.reply({
-    embeds: [embed],
-    flags: MessageFlags.Ephemeral
-  });
-}
+  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF0000)
+      .setTitle('🚫 Permission Denied')
+      .setDescription('You need "Manage Server" permission to change server embed color.');
+    return interaction.reply({
+      embeds: [embed],
+      flags: MessageFlags.Ephemeral
+    });
+  }
 
-const input = new TextInputBuilder()
-  .setCustomId('color_input')
-  .setLabel('Enter Hex Color Code')
-  .setStyle(TextInputStyle.Short)
-  .setPlaceholder('#FF5733 or FF5733')
-  .setMinLength(6)
-  .setMaxLength(7);
+  const guildId = interaction.guild.id;
+  const serverSettings = state.serverSettings[guildId] || {};
+  const existingColor = serverSettings.embedColor || hexColour;
 
-const modal = new ModalBuilder()
-  .setCustomId('server_embed_color_modal')
-  .setTitle('Server Embed Color')
-  .addComponents(new ActionRowBuilder().addComponents(input));
+  const input = new TextInputBuilder()
+    .setCustomId('color_input')
+    .setLabel('Enter Hex Color Code')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('#FF5733 or FF5733')
+    .setMinLength(6)
+    .setMaxLength(7);
 
-await interaction.showModal(modal);
+  // Pre-fill with existing color if it exists
+  if (existingColor) {
+    input.setValue(existingColor);
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('server_embed_color_modal')
+    .setTitle('Server Embed Color')
+    .addComponents(new ActionRowBuilder().addComponents(input));
+
+  await interaction.showModal(modal);
 }
 
 async function showChannelManagementMenu(interaction, isUpdate = false) {
@@ -3529,6 +3547,7 @@ try {
 
 
 client.login(token);
+
 
 
 
