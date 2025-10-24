@@ -163,6 +163,24 @@ setInterval(() => {
 }, 30000);
 });
 
+// Add this NEW event handler for when bot joins a server
+client.on('guildCreate', async (guild) => {
+  try {
+    // Find the first available text channel where the bot can send messages
+    const channel = guild.channels.cache.find(
+      channel => 
+        channel.type === ChannelType.GuildText &&
+        channel.permissionsFor(guild.members.me).has(PermissionsBitField.Flags.SendMessages)
+    );
+    
+    if (channel) {
+      await channel.send(`Glad to be in **${guild.name}** !!`);
+    }
+  } catch (error) {
+    console.error('Error sending welcome message:', error);
+  }
+});
+
 client.on('messageCreate', async (message) => {
 try {
   if (message.author.bot) return;
@@ -3372,6 +3390,7 @@ try {
 
 
 client.login(token);
+
 
 
 
