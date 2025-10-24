@@ -595,8 +595,8 @@ const shouldUploadToAPI =
   audioExtensions.includes(fileExtension) ||
   videoExtensions.includes(fileExtension) ||
   imageExtensions.includes(fileExtension) ||
-  ['.pdf', '.docx', '.pptx', '.xlsx'].includes(fileExtension);
-
+  ['.pdf', '.docx', '.pptx', '.xlsx', '.gif'].includes(fileExtension); 
+  
 if (shouldUploadToAPI) {
   const sanitizedFileName = sanitizeFileName(attachment.name);
   const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
@@ -3372,5 +3372,6 @@ try {
 
 
 client.login(token);
+
 
 
