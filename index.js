@@ -326,14 +326,17 @@ try {
   }
 
   if (attachment) {
-    try {
-      const processedPart = await processAttachment(attachment, interaction.user.id, interaction.id);
-      if (processedPart) {
-        if (Array.isArray(processedPart)) {
-          parts.push(...processedPart);
-        } else {
-          parts.push(processedPart);
+  try {
+    const processedPart = await processAttachment(attachment, interaction.user.id, interaction.id);
+    if (processedPart) {
+      if (Array.isArray(processedPart)) {
+        parts.push(...processedPart);
+        // Check if any part in the array has media (no text property or has fileUri/fileData)
+        if (processedPart.some(part => part.text === undefined || part.fileUri || part.fileData)) {
+          hasMedia = true;
         }
+      } else {
+        parts.push(processedPart);
         if (processedPart.text === undefined) {
           hasMedia = true;
         }
@@ -3494,6 +3497,7 @@ try {
 
 
 client.login(token);
+
 
 
 
