@@ -2690,11 +2690,11 @@ try {
 
   if (continuousReply) {
     botMessage = await message.channel.send({
-      content: 'Gemini is thinking...'
+      content: 'Lumin is thinking...'
     });
   } else {
     botMessage = await message.reply({
-      content: 'Gemini is thinking...'
+      content: 'Lumin is thinking...'
     });
   }
 
@@ -3372,4 +3372,5 @@ try {
 
 
 client.login(token);
+
 
