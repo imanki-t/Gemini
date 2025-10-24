@@ -78,7 +78,6 @@ class Mutex {
 
 export const chatHistoryLock = new Mutex();
 
-// In-memory state (synced with MongoDB)
 let chatHistories = {};
 let activeUsersInChannels = {};
 let customInstructions = {};
@@ -169,35 +168,28 @@ export async function saveStateToFile() {
   isSaving = true;
 
   try {
-    // Save to MongoDB instead of files
     const savePromises = [];
 
-    // Save user settings
     for (const [userId, settings] of Object.entries(userSettings)) {
       savePromises.push(db.saveUserSettings(userId, settings));
     }
 
-    // Save server settings
     for (const [guildId, settings] of Object.entries(serverSettings)) {
       savePromises.push(db.saveServerSettings(guildId, settings));
     }
 
-    // Save chat histories
     for (const [id, history] of Object.entries(chatHistories)) {
       savePromises.push(db.saveChatHistory(id, history));
     }
 
-    // Save custom instructions
     for (const [id, instructions] of Object.entries(customInstructions)) {
       savePromises.push(db.saveCustomInstructions(id, instructions));
     }
 
-    // Save blacklisted users
     for (const [guildId, users] of Object.entries(blacklistedUsers)) {
       savePromises.push(db.saveBlacklistedUsers(guildId, users));
     }
 
-    // Save channel settings
     for (const [channelId, value] of Object.entries(alwaysRespondChannels)) {
       savePromises.push(db.saveChannelSetting(channelId, 'alwaysRespond', value));
     }
@@ -208,12 +200,10 @@ export async function saveStateToFile() {
       savePromises.push(db.saveChannelSetting(channelId, 'continuousReply', value));
     }
 
-    // Save user response preferences
     for (const [userId, preference] of Object.entries(userResponsePreference)) {
       savePromises.push(db.saveUserResponsePreference(userId, preference));
     }
 
-    // Save active users (optional - this is temporary data)
     savePromises.push(db.saveActiveUsersInChannels(activeUsersInChannels));
 
     await Promise.all(savePromises);
@@ -234,7 +224,6 @@ async function loadStateFromDB() {
       recursive: true
     });
 
-    // Load all data from MongoDB
     console.log('Loading data from MongoDB...');
 
     [
@@ -255,7 +244,6 @@ async function loadStateFromDB() {
       db.getActiveUsersInChannels(),
     ]);
 
-    // Load channel-specific settings
     alwaysRespondChannels = await db.getAllChannelSettings('alwaysRespond');
     channelWideChatHistory = await db.getAllChannelSettings('wideChatHistory');
     continuousReplyChannels = await db.getAllChannelSettings('continuousReply');
@@ -275,10 +263,10 @@ function removeFileData(histories) {
             messages.forEach(message => {
               if (message.content) {
                 message.content = message.content.filter(contentItem => {
-                  if (contentItem.fileData) {
-                    delete contentItem.fileData;
+                  if (contentItem.fileData || contentItem.fileUri) {
+                    return false;
                   }
-                  return Object.keys(contentItem).length > 0;
+                  return contentItem.text !== undefined;
                 });
               }
             });
@@ -286,7 +274,7 @@ function removeFileData(histories) {
         });
       }
     });
-    console.log('fileData elements have been removed from chat histories.');
+    console.log('fileData and fileUri elements have been removed from chat histories.');
   } catch (error) {
     console.error('An error occurred while removing fileData elements:', error);
   }
@@ -319,13 +307,10 @@ function scheduleDailyReset() {
 
 export async function initialize() {
   try {
-    // Connect to MongoDB first
     await db.connectDB();
     
-    // Load state from MongoDB
     await loadStateFromDB();
     
-    // Schedule daily cleanup
     scheduleDailyReset();
     
     console.log('✅ Bot state loaded and initialized');
@@ -345,12 +330,22 @@ export function getHistory(id) {
     }
   }
 
-  return combinedHistory.map(entry => {
+  const apiHistory = combinedHistory.map(entry => {
     return {
       role: entry.role === 'assistant' ? 'model' : entry.role,
-      parts: entry.content
+      parts: entry.content.filter(part => {
+        if (part.text !== undefined) {
+          return true;
+        }
+        if (part.fileData || part.fileUri) {
+          return false;
+        }
+        return false;
+      })
     };
-  });
+  }).filter(entry => entry.parts.length > 0);
+
+  return apiHistory;
 }
 
 export function updateChatHistory(id, newHistory, messagesId) {
@@ -394,7 +389,6 @@ export function initializeBlacklistForGuild(guildId) {
   }
 }
 
-// Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nGracefully shutting down...');
   await saveStateToFile();
