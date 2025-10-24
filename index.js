@@ -3165,6 +3165,7 @@ const updateMessage = () => {
   if (tempResponse.trim() === "") {} else if (responseFormat === 'Embedded') {
     updateEmbed(botMessage, tempResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
   } else {
+    // For normal format, still edit during streaming for real-time updates
     botMessage.edit({
       content: tempResponse,
       embeds: []
@@ -3244,12 +3245,22 @@ while (attempts > 0 && !stopGeneration) {
     }
 
     if (!isLargeResponse && responseFormat === 'Embedded') {
-      updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-    } else if (!isLargeResponse) {
-      botMessage.edit({
-        content: finalResponse.slice(0, 2000),
-        embeds: []
-      }).catch(() => {});
+  updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
+} else if (!isLargeResponse) {
+  // Delete the "thinking" message and send new message with final response
+  await botMessage.delete().catch(() => {});
+  
+  if (continuousReply) {
+    botMessage = await originalMessage.channel.send({
+      content: finalResponse.slice(0, 2000),
+      embeds: []
+    });
+  } else {
+    botMessage = await originalMessage.reply({
+      content: finalResponse.slice(0, 2000),
+      embeds: []
+    });
+  }
     }
 
     // Add buttons *after* final content is set
@@ -3498,6 +3509,7 @@ try {
 
 
 client.login(token);
+
 
 
 
