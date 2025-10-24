@@ -84,8 +84,7 @@ const MODELS = {
 'gemini-2.0-flash': 'gemini-2.0-flash-exp',
 'gemini-2.5-flash': 'gemini-2.5-flash',
 'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
-'gemini-2.0-flash-lite': 'gemini-2.0-flash-lite',
-'gemini-2.0-flash-thinking': 'gemini-2.0-flash-thinking-exp-1219'
+'gemini-2.0-flash-lite': 'gemini-2.0-flash-lite'
 };
 
 const safetySettings = [{
@@ -1309,23 +1308,29 @@ try {
     .setPlaceholder('Select AI Model')
     .addOptions(
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.0 Flash')
+      .setLabel('Gemini 2.5 Flash')
+      .setDescription('Balanced performance ')
+      .setValue('gemini-2.5-flash')
+      .setEmoji('🔥')
+      .setDefault(selectedModel === 'gemini-2.5-flash'),
+      new StringSelectMenuOptionBuilder()
+      .setLabel('Gemini 2.5 Flash')
       .setDescription('Fast and efficient model')
       .setValue('gemini-2.0-flash')
       .setEmoji('⚡')
       .setDefault(selectedModel === 'gemini-2.0-flash'),
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash')
-      .setDescription('Balanced performance')
-      .setValue('gemini-2.5-flash')
-      .setEmoji('🔥')
-      .setDefault(selectedModel === 'gemini-2.5-flash'),
-      new StringSelectMenuOptionBuilder()
       .setLabel('Gemini 2.5 Flash Lite')
       .setDescription('Lightweight and quick')
       .setValue('gemini-2.5-flash-lite')
       .setEmoji('💨')
-      .setDefault(selectedModel === 'gemini-2.5-flash-lite')
+      .setDefault(selectedModel === 'gemini-2.5-flash-lite'),
+      new StringSelectMenuOptionBuilder()
+      .setLabel('Gemini 2.0 Flash Lite')
+      .setDescription('Fast and optimised')
+      .setValue('gemini-2.0-flash-lite')
+      .setEmoji('🚀')
+      .setDefault(selectedModel === 'gemini-2.0-flash-lite')
     );
 
   const responseFormatSelect = new StringSelectMenuBuilder()
@@ -1594,25 +1599,30 @@ try {
     .setPlaceholder('Select AI Model')
     .addOptions(
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.0 Flash')
+      .setLabel('Gemini 2.5 Flash')
+      .setDescription('Balanced performance ')
+      .setValue('gemini-2.5-flash')
+      .setEmoji('🔥')
+      .setDefault(selectedModel === 'gemini-2.5-flash'),
+      new StringSelectMenuOptionBuilder()
+      .setLabel('Gemini 2.5 Flash')
       .setDescription('Fast and efficient model')
       .setValue('gemini-2.0-flash')
       .setEmoji('⚡')
       .setDefault(selectedModel === 'gemini-2.0-flash'),
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash')
-      .setDescription('Balanced performance')
-      .setValue('gemini-2.5-flash')
-      .setEmoji('🔥')
-      .setDefault(selectedModel === 'gemini-2.5-flash'),
-      new StringSelectMenuOptionBuilder()
       .setLabel('Gemini 2.5 Flash Lite')
       .setDescription('Lightweight and quick')
       .setValue('gemini-2.5-flash-lite')
       .setEmoji('💨')
-      .setDefault(selectedModel === 'gemini-2.5-flash-lite')
+      .setDefault(selectedModel === 'gemini-2.5-flash-lite'),
+      new StringSelectMenuOptionBuilder()
+      .setLabel('Gemini 2.0 Flash Lite')
+      .setDescription('Fast and optimised')
+      .setValue('gemini-2.0-flash-lite')
+      .setEmoji('🚀')
+      .setDefault(selectedModel === 'gemini-2.0-flash-lite')
     );
-
   const responseFormatSelect = new StringSelectMenuBuilder()
     .setCustomId('server_response_format')
     .setPlaceholder('Response Format')
@@ -3549,6 +3559,7 @@ try {
 
 
 client.login(token);
+
 
 
 
