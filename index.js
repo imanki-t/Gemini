@@ -3080,20 +3080,21 @@ while (attempts > 0 && !stopGeneration) {
         }
 
         if (finalResponse.length > maxCharacterLimit) {
-          if (!isLargeResponse) {
-            isLargeResponse = true;
-            const embed = new EmbedBuilder()
-              .setColor(0xFFAA00)
-              .setTitle('📄 Large Response')
-              .setDescription('The response is too large. It will be sent as a text file once completed.');
-            botMessage.edit({
-              content: ' ',
-              embeds: [embed],
-              components: []
-            }).catch(() => {});
-          }
-        } else if (!updateTimeout) {
-          updateTimeout = setTimeout(updateMessage, 500);
+  if (!isLargeResponse) {
+    isLargeResponse = true;
+    const embed = new EmbedBuilder()
+      .setColor(0xFFAA00)
+      .setTitle('📄 Large Response')
+      .setDescription('The response is too large. It will be sent as a text file once completed.');
+    botMessage.edit({
+      content: ' ',
+      embeds: [embed],
+      components: []
+    }).catch(() => {});
+  }
+} else if (!updateTimeout && responseFormat === 'Embedded') {
+  // Only stream updates for embedded mode
+  updateTimeout = setTimeout(updateMessage, 500);
         }
       }
       if (!stopGeneration) {
@@ -3116,12 +3117,28 @@ while (attempts > 0 && !stopGeneration) {
     }
 
     if (!isLargeResponse && responseFormat === 'Embedded') {
-      updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-    } else if (!isLargeResponse) {
-      botMessage.edit({
-        content: finalResponse.slice(0, 2000),
-        embeds: []
-      }).catch(() => {});
+  updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
+} else if (!isLargeResponse) {
+  // Delete the "thinking" message and send final response
+  try {
+    await botMessage.delete();
+    if (continuousReply) {
+      botMessage = await originalMessage.channel.send({
+        content: finalResponse.slice(0, 2000)
+      });
+    } else {
+      botMessage = await originalMessage.reply({
+        content: finalResponse.slice(0, 2000)
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting/sending message:', error);
+    // Fallback to edit if delete fails
+    await botMessage.edit({
+      content: finalResponse.slice(0, 2000),
+      embeds: []
+    }).catch(() => {});
+  }
     }
 
     // Add buttons *after* final content is set
@@ -3370,6 +3387,7 @@ try {
 
 
 client.login(token);
+
 
 
 
