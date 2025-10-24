@@ -617,21 +617,21 @@ if (shouldUploadToAPI) {
       throw new Error(`Unable to extract file name from upload result.`);
     }
 
-    if (contentType.startsWith('video/') || videoExtensions.includes(fileExtension)) {
-      let file = await genAI.files.get({
-        name: name
-      });
-      let attempts = 0;
-      while (file.state === 'PROCESSING' && attempts < 60) {
-        await delay(10000);
-        file = await genAI.files.get({
-          name: name
-        });
-        attempts++;
-      }
-      if (file.state === 'FAILED') {
-        throw new Error(`Video processing failed for ${sanitizedFileName}.`);
-      }
+    if (contentType.startsWith('video/') || videoExtensions.includes(fileExtension) || contentType === 'image/gif' || fileExtension === '.gif') {
+  let file = await genAI.files.get({
+    name: name
+  });
+  let attempts = 0;
+  while (file.state === 'PROCESSING' && attempts < 60) {
+    await delay(10000);
+    file = await genAI.files.get({
+      name: name
+    });
+    attempts++;
+  }
+  if (file.state === 'FAILED') {
+    throw new Error(`File processing failed for ${sanitizedFileName}.`);
+  }
     }
 
     await fs.unlink(filePath).catch(() => {});
@@ -3372,6 +3372,7 @@ try {
 
 
 client.login(token);
+
 
 
 
