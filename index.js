@@ -385,7 +385,7 @@ try {
   });
 
   let botMessage = await interaction.editReply({
-    content: 'Gemini is thinking...'
+    content: 'Lumin is thinking...'
   });
 
   const responseFormat = effectiveSettings.responseFormat || 'Normal';
@@ -3372,3 +3372,4 @@ try {
 
 
 client.login(token);
+
