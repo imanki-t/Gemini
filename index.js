@@ -595,103 +595,113 @@ try {
 }
 
 async function processAttachment(attachment, userId, interactionId) {
-const contentType = (attachment.contentType || "").toLowerCase();
-const fileExtension = path.extname(attachment.name).toLowerCase();
+  const contentType = (attachment.contentType || "").toLowerCase();
+  const fileExtension = path.extname(attachment.name).toLowerCase();
 
-const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
-const documentExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'];
-const videoExtensions = ['.mp4', '.mov', '.mpeg', '.mpg', '.webm', '.avi', '.wmv', '.3gpp', '.flv'];
-const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.bmp'];
+  const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
+  const documentExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'];
+  const videoExtensions = ['.mp4', '.mov', '.mpeg', '.mpg', '.webm', '.avi', '.wmv', '.3gpp', '.flv'];
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.bmp'];
 
-const shouldUploadToAPI =
-  contentType.startsWith('image/') ||
-  contentType.startsWith('audio/') ||
-  contentType.startsWith('video/') ||
-  contentType === 'image/gif' ||
-  contentType.startsWith('application/pdf') ||
-  contentType.startsWith('application/x-pdf') ||
-  audioExtensions.includes(fileExtension) ||
-  videoExtensions.includes(fileExtension) ||
-  imageExtensions.includes(fileExtension) ||
-  ['.pdf', '.docx', '.pptx', '.xlsx'].includes(fileExtension);
+  // GIFs should be treated as images, not videos
+  const isGif = contentType === 'image/gif' || fileExtension === '.gif';
+  
+  const shouldUploadToAPI =
+    contentType.startsWith('image/') ||
+    contentType.startsWith('audio/') ||
+    contentType.startsWith('video/') ||
+    contentType.startsWith('application/pdf') ||
+    contentType.startsWith('application/x-pdf') ||
+    audioExtensions.includes(fileExtension) ||
+    videoExtensions.includes(fileExtension) ||
+    imageExtensions.includes(fileExtension) ||
+    ['.pdf', '.docx', '.pptx', '.xlsx'].includes(fileExtension);
 
-if (shouldUploadToAPI) {
-  const sanitizedFileName = sanitizeFileName(attachment.name);
-  const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
-  const filePath = path.join(TEMP_DIR, uniqueTempFilename);
+  if (shouldUploadToAPI) {
+    const sanitizedFileName = sanitizeFileName(attachment.name);
+    const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
+    const filePath = path.join(TEMP_DIR, uniqueTempFilename);
 
-  try {
-    await downloadFile(attachment.url, filePath);
-    const uploadResult = await genAI.files.upload({
-      file: filePath,
-      config: {
-        mimeType: attachment.contentType,
-        displayName: sanitizedFileName,
+    try {
+      await downloadFile(attachment.url, filePath);
+      
+      // Determine the correct MIME type for GIFs
+      let mimeType = attachment.contentType;
+      if (isGif && !mimeType) {
+        mimeType = 'image/gif';
       }
-    });
-
-    const name = uploadResult.name;
-    if (!name) {
-      throw new Error(`Unable to extract file name from upload result.`);
-    }
-
-    if (contentType.startsWith('video/') || videoExtensions.includes(fileExtension)) {
-      let file = await genAI.files.get({
-        name: name
-      });
-      let attempts = 0;
-      while (file.state === 'PROCESSING' && attempts < 60) {
-        await delay(10000);
-        file = await genAI.files.get({
-          name: name
-        });
-        attempts++;
-      }
-      if (file.state === 'FAILED') {
-        throw new Error(`Video processing failed for ${sanitizedFileName}.`);
-      }
-    }
-
-    await fs.unlink(filePath).catch(() => {});
-    return createPartFromUri(uploadResult.uri, uploadResult.mimeType);
-  } catch (error) {
-    await fs.unlink(filePath).catch(() => {});
-    throw error;
-  }
-} else if (documentExtensions.includes(fileExtension)) {
-  try {
-    let fileContent = await downloadAndReadFile(attachment.url, fileExtension);
-
-    if (fileContent.length > 1000000) {
-      const sanitizedFileName = sanitizeFileName(attachment.name);
-      const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
-      const filePath = path.join(TEMP_DIR, uniqueTempFilename);
-
-      await fs.writeFile(filePath, fileContent);
+      
       const uploadResult = await genAI.files.upload({
         file: filePath,
         config: {
-          mimeType: 'text/plain',
+          mimeType: mimeType,
           displayName: sanitizedFileName,
         }
       });
 
+      const name = uploadResult.name;
+      if (!name) {
+        throw new Error(`Unable to extract file name from upload result.`);
+      }
+
+      // Only process as video if it's actually a video (NOT a GIF)
+      if ((contentType.startsWith('video/') || videoExtensions.includes(fileExtension)) && !isGif) {
+        let file = await genAI.files.get({
+          name: name
+        });
+        let attempts = 0;
+        while (file.state === 'PROCESSING' && attempts < 60) {
+          await delay(10000);
+          file = await genAI.files.get({
+            name: name
+          });
+          attempts++;
+        }
+        if (file.state === 'FAILED') {
+          throw new Error(`Video processing failed for ${sanitizedFileName}.`);
+        }
+      }
+
       await fs.unlink(filePath).catch(() => {});
-      return createPartFromUri(uploadResult.uri, 'text/plain');
+      return createPartFromUri(uploadResult.uri, uploadResult.mimeType);
+    } catch (error) {
+      await fs.unlink(filePath).catch(() => {});
+      throw error;
     }
+  } else if (documentExtensions.includes(fileExtension)) {
+    try {
+      let fileContent = await downloadAndReadFile(attachment.url, fileExtension);
 
-    return {
-      text: `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``
-    };
-  } catch (error) {
-    console.error(`Error reading file ${attachment.name}: ${error.message}`);
-    return {
-      text: `\n\n[Failed to read file: ${attachment.name}]`
-    };
+      if (fileContent.length > 1000000) {
+        const sanitizedFileName = sanitizeFileName(attachment.name);
+        const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
+        const filePath = path.join(TEMP_DIR, uniqueTempFilename);
+
+        await fs.writeFile(filePath, fileContent);
+        const uploadResult = await genAI.files.upload({
+          file: filePath,
+          config: {
+            mimeType: 'text/plain',
+            displayName: sanitizedFileName,
+          }
+        });
+
+        await fs.unlink(filePath).catch(() => {});
+        return createPartFromUri(uploadResult.uri, 'text/plain');
+      }
+
+      return {
+        text: `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``
+      };
+    } catch (error) {
+      console.error(`Error reading file ${attachment.name}: ${error.message}`);
+      return {
+        text: `\n\n[Failed to read file: ${attachment.name}]`
+      };
+    }
   }
-}
 
-return null;
+  return null;
 }
 
 async function handleButtonInteraction(interaction) {
@@ -3390,6 +3400,7 @@ try {
 
 
 client.login(token);
+
 
 
 
