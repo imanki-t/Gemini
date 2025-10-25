@@ -106,11 +106,7 @@ const safetySettings = [
   },
   {
     category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-    threshold: HarmBlockThreshold.BLOCK_NONE,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_UNSPECIFIED,
-    threshold: HarmBlockThreshold.BLOCK_NONE,
+    threshold: HarmBlockThreshold.BLOCK_NONE,  // ✅ Fixed - no line break
   },
 ];
 
@@ -3568,3 +3564,4 @@ try {
 
 
 client.login(token);
+
