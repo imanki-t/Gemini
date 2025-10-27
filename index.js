@@ -2925,24 +2925,31 @@ async function fetchMessagesForSummary(message, messageLink, count = 1) {
 
     let messagesToSummarize = [startMessage];
 
-    // If count > 1, fetch additional messages after the start message
+    // If count > 1, fetch additional messages that came AFTER (chronologically newer)
     if (count > 1) {
-      const additionalMessages = await channel.messages.fetch({
-        after: messageId,
-        limit: Math.min(count - 1, 99) // Discord API limit is 100
-      }).catch(() => null);
+      try {
+        // Fetch messages AFTER the start message (newer messages)
+        const newerMessages = await channel.messages.fetch({
+          after: messageId,
+          limit: Math.min(count - 1, 99) // Discord API limit is 100 (for 'before', 'after', 'around')
+        }).catch(() => null);
 
-      if (additionalMessages) {
-        // Sort messages chronologically (oldest first)
-        const sortedMessages = Array.from(additionalMessages.values())
-          .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-        messagesToSummarize.push(...sortedMessages);
+        if (newerMessages && newerMessages.size > 0) {
+          // Sort messages chronologically (oldest first)
+          const sortedMessages = Array.from(newerMessages.values())
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+            .slice(0, count - 1); // Ensure we don't exceed requested count
+          
+          messagesToSummarize.push(...sortedMessages);
+        }
+      } catch (fetchError) {
+        console.error('Error fetching additional messages:', fetchError);
       }
     }
 
     // Format messages for summarization
-    const formattedMessages = messagesToSummarize.map(msg => {
-      let content = `**${msg.author.username}** (${msg.createdAt.toLocaleString()}):\n`;
+    const formattedMessages = messagesToSummarize.map((msg, index) => {
+      let content = `**Message ${index + 1}** - **${msg.author.username}** (${msg.createdAt.toLocaleString()}):\n`;
       
       if (msg.content) {
         content += msg.content;
@@ -2975,6 +2982,7 @@ async function fetchMessagesForSummary(message, messageLink, count = 1) {
     return { error: "An error occurred while fetching the messages." };
   }
 }
+
 
 function extractForwardedContent(message) {
   let forwardedText = '';
@@ -3288,10 +3296,31 @@ async function extractFileText(message, messageContent) {
   const messageLinks = messageContent.match(discordLinkRegex);
   
   if (messageLinks && messageLinks.length > 0) {
-    // Check if user is asking to summarize multiple messages
-    const multiMessageRegex = /(?:summarize|summarise|summary of).*?(?:next|following)\s+(\d+)\s+messages?/i;
-    const multiMatch = messageContent.match(multiMessageRegex);
-    const messageCount = multiMatch ? parseInt(multiMatch[1]) : 1;
+    // Improved regex patterns to catch various phrasings
+    const patterns = [
+      /(?:summarize|summarise|summary of).*?(?:next|following)\s+(\d+)\s+messages?/i,
+      /(?:next|following)\s+(\d+)\s+messages?/i,
+      /(\d+)\s+messages?.*?(?:after|from)/i,
+      /(?:get|fetch|show|read)\s+(\d+)\s+messages?/i
+    ];
+    
+    let messageCount = 1; // Default to just the linked message
+    
+    // Try each pattern to extract the count
+    for (const pattern of patterns) {
+      const match = messageContent.match(pattern);
+      if (match && match[1]) {
+        messageCount = Math.min(parseInt(match[1]), 100); // Cap at 100 messages
+        break;
+      }
+    }
+    
+    // If no count specified but user mentions "messages" (plural), fetch a reasonable default
+    if (messageCount === 1 && /messages/i.test(messageContent) && !/\b1\s+message/i.test(messageContent)) {
+      messageCount = 10; // Default to 10 messages if plural mentioned but no number
+    }
+    
+    console.log(`Fetching ${messageCount} message(s) from link: ${messageLinks[0]}`);
     
     // Fetch and format the messages
     const result = await fetchMessagesForSummary(message, messageLinks[0], messageCount);
@@ -3299,7 +3328,11 @@ async function extractFileText(message, messageContent) {
     if (result.error) {
       messageContent += `\n\n[Error: ${result.error}]`;
     } else if (result.success) {
-      messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n\n${result.content}`;
+      const requestInfo = messageCount > 1 
+        ? `The user requested ${messageCount} messages but I fetched ${result.messageCount}.`
+        : '';
+      
+      messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n${requestInfo}\n\n${result.content}`;
     }
   }
   
@@ -3320,6 +3353,7 @@ async function extractFileText(message, messageContent) {
   
   return messageContent;
 }
+
 
 // Helper function to process text files
 async function processTextFiles(attachments, messageContent, prefix = '') {
