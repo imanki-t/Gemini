@@ -2827,26 +2827,86 @@ await interaction.reply({
 });
 }
 
-async function handleTextMessage(message) {
-const botId = client.user.id;
-const userId = message.author.id;
-const guildId = message.guild?.id;
-const channelId = message.channel.id;
-let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
+// Add this new function before handleTextMessage in index.js
 
-if (messageContent === '' && !(message.attachments.size > 0 && hasSupportedAttachments(message))) {
-  if (activeRequests.has(userId)) {
-    activeRequests.delete(userId);
+function extractForwardedContent(message) {
+  let forwardedText = '';
+  let forwardedAttachments = [];
+  
+  // Check if message has forwarded content (messageSnapshots in Discord.js v14)
+  if (message.messageSnapshots && message.messageSnapshots.size > 0) {
+    const snapshot = message.messageSnapshots.first();
+    
+    // Extract text content from forwarded message
+    if (snapshot.content) {
+      forwardedText = snapshot.content;
+    }
+    
+    // Extract embeds content if present
+    if (snapshot.embeds && snapshot.embeds.length > 0) {
+      const embedTexts = snapshot.embeds
+        .map(embed => {
+          let text = '';
+          if (embed.title) text += `**${embed.title}**\n`;
+          if (embed.description) text += embed.description;
+          return text;
+        })
+        .filter(t => t)
+        .join('\n\n');
+      
+      if (embedTexts) {
+        forwardedText += '\n\n' + embedTexts;
+      }
+    }
+    
+    // Extract attachments from forwarded message
+    if (snapshot.attachments && snapshot.attachments.size > 0) {
+      forwardedAttachments = Array.from(snapshot.attachments.values());
+    }
   }
-  const embed = new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle('💬 Empty Message')
-    .setDescription("You didn't provide any content. What would you like to talk about?");
-  const botMessage = await message.reply({
-    embeds: [embed]
-  });
-  await addSettingsButton(botMessage);
-  return;
+  
+  return { forwardedText, forwardedAttachments };
+}
+
+// Replace the beginning of handleTextMessage function with this:
+
+async function handleTextMessage(message) {
+  const botId = client.user.id;
+  const userId = message.author.id;
+  const guildId = message.guild?.id;
+  const channelId = message.channel.id;
+  let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
+
+  // Handle forwarded messages
+  const { forwardedText, forwardedAttachments } = extractForwardedContent(message);
+  
+  // If main message is empty but forwarded content exists, use forwarded content
+  if (messageContent === '' && forwardedText) {
+    messageContent = `[Forwarded message]:\n${forwardedText}`;
+  }
+  
+  // Check if message is truly empty (no content, no attachments, no forwarded content)
+  const hasAnyContent = messageContent !== '' || 
+                        (message.attachments.size > 0 && hasSupportedAttachments(message)) ||
+                        forwardedAttachments.length > 0;
+
+  if (!hasAnyContent) {
+    if (activeRequests.has(userId)) {
+      activeRequests.delete(userId);
+    }
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle('💬 Empty Message')
+      .setDescription("You didn't provide any content. What would you like to talk about?");
+    const botMessage = await message.reply({
+      embeds: [embed]
+    });
+    await addSettingsButton(botMessage);
+    return;
+  }
+
+  // Rest of the function continues as before...
+  // (Keep the existing code from message.channel.sendTyping() onwards)
 }
 
 message.channel.sendTyping();
@@ -3564,4 +3624,5 @@ try {
 
 
 client.login(token);
+
 
