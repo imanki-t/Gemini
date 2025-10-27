@@ -2217,78 +2217,141 @@ try {
 }
 }
 
+// Replace the downloadServerConversation function in index.js with this fixed version:
+
 async function downloadServerConversation(interaction) {
-try {
-  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+  try {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('🚫 Permission Denied')
+        .setDescription('You need "Manage Server" permission to download server history.');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    const guildId = interaction.guild.id;
+    
+    // Check if server chat history is enabled
+    const serverSettings = state.serverSettings[guildId] || {};
+    if (!serverSettings.serverChatHistory) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ Server Chat History Disabled')
+        .setDescription('Server-wide chat history is not enabled. Enable it in server settings to use this feature.');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    // Get raw history object to check if anything exists
+    const historyObject = state.chatHistories[guildId];
+    
+    if (!historyObject || Object.keys(historyObject).length === 0) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ No History Found')
+        .setDescription('No server-wide conversation history found. Start chatting with the bot to build history!');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    // Build conversation history including all messages
+    let conversationText = '';
+    let messageCount = 0;
+    
+    for (const messagesId in historyObject) {
+      if (historyObject.hasOwnProperty(messagesId)) {
+        const messages = historyObject[messagesId];
+        
+        for (const entry of messages) {
+          const role = entry.role === 'user' ? '[User]' : '[Assistant]';
+          const contentParts = [];
+          
+          // Extract text content
+          for (const part of entry.content) {
+            if (part.text !== undefined && part.text !== '') {
+              contentParts.push(part.text);
+            } else if (part.fileUri) {
+              contentParts.push('[Media File Attached]');
+            } else if (part.fileData) {
+              contentParts.push('[File Attached]');
+            }
+          }
+          
+          if (contentParts.length > 0) {
+            const content = contentParts.join('\n');
+            conversationText += `${role}:\n${content}\n\n`;
+            messageCount++;
+          }
+        }
+      }
+    }
+
+    if (conversationText === '' || messageCount === 0) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ No Readable History')
+        .setDescription('History exists but contains no readable content (possibly only media without text).');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    const tempFileName = path.join(TEMP_DIR, `server_conversation_${interaction.id}.txt`);
+    const header = `Server Conversation History\nServer: ${interaction.guild.name}\nMessages: ${messageCount}\nExported: ${new Date().toLocaleString()}\n${'='.repeat(50)}\n\n`;
+    await fs.writeFile(tempFileName, header + conversationText, 'utf8');
+
+    const file = new AttachmentBuilder(tempFileName, {
+      name: `${interaction.guild.name.replace(/[^a-z0-9]/gi, '_')}_history.txt`
+    });
+
+    const serverName = interaction.guild.name;
+
+    try {
+      await interaction.user.send({
+        content: `📥 **Server Conversation History**\n\`Server: ${serverName}\`\n\`Messages: ${messageCount}\``,
+        files: [file]
+      });
+      const embed = new EmbedBuilder()
+        .setColor(0x00FF00)
+        .setTitle('✅ History Sent')
+        .setDescription(`Server conversation history (${messageCount} messages) has been sent to your DMs!`);
+      await interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    } catch (error) {
+      console.error(`Failed to send DM: ${error}`);
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ Delivery Failed')
+        .setDescription('Could not send to DMs. Make sure you have DMs enabled. Sending here instead:');
+      await interaction.reply({
+        embeds: [embed],
+        files: [file],
+        flags: MessageFlags.Ephemeral
+      });
+    } finally {
+      await fs.unlink(tempFileName).catch(() => {});
+    }
+  } catch (error) {
+    console.error('Error downloading server conversation:', error);
     const embed = new EmbedBuilder()
       .setColor(0xFF0000)
-      .setTitle('🚫 Permission Denied')
-      .setDescription('You need "Manage Server" permission to download server history.');
-    return interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  const guildId = interaction.guild.id;
-  const conversationHistory = getHistory(guildId);
-
-  if (!conversationHistory || conversationHistory.length === 0) {
-    const embed = new EmbedBuilder()
-      .setColor(0xFF5555)
-      .setTitle('❌ No History Found')
-      .setDescription('No server-wide conversation history found.');
-    return interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  const conversationText = conversationHistory.map(entry => {
-    const role = entry.role === 'user' ? '[User]' : '[Model]';
-    const content = entry.parts.map(c => c.text).join('\n');
-    return `${role}:\n${content}\n\n`;
-  }).join('');
-
-  const tempFileName = path.join(TEMP_DIR, `server_conversation_${interaction.id}.txt`);
-  await fs.writeFile(tempFileName, conversationText, 'utf8');
-
-  const file = new AttachmentBuilder(tempFileName, {
-    name: 'server_conversation_history.txt'
-  });
-
-  const serverName = interaction.guild.name;
-
-  try {
-    await interaction.user.send({
-      content: `📥 **Server Conversation History**\n\`Server: ${serverName}\``,
-      files: [file]
-    });
-    const embed = new EmbedBuilder()
-      .setColor(0x00FF00)
-      .setTitle('✅ History Sent')
-      .setDescription('Server conversation history has been sent to your DMs!');
+      .setTitle('❌ Error')
+      .setDescription('An error occurred while downloading server history.');
     await interaction.reply({
       embeds: [embed],
       flags: MessageFlags.Ephemeral
     });
-  } catch (error) {
-    console.error(`Failed to send DM: ${error}`);
-    const embed = new EmbedBuilder()
-      .setColor(0xFF5555)
-      .setTitle('❌ Delivery Failed')
-      .setDescription('Could not send to DMs. Make sure you have DMs enabled.');
-    await interaction.reply({
-      embeds: [embed],
-      files: [file],
-      flags: MessageFlags.Ephemeral
-    });
-  } finally {
-    await fs.unlink(tempFileName).catch(() => {});
   }
-} catch (error) {
-  console.error('Error downloading server conversation:', error);
-}
 }
 
 // Replace the existing showUserPersonalityModal function with this:
@@ -3624,5 +3687,6 @@ try {
 
 
 client.login(token);
+
 
 
