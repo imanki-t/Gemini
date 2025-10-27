@@ -380,7 +380,7 @@ try {
   const isServerChatHistoryEnabled = guildId ? state.serverSettings[guildId]?.serverChatHistory : false;
   const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
   const finalInstructions = isServerChatHistoryEnabled ? instructions + infoStr : instructions;
-  const historyId = isChannelChatHistoryEnabled ? (isServerChatHistoryEnabled ? guildId : channelId) : userId;
+  const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
   const tools = [{
       googleSearch: {}
@@ -3039,7 +3039,7 @@ async function handleTextMessage(message) {
   const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
   const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
   const finalInstructions = isServerChatHistoryEnabled ? (instructions || defaultPersonality) + infoStr : (instructions || defaultPersonality);
-  const historyId = isChannelChatHistoryEnabled ? (isServerChatHistoryEnabled ? guildId : channelId) : userId;
+  const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
@@ -3730,4 +3730,5 @@ try {
 
 
 client.login(token);
+
 
