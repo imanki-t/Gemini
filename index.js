@@ -2940,15 +2940,12 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Handle forwarded messages
   const { forwardedText, forwardedAttachments } = extractForwardedContent(message);
   
-  // If main message is empty but forwarded content exists, use forwarded content
   if (messageContent === '' && forwardedText) {
     messageContent = `[Forwarded message]:\n${forwardedText}`;
   }
   
-  // Check if message is truly empty (no content, no attachments, no forwarded content)
   const hasAnyContent = messageContent !== '' || 
                         (message.attachments.size > 0 && hasSupportedAttachments(message)) ||
                         forwardedAttachments.length > 0;
@@ -2968,120 +2965,116 @@ async function handleTextMessage(message) {
     return;
   }
 
-  // Rest of the function continues as before...
-  // (Keep the existing code from message.channel.sendTyping() onwards)
-}
-
-message.channel.sendTyping();
-const typingInterval = setInterval(() => {
   message.channel.sendTyping();
-}, 4000);
-setTimeout(() => {
-  clearInterval(typingInterval);
-}, 120000);
+  const typingInterval = setInterval(() => {
+    message.channel.sendTyping();
+  }, 4000);
+  setTimeout(() => {
+    clearInterval(typingInterval);
+  }, 120000);
 
-let botMessage;
-let parts;
-let hasMedia = false;
+  let botMessage;
+  let parts;
+  let hasMedia = false;
 
-try {
-  clearInterval(typingInterval);
+  try {
+    clearInterval(typingInterval);
+
+    const userSettings = state.userSettings[userId] || {};
+    const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
+    const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
+    const continuousReply = effectiveSettings.continuousReply || false;
+
+    if (continuousReply) {
+      botMessage = await message.channel.send({
+        content: 'Lumin is thinking...'
+      });
+    } else {
+      botMessage = await message.reply({
+        content: 'Lumin is thinking...'
+      });
+    }
+
+    messageContent = await extractFileText(message, messageContent);
+    parts = await processPromptAndMediaAttachments(messageContent, message);
+    hasMedia = parts.some(part => part.text === undefined);
+
+  } catch (error) {
+    console.error('Error initializing message:', error);
+    if (activeRequests.has(userId)) {
+      activeRequests.delete(userId);
+    }
+    clearInterval(typingInterval);
+    return;
+  }
 
   const userSettings = state.userSettings[userId] || {};
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
-  const continuousReply = effectiveSettings.continuousReply || false;
 
-  if (continuousReply) {
-    botMessage = await message.channel.send({
-      content: 'Lumin is thinking...'
-    });
+  let instructions;
+  if (guildId) {
+    if (state.channelWideChatHistory[channelId]) {
+      instructions = state.customInstructions[channelId];
+    } else if (serverSettings.customPersonality) {
+      instructions = serverSettings.customPersonality;
+    } else if (effectiveSettings.customPersonality) {
+      instructions = effectiveSettings.customPersonality;
+    } else {
+      instructions = state.customInstructions[userId];
+    }
   } else {
-    botMessage = await message.reply({
-      content: 'Lumin is thinking...'
-    });
+    instructions = effectiveSettings.customPersonality || state.customInstructions[userId];
   }
 
-  messageContent = await extractFileText(message, messageContent);
-  parts = await processPromptAndMediaAttachments(messageContent, message);
-  hasMedia = parts.some(part => part.text === undefined);
-
-} catch (error) {
-  console.error('Error initializing message:', error);
-  if (activeRequests.has(userId)) {
-    activeRequests.delete(userId);
+  let infoStr = '';
+  if (guildId) {
+    const userInfo = {
+      username: message.author.username,
+      displayName: message.author.displayName
+    };
+    infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
   }
-  clearInterval(typingInterval);
-  return;
-}
 
-const userSettings = state.userSettings[userId] || {};
-const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
-const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
+  const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
+  const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
+  const finalInstructions = isServerChatHistoryEnabled ? (instructions || defaultPersonality) + infoStr : (instructions || defaultPersonality);
+  const historyId = isChannelChatHistoryEnabled ? (isServerChatHistoryEnabled ? guildId : channelId) : userId;
 
-let instructions;
-if (guildId) {
-  if (state.channelWideChatHistory[channelId]) {
-    instructions = state.customInstructions[channelId];
-  } else if (serverSettings.customPersonality) {
-    instructions = serverSettings.customPersonality;
-  } else if (effectiveSettings.customPersonality) {
-    instructions = effectiveSettings.customPersonality;
-  } else {
-    instructions = state.customInstructions[userId];
-  }
-} else {
-  instructions = effectiveSettings.customPersonality || state.customInstructions[userId];
-}
+  const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
+  const modelName = MODELS[selectedModel];
 
-let infoStr = '';
-if (guildId) {
-  const userInfo = {
-    username: message.author.username,
-    displayName: message.author.displayName
-  };
-  infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
-}
-
-const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
-const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
-const finalInstructions = isServerChatHistoryEnabled ? (instructions || defaultPersonality) + infoStr : (instructions || defaultPersonality);
-const historyId = isChannelChatHistoryEnabled ? (isServerChatHistoryEnabled ? guildId : channelId) : userId;
-
-const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
-const modelName = MODELS[selectedModel];
-
-const tools = [{
-    googleSearch: {}
-  },
-  {
-    urlContext: {}
-  },
-];
-
-if (!hasMedia) {
-  tools.push({
-    codeExecution: {}
-  });
-}
-
-const chat = genAI.chats.create({
-  model: modelName,
-  config: {
-    systemInstruction: {
-      role: "system",
-      parts: [{
-        text: finalInstructions
-      }]
+  const tools = [{
+      googleSearch: {}
     },
-    ...generationConfig,
-    safetySettings,
-    tools
-  },
-  history: getHistory(historyId)
-});
+    {
+      urlContext: {}
+    },
+  ];
 
-await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
+  if (!hasMedia) {
+    tools.push({
+      codeExecution: {}
+    });
+  }
+
+  const chat = genAI.chats.create({
+    model: modelName,
+    config: {
+      systemInstruction: {
+        role: "system",
+        parts: [{
+          text: finalInstructions
+        }]
+      },
+      ...generationConfig,
+      safetySettings,
+      tools
+    },
+    history: getHistory(historyId)
+  });
+
+  await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
 }
 
 function hasSupportedAttachments(message) {
@@ -3760,7 +3753,3 @@ try {
 
 
 client.login(token);
-
-
-
-
