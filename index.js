@@ -3847,6 +3847,3 @@ try {
 
 
 client.login(token);
-
-
-
