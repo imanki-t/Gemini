@@ -2999,7 +2999,6 @@ function extractForwardedContent(message) {
   
   return { forwardedText, forwardedAttachments };
 }
-
 // Replace the beginning of handleTextMessage function with this:
 
 async function handleTextMessage(message) {
@@ -3011,8 +3010,15 @@ async function handleTextMessage(message) {
 
   const { forwardedText, forwardedAttachments } = extractForwardedContent(message);
   
-  if (messageContent === '' && forwardedText) {
-    messageContent = `[Forwarded message]:\n${forwardedText}`;
+  // FIXED: Combine user's message with forwarded content instead of replacing
+  if (forwardedText) {
+    if (messageContent === '') {
+      // If user didn't add any text, just show forwarded content
+      messageContent = `[Forwarded message]:\n${forwardedText}`;
+    } else {
+      // User added text along with forward - combine them
+      messageContent = `${messageContent}\n\n[Forwarded message]:\n${forwardedText}`;
+    }
   }
   
   const hasAnyContent = messageContent !== '' || 
@@ -3076,6 +3082,8 @@ async function handleTextMessage(message) {
     clearInterval(typingInterval);
     return;
   }
+
+  // Rest of the function continues as before (keep everything below this point unchanged)
 
   const userSettings = state.userSettings[userId] || {};
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
@@ -3877,6 +3885,7 @@ try {
 
 
 client.login(token);
+
 
 
 
