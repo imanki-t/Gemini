@@ -3225,29 +3225,6 @@ async function processTextFiles(attachments, messageContent, prefix = '') {
   return messageContent;
 }
 
-async function extractFileText(message, messageContent) {
-if (message.attachments.size > 0) {
-  let attachments = Array.from(message.attachments.values());
-  for (const attachment of attachments) {
-    const fileType = path.extname(attachment.name).toLowerCase();
-    const textFileTypes = ['.html', '.js', '.css', '.json', '.xml', '.csv', '.py', '.java', '.sql', '.log', '.md', '.txt', '.rtf'];
-
-    if (textFileTypes.includes(fileType)) {
-      try {
-        let fileContent = await downloadAndReadFile(attachment.url, fileType);
-
-        if (fileContent.length <= 1000000) {
-          messageContent += `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``;
-        }
-      } catch (error) {
-        console.error(`Error reading file ${attachment.name}: ${error.message}`);
-      }
-    }
-  }
-}
-return messageContent;
-}
-
 async function downloadAndReadFile(url, fileType) {
 switch (fileType) {
   case '.pptx':
@@ -3753,3 +3730,4 @@ try {
 
 
 client.login(token);
+
