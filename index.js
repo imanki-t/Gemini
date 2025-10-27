@@ -3305,12 +3305,14 @@ async function extractFileText(message, messageContent) {
     ];
     
     let messageCount = 1; // Default to just the linked message
+    let requestedCount = 1; // Track what user actually requested
     
     // Try each pattern to extract the count
     for (const pattern of patterns) {
       const match = messageContent.match(pattern);
       if (match && match[1]) {
-        messageCount = Math.min(parseInt(match[1]), 100); // Cap at 100 messages
+        requestedCount = parseInt(match[1]);
+        messageCount = Math.min(requestedCount, 100); // Cap at 100 messages
         break;
       }
     }
@@ -3318,6 +3320,23 @@ async function extractFileText(message, messageContent) {
     // If no count specified but user mentions "messages" (plural), fetch a reasonable default
     if (messageCount === 1 && /messages/i.test(messageContent) && !/\b1\s+message/i.test(messageContent)) {
       messageCount = 10; // Default to 10 messages if plural mentioned but no number
+      requestedCount = 10;
+    }
+    
+    // Show warning if user requested more than 100
+    if (requestedCount > 100) {
+      try {
+        const warningEmbed = new EmbedBuilder()
+          .setColor(0xFFAA00)
+          .setTitle('⚠️ Message Limit Exceeded')
+          .setDescription(`You requested ${requestedCount} messages, but the maximum limit is 100 messages.\n\nI will summarize the first 100 messages only.`);
+        
+        await message.reply({
+          embeds: [warningEmbed]
+        });
+      } catch (error) {
+        console.error('Error sending limit warning:', error);
+      }
     }
     
     console.log(`Fetching ${messageCount} message(s) from link: ${messageLinks[0]}`);
@@ -3329,7 +3348,7 @@ async function extractFileText(message, messageContent) {
       messageContent += `\n\n[Error: ${result.error}]`;
     } else if (result.success) {
       const requestInfo = messageCount > 1 
-        ? `The user requested ${messageCount} messages but I fetched ${result.messageCount}.`
+        ? `The user requested ${requestedCount} messages${requestedCount > 100 ? ' (capped at 100)' : ''} and I fetched ${result.messageCount}.`
         : '';
       
       messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n${requestInfo}\n\n${result.content}`;
@@ -3881,4 +3900,3 @@ try {
 
 
 client.login(token);
-
