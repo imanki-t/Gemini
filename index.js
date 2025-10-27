@@ -3291,12 +3291,10 @@ async function processPromptAndMediaAttachments(prompt, message) {
 // Also update the extractFileText function to handle forwarded files:
 
 async function extractFileText(message, messageContent) {
-  // Check for Discord message links in the content
   const discordLinkRegex = /https?:\/\/(?:www\.)?discord\.com\/channels\/\d+\/\d+\/\d+/g;
   const messageLinks = messageContent.match(discordLinkRegex);
   
   if (messageLinks && messageLinks.length > 0) {
-    // Improved regex patterns to catch various phrasings
     const patterns = [
       /(?:summarize|summarise|summary of).*?(?:next|following)\s+(\d+)\s+messages?/i,
       /(?:next|following)\s+(\d+)\s+messages?/i,
@@ -3304,45 +3302,79 @@ async function extractFileText(message, messageContent) {
       /(?:get|fetch|show|read)\s+(\d+)\s+messages?/i
     ];
     
-    let messageCount = 1; // Default to just the linked message
+    let requestedCount = 1;
+    let messageCount = 1;
     
-    // Try each pattern to extract the count
     for (const pattern of patterns) {
       const match = messageContent.match(pattern);
       if (match && match[1]) {
-        messageCount = Math.min(parseInt(match[1]), 100); // Cap at 100 messages
+        requestedCount = parseInt(match[1]);
+        messageCount = Math.min(requestedCount, 100);
         break;
       }
     }
     
-    // If no count specified but user mentions "messages" (plural), fetch a reasonable default
     if (messageCount === 1 && /messages/i.test(messageContent) && !/\b1\s+message/i.test(messageContent)) {
-      messageCount = 10; // Default to 10 messages if plural mentioned but no number
+      messageCount = 10;
+      requestedCount = 10;
     }
     
-    console.log(`Fetching ${messageCount} message(s) from link: ${messageLinks[0]}`);
+    console.log(`User requested ${requestedCount} message(s), fetching ${messageCount} message(s) from link: ${messageLinks[0]}`);
     
-    // Fetch and format the messages
+    if (requestedCount > 100) {
+      const warningEmbed = new EmbedBuilder()
+        .setColor(0xFAA61A)
+        .setTitle('⚠️ Message Limit Reached')
+        .setDescription(`You requested **${requestedCount} messages**, but the maximum limit is **100 messages**.\n\nI'll fetch and summarize the maximum of **100 messages** for you.`)
+        .setFooter({ text: 'This message will disappear in 5 minutes' })
+        .setTimestamp();
+      
+      const warningMsg = await message.reply({ 
+        embeds: [warningEmbed],
+        flags: MessageFlags.Ephemeral 
+      }).catch(() => null);
+      
+      if (warningMsg) {
+        setTimeout(() => {
+          warningMsg.delete().catch(() => {});
+        }, 300000); // 5 minutes (5 * 60 * 1000)
+      }
+    }
+    
     const result = await fetchMessagesForSummary(message, messageLinks[0], messageCount);
     
     if (result.error) {
       messageContent += `\n\n[Error: ${result.error}]`;
     } else if (result.success) {
-      const requestInfo = messageCount > 1 
-        ? `The user requested ${messageCount} messages but I fetched ${result.messageCount}.`
-        : '';
+      if (requestedCount > result.messageCount && requestedCount <= 100) {
+        const infoEmbed = new EmbedBuilder()
+          .setColor(0x00AFF4)
+          .setTitle('ℹ️ Fewer Messages Available')
+          .setDescription(`You requested **${requestedCount} messages**, but only **${result.messageCount} message(s)** were available after the linked message.\n\nI've fetched all available messages for you.`)
+          .setFooter({ text: 'This message will disappear in 5 minutes' })
+          .setTimestamp();
+        
+        const infoMsg = await message.reply({ 
+          embeds: [infoEmbed],
+          flags: MessageFlags.Ephemeral 
+        }).catch(() => null);
+        
+        if (infoMsg) {
+          setTimeout(() => {
+            infoMsg.delete().catch(() => {});
+          }, 300000); // 5 minutes (5 * 60 * 1000)
+        }
+      }
       
-      messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n${requestInfo}\n\n${result.content}`;
+      messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n\n${result.content}`;
     }
   }
   
-  // Process regular attachments
   if (message.attachments.size > 0) {
     let attachments = Array.from(message.attachments.values());
     messageContent = await processTextFiles(attachments, messageContent, '');
   }
   
-  // Process forwarded message attachments
   if (message.messageSnapshots && message.messageSnapshots.size > 0) {
     const snapshot = message.messageSnapshots.first();
     if (snapshot.attachments && snapshot.attachments.size > 0) {
@@ -3353,6 +3385,7 @@ async function extractFileText(message, messageContent) {
   
   return messageContent;
 }
+
 
 
 // Helper function to process text files
@@ -3881,3 +3914,4 @@ try {
 
 
 client.login(token);
+
