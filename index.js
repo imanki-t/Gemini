@@ -1314,12 +1314,6 @@ try {
     .setPlaceholder('Select AI Model')
     .addOptions(
       new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Pro')
-      .setDescription('Strongest Model')
-      .setValue('gemini-2.5-pro')
-      .setEmoji('🌟')
-      .setDefault(selectedModel === 'gemini-2.5-pro'),
-      new StringSelectMenuOptionBuilder()
       .setLabel('Gemini 2.5 Flash')
       .setDescription('Balanced and efficient model')
       .setValue('gemini-2.5-flash')
@@ -1598,12 +1592,6 @@ try {
     .setCustomId('server_model_select')
     .setPlaceholder('Select AI Model')
     .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Pro')
-      .setDescription('Strongest Model')
-      .setValue('gemini-2.5-pro')
-      .setEmoji('🌟')
-      .setDefault(selectedModel === 'gemini-2.5-pro'),
       new StringSelectMenuOptionBuilder()
       .setLabel('Gemini 2.5 Flash')
       .setDescription('Balanced and efficient model')
@@ -3889,5 +3877,6 @@ try {
 
 
 client.login(token);
+
 
 
