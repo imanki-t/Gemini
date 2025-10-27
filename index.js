@@ -2890,7 +2890,91 @@ await interaction.reply({
 });
 }
 
-// Add this new function before handleTextMessage in index.js
+async function fetchMessagesForSummary(message, messageLink, count = 1) {
+  try {
+    const parsed = parseDiscordMessageLink(messageLink);
+    if (!parsed) {
+      return null;
+    }
+
+    const { guildId, channelId, messageId } = parsed;
+
+    // Check if bot has access to that server/channel
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) {
+      return { error: "I don't have access to that server." };
+    }
+
+    const channel = guild.channels.cache.get(channelId);
+    if (!channel) {
+      return { error: "I don't have access to that channel." };
+    }
+
+    // Check permissions
+    const permissions = channel.permissionsFor(client.user);
+    if (!permissions.has(PermissionsBitField.Flags.ViewChannel) || 
+        !permissions.has(PermissionsBitField.Flags.ReadMessageHistory)) {
+      return { error: "I don't have permission to read messages in that channel." };
+    }
+
+    // Fetch the initial message
+    const startMessage = await channel.messages.fetch(messageId).catch(() => null);
+    if (!startMessage) {
+      return { error: "Could not find that message. It may have been deleted." };
+    }
+
+    let messagesToSummarize = [startMessage];
+
+    // If count > 1, fetch additional messages after the start message
+    if (count > 1) {
+      const additionalMessages = await channel.messages.fetch({
+        after: messageId,
+        limit: Math.min(count - 1, 99) // Discord API limit is 100
+      }).catch(() => null);
+
+      if (additionalMessages) {
+        // Sort messages chronologically (oldest first)
+        const sortedMessages = Array.from(additionalMessages.values())
+          .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+        messagesToSummarize.push(...sortedMessages);
+      }
+    }
+
+    // Format messages for summarization
+    const formattedMessages = messagesToSummarize.map(msg => {
+      let content = `**${msg.author.username}** (${msg.createdAt.toLocaleString()}):\n`;
+      
+      if (msg.content) {
+        content += msg.content;
+      }
+      
+      if (msg.attachments.size > 0) {
+        const attachmentList = Array.from(msg.attachments.values())
+          .map(att => `[Attachment: ${att.name}]`)
+          .join(', ');
+        content += `\n${attachmentList}`;
+      }
+      
+      if (msg.embeds.length > 0) {
+        content += `\n[Contains ${msg.embeds.length} embed(s)]`;
+      }
+      
+      return content;
+    }).join('\n\n---\n\n');
+
+    return {
+      success: true,
+      content: formattedMessages,
+      messageCount: messagesToSummarize.length,
+      channelName: channel.name,
+      guildName: guild.name
+    };
+
+  } catch (error) {
+    console.error('Error fetching messages for summary:', error);
+    return { error: "An error occurred while fetching the messages." };
+  }
+}
 
 function extractForwardedContent(message) {
   let forwardedText = '';
@@ -3123,7 +3207,20 @@ return fileName
   .slice(0, 100);
 }
 
-// Replace the processPromptAndMediaAttachments function in index.js with this version:
+function parseDiscordMessageLink(url) {
+  // Match Discord message link format: https://discord.com/channels/GUILD_ID/CHANNEL_ID/MESSAGE_ID
+  const regex = /https?:\/\/(?:www\.)?discord\.com\/channels\/(\d+)\/(\d+)\/(\d+)/;
+  const match = url.match(regex);
+  
+  if (match) {
+    return {
+      guildId: match[1],
+      channelId: match[2],
+      messageId: match[3]
+    };
+  }
+  return null;
+}
 
 async function processPromptAndMediaAttachments(prompt, message) {
   // Collect attachments from the current message
@@ -3186,6 +3283,26 @@ async function processPromptAndMediaAttachments(prompt, message) {
 // Also update the extractFileText function to handle forwarded files:
 
 async function extractFileText(message, messageContent) {
+  // Check for Discord message links in the content
+  const discordLinkRegex = /https?:\/\/(?:www\.)?discord\.com\/channels\/\d+\/\d+\/\d+/g;
+  const messageLinks = messageContent.match(discordLinkRegex);
+  
+  if (messageLinks && messageLinks.length > 0) {
+    // Check if user is asking to summarize multiple messages
+    const multiMessageRegex = /(?:summarize|summarise|summary of).*?(?:next|following)\s+(\d+)\s+messages?/i;
+    const multiMatch = messageContent.match(multiMessageRegex);
+    const messageCount = multiMatch ? parseInt(multiMatch[1]) : 1;
+    
+    // Fetch and format the messages
+    const result = await fetchMessagesForSummary(message, messageLinks[0], messageCount);
+    
+    if (result.error) {
+      messageContent += `\n\n[Error: ${result.error}]`;
+    } else if (result.success) {
+      messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n\n${result.content}`;
+    }
+  }
+  
   // Process regular attachments
   if (message.attachments.size > 0) {
     let attachments = Array.from(message.attachments.values());
@@ -3730,5 +3847,6 @@ try {
 
 
 client.login(token);
+
 
 
