@@ -3130,33 +3130,106 @@ return fileName
   .slice(0, 100);
 }
 
-async function processPromptAndMediaAttachments(prompt, message) {
-const attachments = JSON.parse(JSON.stringify(Array.from(message.attachments.values()))).slice(0, 5);
-let parts = [{
-  text: prompt
-}];
+// Replace the processPromptAndMediaAttachments function in index.js with this version:
 
-if (attachments.length > 0) {
-  for (const attachment of attachments) {
-    try {
-      const processedPart = await processAttachment(attachment, message.author.id, message.id);
-      if (processedPart) {
-        if (Array.isArray(processedPart)) {
-          parts.push(...processedPart);
-        } else {
-          parts.push(processedPart);
-        }
-      }
-    } catch (error) {
-      console.error(`Error processing attachment ${attachment.name}:`, error);
-      parts.push({
-        text: `\n\n[Error processing file: ${attachment.name}]`
-      });
+async function processPromptAndMediaAttachments(prompt, message) {
+  // Collect attachments from the current message
+  const attachments = JSON.parse(JSON.stringify(Array.from(message.attachments.values())));
+  
+  // Check for forwarded message attachments
+  if (message.messageSnapshots && message.messageSnapshots.size > 0) {
+    const snapshot = message.messageSnapshots.first();
+    if (snapshot.attachments && snapshot.attachments.size > 0) {
+      const forwardedAttachments = Array.from(snapshot.attachments.values());
+      attachments.push(...forwardedAttachments.map(att => ({
+        ...att,
+        isForwarded: true
+      })));
     }
   }
+  
+  // Limit to 5 total attachments to avoid overload
+  const limitedAttachments = attachments.slice(0, 5);
+  
+  let parts = [{
+    text: prompt
+  }];
+
+  if (limitedAttachments.length > 0) {
+    for (const attachment of limitedAttachments) {
+      try {
+        // Add indicator if attachment is from forwarded message
+        const prefix = attachment.isForwarded ? '[Forwarded] ' : '';
+        
+        const processedPart = await processAttachment(attachment, message.author.id, message.id);
+        if (processedPart) {
+          if (Array.isArray(processedPart)) {
+            // For GIF frames, add forwarded indicator to first part if applicable
+            if (attachment.isForwarded && processedPart.length > 0 && processedPart[0].text) {
+              processedPart[0].text = prefix + processedPart[0].text;
+            }
+            parts.push(...processedPart);
+          } else {
+            // For regular attachments
+            if (attachment.isForwarded && processedPart.text) {
+              processedPart.text = prefix + processedPart.text;
+            }
+            parts.push(processedPart);
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing attachment ${attachment.name}:`, error);
+        const prefix = attachment.isForwarded ? '[Forwarded] ' : '';
+        parts.push({
+          text: `\n\n${prefix}[Error processing file: ${attachment.name}]`
+        });
+      }
+    }
+  }
+
+  return parts;
 }
 
-return parts;
+// Also update the extractFileText function to handle forwarded files:
+
+async function extractFileText(message, messageContent) {
+  // Process regular attachments
+  if (message.attachments.size > 0) {
+    let attachments = Array.from(message.attachments.values());
+    messageContent = await processTextFiles(attachments, messageContent, '');
+  }
+  
+  // Process forwarded message attachments
+  if (message.messageSnapshots && message.messageSnapshots.size > 0) {
+    const snapshot = message.messageSnapshots.first();
+    if (snapshot.attachments && snapshot.attachments.size > 0) {
+      let forwardedAttachments = Array.from(snapshot.attachments.values());
+      messageContent = await processTextFiles(forwardedAttachments, messageContent, '[Forwarded] ');
+    }
+  }
+  
+  return messageContent;
+}
+
+// Helper function to process text files
+async function processTextFiles(attachments, messageContent, prefix = '') {
+  for (const attachment of attachments) {
+    const fileType = path.extname(attachment.name).toLowerCase();
+    const textFileTypes = ['.html', '.js', '.css', '.json', '.xml', '.csv', '.py', '.java', '.sql', '.log', '.md', '.txt', '.rtf'];
+
+    if (textFileTypes.includes(fileType)) {
+      try {
+        let fileContent = await downloadAndReadFile(attachment.url, fileType);
+
+        if (fileContent.length <= 1000000) {
+          messageContent += `\n\n${prefix}[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``;
+        }
+      } catch (error) {
+        console.error(`Error reading file ${attachment.name}: ${error.message}`);
+      }
+    }
+  }
+  return messageContent;
 }
 
 async function extractFileText(message, messageContent) {
@@ -3687,6 +3760,7 @@ try {
 
 
 client.login(token);
+
 
 
 
