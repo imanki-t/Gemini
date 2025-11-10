@@ -20,17 +20,14 @@ class MemorySystem {
     }
 
     try {
-      // Use embedContent with proper format for Google GenAI SDK
-      const result = await genAI.models.generateContent({
+      // Use embedContent method - the correct embedding API
+      const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
-        contents: [{
-          role: "user",
-          parts: [{ text }]
-        }]
+        contents: text,
       });
       
       // Extract embedding from response
-      const embedding = result.embedding?.values || result.candidates?.[0]?.embedding?.values;
+      const embedding = result.embeddings?.[0]?.values;
       
       if (!embedding) {
         console.error('No embedding returned from API');
