@@ -3333,6 +3333,8 @@ async function extractFileText(message, messageContent) {
   }
   
   return messageContent;
+}
+
  async function processTextFiles(attachments, messageContent, prefix = '') {
   for (const attachment of attachments) {
     const fileType = path.extname(attachment.name).toLowerCase();
@@ -3351,7 +3353,7 @@ async function extractFileText(message, messageContent) {
     }
   }
   return messageContent;
-            }                                           }
+ }                                         }
 
 async function downloadAndReadFile(url, fileType) {
 switch (fileType) {
@@ -3858,6 +3860,7 @@ try {
 
 
 client.login(token);
+
 
 
 
