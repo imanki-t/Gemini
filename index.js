@@ -3138,8 +3138,6 @@ async function handleTextMessage(message) {
 
   const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
-  const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
-
   const chat = genAI.chats.create({
     model: modelName,
     config: {
@@ -3856,6 +3854,7 @@ try {
 
 
 client.login(token);
+
 
 
 
