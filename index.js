@@ -340,7 +340,6 @@ try {
     if (processedPart) {
       if (Array.isArray(processedPart)) {
         parts.push(...processedPart);
-        // Check if any part in the array has media (no text property or has fileUri/fileData)
         if (processedPart.some(part => part.text === undefined || part.fileUri || part.fileData)) {
           hasMedia = true;
         }
@@ -385,18 +384,14 @@ try {
   const finalInstructions = isServerChatHistoryEnabled ? instructions + infoStr : instructions;
   const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
-  const tools = [{
-      googleSearch: {}
-    },
-    {
-      urlContext: {}
-    },
+  // FIXED: Always include search tools - let the AI decide when to use them
+  const tools = [
+    { googleSearch: {} },
+    { urlContext: {} }
   ];
 
   if (!hasMedia) {
-    tools.push({
-      codeExecution: {}
-    });
+    tools.push({ codeExecution: {} });
   }
 
   const chat = genAI.chats.create({
@@ -517,13 +512,12 @@ try {
           });
         }
       } else {
-        // Pass the interaction itself to be edited
         await sendAsTextFile(finalResponse, interaction, botMessage.id, false);
       }
 
       botMessage = await interaction.fetchReply();
       const showActionButtons = effectiveSettings.showActionButtons !== false;
-      if (showActionButtons && !isLargeResponse) { // Only add buttons if not large response (file message handled separately)
+      if (showActionButtons && !isLargeResponse) {
         const components = [];
         const actionRow = new ActionRowBuilder();
         actionRow.addComponents(new ButtonBuilder().setCustomId('download_message').setLabel('Save').setEmoji('💾').setStyle(ButtonStyle.Secondary));
@@ -532,12 +526,11 @@ try {
         await interaction.editReply({
           components
         });
-      } else if (!isLargeResponse) { // Hide components if buttons are off and not a large response
+      } else if (!isLargeResponse) {
         await interaction.editReply({
           components: []
         });
       }
-      // If it was a large response, sendAsTextFile handled the final state of the interaction reply
 
       break;
 
@@ -569,6 +562,7 @@ try {
 }
 }
 
+          
 function updateEmbedForInteraction(interaction, botMessage, finalResponse, groundingMetadata, urlContextMetadata, effectiveSettings) {
 try {
   const isGuild = interaction.guild !== null;
@@ -3132,17 +3126,17 @@ async function handleTextMessage(message) {
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
 
-  const shouldUseSearch = memorySystem.shouldUseSearch(messageContent);
-
-  const tools = [];
-  if (shouldUseSearch) {
-    tools.push({ googleSearch: {} });
-  }
-  tools.push({ urlContext: {} });
+  // FIXED: Always include all tools - let the AI decide when to use them
+  const tools = [
+    { googleSearch: {} },    // Always available
+    { urlContext: {} }       // Always available
+  ];
 
   if (!hasMedia) {
     tools.push({ codeExecution: {} });
   }
+
+  const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
   const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
@@ -3157,11 +3151,11 @@ async function handleTextMessage(message) {
       },
       ...generationConfig,
       safetySettings,
-      tools
+      tools  // All tools always available
     },
     history: optimizedHistory
   });
-
+  
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
       } 
 
@@ -3862,6 +3856,7 @@ try {
 
 
 client.login(token);
+
 
 
 
