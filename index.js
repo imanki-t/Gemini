@@ -56,6 +56,8 @@ getUserResponsePreference,
 initializeBlacklistForGuild
 } from './botManager.js';
 
+import { memorySystem } from './memorySystem.js';
+
 initialize().catch(console.error);
 
 const app = express();
@@ -3885,6 +3887,7 @@ try {
 
 
 client.login(token);
+
 
 
 
