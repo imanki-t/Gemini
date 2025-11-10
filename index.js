@@ -2878,7 +2878,6 @@ async function fetchMessagesForSummary(message, messageLink, count = 1) {
 
     const { guildId, channelId, messageId } = parsed;
 
-    // Check if bot has access to that server/channel
     const guild = client.guilds.cache.get(guildId);
     if (!guild) {
       return { error: "I don't have access to that server." };
@@ -2889,14 +2888,12 @@ async function fetchMessagesForSummary(message, messageLink, count = 1) {
       return { error: "I don't have access to that channel." };
     }
 
-    // Check permissions
     const permissions = channel.permissionsFor(client.user);
     if (!permissions.has(PermissionsBitField.Flags.ViewChannel) || 
         !permissions.has(PermissionsBitField.Flags.ReadMessageHistory)) {
       return { error: "I don't have permission to read messages in that channel." };
     }
 
-    // Fetch the initial message
     const startMessage = await channel.messages.fetch(messageId).catch(() => null);
     if (!startMessage) {
       return { error: "Could not find that message. It may have been deleted." };
@@ -2904,29 +2901,34 @@ async function fetchMessagesForSummary(message, messageLink, count = 1) {
 
     let messagesToSummarize = [startMessage];
 
-    // If count > 1, fetch additional messages that came AFTER (chronologically newer)
     if (count > 1) {
       try {
-        // Fetch messages AFTER the start message (newer messages)
-        const newerMessages = await channel.messages.fetch({
-          after: messageId,
-          limit: Math.min(count - 1, 99) // Discord API limit is 100 (for 'before', 'after', 'around')
-        }).catch(() => null);
+        const messagesToFetch = Math.min(count - 1, 99);
+        const halfCount = Math.floor(messagesToFetch / 2);
+        
+        const [olderMessages, newerMessages] = await Promise.all([
+          channel.messages.fetch({
+            before: messageId,
+            limit: halfCount
+          }).catch(() => null),
+          channel.messages.fetch({
+            after: messageId,
+            limit: messagesToFetch - halfCount
+          }).catch(() => null)
+        ]);
 
-        if (newerMessages && newerMessages.size > 0) {
-          // Sort messages chronologically (oldest first)
-          const sortedMessages = Array.from(newerMessages.values())
-            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-            .slice(0, count - 1); // Ensure we don't exceed requested count
-          
-          messagesToSummarize.push(...sortedMessages);
-        }
+        const sortedOlder = olderMessages ? 
+          Array.from(olderMessages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp) : [];
+        
+        const sortedNewer = newerMessages ? 
+          Array.from(newerMessages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp) : [];
+        
+        messagesToSummarize = [...sortedOlder, startMessage, ...sortedNewer];
       } catch (fetchError) {
         console.error('Error fetching additional messages:', fetchError);
       }
     }
 
-    // Format messages for summarization
     const formattedMessages = messagesToSummarize.map((msg, index) => {
       let content = `**Message ${index + 1}** - **${msg.author.username}** (${msg.createdAt.toLocaleString()}):\n`;
       
@@ -2967,16 +2969,13 @@ function extractForwardedContent(message) {
   let forwardedText = '';
   let forwardedAttachments = [];
   
-  // Check if message has forwarded content (messageSnapshots in Discord.js v14)
   if (message.messageSnapshots && message.messageSnapshots.size > 0) {
     const snapshot = message.messageSnapshots.first();
     
-    // Extract text content from forwarded message
     if (snapshot.content) {
       forwardedText = snapshot.content;
     }
     
-    // Extract embeds content if present
     if (snapshot.embeds && snapshot.embeds.length > 0) {
       const embedTexts = snapshot.embeds
         .map(embed => {
@@ -2993,7 +2992,6 @@ function extractForwardedContent(message) {
       }
     }
     
-    // Extract attachments from forwarded message
     if (snapshot.attachments && snapshot.attachments.size > 0) {
       forwardedAttachments = Array.from(snapshot.attachments.values());
     }
@@ -3001,8 +2999,8 @@ function extractForwardedContent(message) {
   
   return { forwardedText, forwardedAttachments };
 }
-// Replace the beginning of handleTextMessage function with this:
 
+// Replace the beginning of handleTextMessage function with this:
 async function handleTextMessage(message) {
   const botId = client.user.id;
   const userId = message.author.id;
@@ -3012,20 +3010,33 @@ async function handleTextMessage(message) {
 
   const { forwardedText, forwardedAttachments } = extractForwardedContent(message);
   
-  // FIXED: Combine user's message with forwarded content instead of replacing
   if (forwardedText) {
     if (messageContent === '') {
-      // If user didn't add any text, just show forwarded content
       messageContent = `[Forwarded message]:\n${forwardedText}`;
     } else {
-      // User added text along with forward - combine them
       messageContent = `${messageContent}\n\n[Forwarded message]:\n${forwardedText}`;
     }
   }
   
+  const regularAttachments = Array.from(message.attachments.values());
+  const allAttachments = [...regularAttachments, ...forwardedAttachments];
+  
   const hasAnyContent = messageContent !== '' || 
-                        (message.attachments.size > 0 && hasSupportedAttachments(message)) ||
-                        forwardedAttachments.length > 0;
+                        (allAttachments.length > 0 && allAttachments.some(att => {
+                          const contentType = (att.contentType || "").toLowerCase();
+                          const fileExtension = path.extname(att.name).toLowerCase();
+                          const supportedTypes = [
+                            contentType.startsWith('image/'),
+                            contentType.startsWith('audio/'),
+                            contentType.startsWith('video/'),
+                            contentType.startsWith('application/pdf'),
+                            ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'].includes(fileExtension),
+                            ['.mp4', '.mov', '.mpeg', '.mpg', '.webm', '.avi', '.wmv', '.3gpp', '.flv'].includes(fileExtension),
+                            ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.bmp'].includes(fileExtension),
+                            ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'].includes(fileExtension)
+                          ];
+                          return supportedTypes.some(t => t);
+                        }));
 
   if (!hasAnyContent) {
     if (activeRequests.has(userId)) {
@@ -3073,7 +3084,7 @@ async function handleTextMessage(message) {
     }
 
     messageContent = await extractFileText(message, messageContent);
-    parts = await processPromptAndMediaAttachments(messageContent, message);
+    parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
     hasMedia = parts.some(part => part.text === undefined);
 
   } catch (error) {
@@ -3084,8 +3095,6 @@ async function handleTextMessage(message) {
     clearInterval(typingInterval);
     return;
   }
-
-  // Rest of the function continues as before (keep everything below this point unchanged)
 
   const userSettings = state.userSettings[userId] || {};
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
@@ -3123,19 +3132,19 @@ async function handleTextMessage(message) {
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
 
-  const tools = [{
-      googleSearch: {}
-    },
-    {
-      urlContext: {}
-    },
-  ];
+  const shouldUseSearch = memorySystem.shouldUseSearch(messageContent);
+
+  const tools = [];
+  if (shouldUseSearch) {
+    tools.push({ googleSearch: {} });
+  }
+  tools.push({ urlContext: {} });
 
   if (!hasMedia) {
-    tools.push({
-      codeExecution: {}
-    });
+    tools.push({ codeExecution: {} });
   }
+
+  const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
   const chat = genAI.chats.create({
     model: modelName,
@@ -3150,11 +3159,11 @@ async function handleTextMessage(message) {
       safetySettings,
       tools
     },
-    history: getHistory(historyId)
+    history: optimizedHistory
   });
 
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
-}
+      } 
 
 function hasSupportedAttachments(message) {
 const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
@@ -3217,24 +3226,10 @@ function parseDiscordMessageLink(url) {
   return null;
 }
 
-async function processPromptAndMediaAttachments(prompt, message) {
-  // Collect attachments from the current message
-  const attachments = JSON.parse(JSON.stringify(Array.from(message.attachments.values())));
+async function processPromptAndMediaAttachments(prompt, message, attachments = null) {
+  const allAttachments = attachments || Array.from(message.attachments.values());
   
-  // Check for forwarded message attachments
-  if (message.messageSnapshots && message.messageSnapshots.size > 0) {
-    const snapshot = message.messageSnapshots.first();
-    if (snapshot.attachments && snapshot.attachments.size > 0) {
-      const forwardedAttachments = Array.from(snapshot.attachments.values());
-      attachments.push(...forwardedAttachments.map(att => ({
-        ...att,
-        isForwarded: true
-      })));
-    }
-  }
-  
-  // Limit to 5 total attachments to avoid overload
-  const limitedAttachments = attachments.slice(0, 5);
+  const limitedAttachments = allAttachments.slice(0, 5);
   
   let parts = [{
     text: prompt
@@ -3243,30 +3238,18 @@ async function processPromptAndMediaAttachments(prompt, message) {
   if (limitedAttachments.length > 0) {
     for (const attachment of limitedAttachments) {
       try {
-        // Add indicator if attachment is from forwarded message
-        const prefix = attachment.isForwarded ? '[Forwarded] ' : '';
-        
         const processedPart = await processAttachment(attachment, message.author.id, message.id);
         if (processedPart) {
           if (Array.isArray(processedPart)) {
-            // For GIF frames, add forwarded indicator to first part if applicable
-            if (attachment.isForwarded && processedPart.length > 0 && processedPart[0].text) {
-              processedPart[0].text = prefix + processedPart[0].text;
-            }
             parts.push(...processedPart);
           } else {
-            // For regular attachments
-            if (attachment.isForwarded && processedPart.text) {
-              processedPart.text = prefix + processedPart.text;
-            }
             parts.push(processedPart);
           }
         }
       } catch (error) {
         console.error(`Error processing attachment ${attachment.name}:`, error);
-        const prefix = attachment.isForwarded ? '[Forwarded] ' : '';
         parts.push({
-          text: `\n\n${prefix}[Error processing file: ${attachment.name}]`
+          text: `\n\n[Error processing file: ${attachment.name}]`
         });
       }
     }
@@ -3274,49 +3257,44 @@ async function processPromptAndMediaAttachments(prompt, message) {
 
   return parts;
 }
+  
 
-// Also update the extractFileText function to handle forwarded files:
-
+// Helper function to process text files
 async function extractFileText(message, messageContent) {
-  // Check for Discord message links in the content
   const discordLinkRegex = /https?:\/\/(?:www\.)?discord\.com\/channels\/\d+\/\d+\/\d+/g;
   const messageLinks = messageContent.match(discordLinkRegex);
   
   if (messageLinks && messageLinks.length > 0) {
-    // Improved regex patterns to catch various phrasings
     const patterns = [
-      /(?:summarize|summarise|summary of).*?(?:next|following)\s+(\d+)\s+messages?/i,
-      /(?:next|following)\s+(\d+)\s+messages?/i,
-      /(\d+)\s+messages?.*?(?:after|from)/i,
+      /(?:summarize|summarise|summary).*?(?:around|next|following|from)\s+(\d+)\s+messages?/i,
+      /(?:around|next|following|from)\s+(\d+)\s+messages?/i,
+      /(\d+)\s+messages?.*?(?:around|after|from)/i,
       /(?:get|fetch|show|read)\s+(\d+)\s+messages?/i
     ];
     
-    let messageCount = 1; // Default to just the linked message
-    let requestedCount = 1; // Track what user actually requested
+    let messageCount = 1;
+    let requestedCount = 1;
     
-    // Try each pattern to extract the count
     for (const pattern of patterns) {
       const match = messageContent.match(pattern);
       if (match && match[1]) {
         requestedCount = parseInt(match[1]);
-        messageCount = Math.min(requestedCount, 100); // Cap at 100 messages
+        messageCount = Math.min(requestedCount, 100);
         break;
       }
     }
     
-    // If no count specified but user mentions "messages" (plural), fetch a reasonable default
     if (messageCount === 1 && /messages/i.test(messageContent) && !/\b1\s+message/i.test(messageContent)) {
-      messageCount = 10; // Default to 10 messages if plural mentioned but no number
+      messageCount = 10;
       requestedCount = 10;
     }
     
-    // Show warning if user requested more than 100
     if (requestedCount > 100) {
       try {
         const warningEmbed = new EmbedBuilder()
           .setColor(0xFFAA00)
           .setTitle('⚠️ Message Limit Exceeded')
-          .setDescription(`You requested ${requestedCount} messages, but the maximum limit is 100 messages.\n\nI will summarize the first 100 messages only.`);
+          .setDescription(`You requested ${requestedCount} messages, but the maximum limit is 100 messages.\n\nI will summarize the available messages around the linked message.`);
         
         await message.reply({
           embeds: [warningEmbed]
@@ -3326,29 +3304,26 @@ async function extractFileText(message, messageContent) {
       }
     }
     
-    console.log(`Fetching ${messageCount} message(s) from link: ${messageLinks[0]}`);
+    console.log(`Fetching ${messageCount} message(s) around link: ${messageLinks[0]}`);
     
-    // Fetch and format the messages
     const result = await fetchMessagesForSummary(message, messageLinks[0], messageCount);
     
     if (result.error) {
       messageContent += `\n\n[Error: ${result.error}]`;
     } else if (result.success) {
       const requestInfo = messageCount > 1 
-        ? `The user requested ${requestedCount} messages${requestedCount > 100 ? ' (capped at 100)' : ''} and I fetched ${result.messageCount}.`
+        ? `The user requested ${requestedCount} messages${requestedCount > 100 ? ' (capped at 100)' : ''} and I fetched ${result.messageCount} messages around the linked message.`
         : '';
       
       messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n${requestInfo}\n\n${result.content}`;
     }
   }
   
-  // Process regular attachments
   if (message.attachments.size > 0) {
     let attachments = Array.from(message.attachments.values());
     messageContent = await processTextFiles(attachments, messageContent, '');
   }
   
-  // Process forwarded message attachments
   if (message.messageSnapshots && message.messageSnapshots.size > 0) {
     const snapshot = message.messageSnapshots.first();
     if (snapshot.attachments && snapshot.attachments.size > 0) {
@@ -3358,11 +3333,7 @@ async function extractFileText(message, messageContent) {
   }
   
   return messageContent;
-}
-
-
-// Helper function to process text files
-async function processTextFiles(attachments, messageContent, prefix = '') {
+ async function processTextFiles(attachments, messageContent, prefix = '') {
   for (const attachment of attachments) {
     const fileType = path.extname(attachment.name).toLowerCase();
     const textFileTypes = ['.html', '.js', '.css', '.json', '.xml', '.csv', '.py', '.java', '.sql', '.log', '.md', '.txt', '.rtf'];
@@ -3380,7 +3351,7 @@ async function processTextFiles(attachments, messageContent, prefix = '') {
     }
   }
   return messageContent;
-}
+            }                                           }
 
 async function downloadAndReadFile(url, fileType) {
 switch (fileType) {
@@ -3887,6 +3858,7 @@ try {
 
 
 client.login(token);
+
 
 
 
