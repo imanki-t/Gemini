@@ -9,7 +9,8 @@ const collections = {
   chatHistories: 'chatHistories',
   customInstructions: 'customInstructions',
   blacklistedUsers: 'blacklistedUsers',
-  channelSettings: 'channelSettings'
+  channelSettings: 'channelSettings',
+  memoryEntries: 'memoryEntries'
 };
 
 export async function connectDB() {
@@ -27,7 +28,6 @@ export async function connectDB() {
     
     console.log('✅ Connected to MongoDB successfully');
     
-    // Create indexes for better performance
     await createIndexes();
     
     return db;
@@ -45,6 +45,7 @@ async function createIndexes() {
     await db.collection(collections.customInstructions).createIndex({ id: 1 }, { unique: true });
     await db.collection(collections.blacklistedUsers).createIndex({ guildId: 1 }, { unique: true });
     await db.collection(collections.channelSettings).createIndex({ channelId: 1 }, { unique: true });
+    await db.collection(collections.memoryEntries).createIndex({ historyId: 1, timestamp: -1 });
     
     console.log('✅ Database indexes created');
   } catch (error) {
@@ -59,7 +60,6 @@ export async function closeDB() {
   }
 }
 
-// User Settings Operations
 export async function saveUserSettings(userId, settings) {
   try {
     await db.collection(collections.userSettings).updateOne(
@@ -98,7 +98,6 @@ export async function getAllUserSettings() {
   }
 }
 
-// Server Settings Operations
 export async function saveServerSettings(guildId, settings) {
   try {
     await db.collection(collections.serverSettings).updateOne(
@@ -137,7 +136,6 @@ export async function getAllServerSettings() {
   }
 }
 
-// Chat History Operations
 export async function saveChatHistory(id, history) {
   try {
     await db.collection(collections.chatHistories).updateOne(
@@ -184,7 +182,6 @@ export async function deleteChatHistory(id) {
   }
 }
 
-// Custom Instructions Operations
 export async function saveCustomInstructions(id, instructions) {
   try {
     await db.collection(collections.customInstructions).updateOne(
@@ -222,7 +219,6 @@ export async function getAllCustomInstructions() {
   }
 }
 
-// Blacklisted Users Operations
 export async function saveBlacklistedUsers(guildId, users) {
   try {
     await db.collection(collections.blacklistedUsers).updateOne(
@@ -260,7 +256,6 @@ export async function getAllBlacklistedUsers() {
   }
 }
 
-// Channel Settings Operations (for alwaysRespondChannels, continuousReplyChannels, channelWideChatHistory)
 export async function saveChannelSetting(channelId, settingType, value) {
   try {
     await db.collection(collections.channelSettings).updateOne(
@@ -300,7 +295,6 @@ export async function getAllChannelSettings(settingType) {
   }
 }
 
-// Active Users in Channels (temporary data, may not need to persist)
 export async function saveActiveUsersInChannels(data) {
   try {
     await db.collection('activeUsersInChannels').updateOne(
@@ -324,7 +318,6 @@ export async function getActiveUsersInChannels() {
   }
 }
 
-// User Response Preference
 export async function saveUserResponsePreference(userId, preference) {
   try {
     await db.collection('userResponsePreference').updateOne(
@@ -362,6 +355,44 @@ export async function getAllUserResponsePreferences() {
   }
 }
 
+export async function saveMemoryEntry(historyId, entry) {
+  try {
+    await db.collection(collections.memoryEntries).insertOne({
+      historyId,
+      ...entry,
+      createdAt: new Date()
+    });
+  } catch (error) {
+    console.error('Error saving memory entry:', error);
+    throw error;
+  }
+}
+
+export async function getMemoryEntries(historyId, limit = 50) {
+  try {
+    const entries = await db.collection(collections.memoryEntries)
+      .find({ historyId })
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .toArray();
+    return entries;
+  } catch (error) {
+    console.error('Error getting memory entries:', error);
+    return [];
+  }
+}
+
+export async function deleteOldMemoryEntries(cutoffTimestamp) {
+  try {
+    const result = await db.collection(collections.memoryEntries)
+      .deleteMany({ timestamp: { $lt: cutoffTimestamp } });
+    return result.deletedCount;
+  } catch (error) {
+    console.error('Error deleting old memory entries:', error);
+    return 0;
+  }
+}
+
 export function getDB() {
   return db;
-}
+  }
