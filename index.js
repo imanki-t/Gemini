@@ -3324,6 +3324,7 @@ async function extractFileText(message, messageContent) {
     messageContent = await processTextFiles(attachments, messageContent, '');
   }
   
+  // This is the correct closing part of the extractFileText function
   if (message.messageSnapshots && message.messageSnapshots.size > 0) {
     const snapshot = message.messageSnapshots.first();
     if (snapshot.attachments && snapshot.attachments.size > 0) {
@@ -3333,9 +3334,10 @@ async function extractFileText(message, messageContent) {
   }
   
   return messageContent;
-}
+} // <-- MUST END HERE
 
- async function processTextFiles(attachments, messageContent, prefix = '') {
+// This is the start of the correctly defined global helper function
+async function processTextFiles(attachments, messageContent, prefix = '') {
   for (const attachment of attachments) {
     const fileType = path.extname(attachment.name).toLowerCase();
     const textFileTypes = ['.html', '.js', '.css', '.json', '.xml', '.csv', '.py', '.java', '.sql', '.log', '.md', '.txt', '.rtf'];
@@ -3353,7 +3355,7 @@ async function extractFileText(message, messageContent) {
     }
   }
   return messageContent;
- }                                         }
+}
 
 async function downloadAndReadFile(url, fileType) {
 switch (fileType) {
@@ -3860,6 +3862,7 @@ try {
 
 
 client.login(token);
+
 
 
 
