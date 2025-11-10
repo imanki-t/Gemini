@@ -20,14 +20,16 @@ class MemorySystem {
     }
 
     try {
-      const result = await genAI.models.embed({
-        model: EMBEDDING_MODEL,
-        content: text
+      // Fixed: Use the correct embedding API method
+      const model = genAI.models.get(EMBEDDING_MODEL);
+      const result = await model.embedContent({
+        content: { parts: [{ text }] }
       });
       
       const embedding = result.embedding.values;
       this.embeddingCache.set(cacheKey, embedding);
       
+      // Keep cache size manageable
       if (this.embeddingCache.size > 1000) {
         const firstKey = this.embeddingCache.keys().next().value;
         this.embeddingCache.delete(firstKey);
@@ -226,25 +228,8 @@ class MemorySystem {
     }
   }
 
-  shouldUseSearch(query) {
-    const searchTriggers = [
-      /what(?:'s| is) (?:the )?(?:latest|current|recent|new|today)/i,
-      /(?:weather|temperature|forecast)/i,
-      /(?:news|happening|events?) (?:in|about|on|today)/i,
-      /(?:price|cost|worth) of/i,
-      /when (?:did|was|is|will)/i,
-      /who (?:is|was|won|became)/i,
-      /search (?:for|about)/i,
-      /find (?:information|info|me|out)/i,
-      /look up/i,
-      /tell me about (?:the )?(?:latest|current|recent)/i,
-      /\b(?:stock|crypto|bitcoin|eth)\b/i,
-      /\b(?:election|vote|result)\b/i,
-      /\b(?:update|status) (?:on|about|of)/i
-    ];
-
-    return searchTriggers.some(pattern => pattern.test(query));
-  }
+  // Removed shouldUseSearch - search tool will always be available
+  // The AI model will decide when to use it based on the query
 
   async cleanupOldMemories(daysOld = 30) {
     try {
@@ -259,6 +244,7 @@ class MemorySystem {
 
 export const memorySystem = new MemorySystem();
 
+// Cleanup old memories every 24 hours
 setInterval(() => {
   memorySystem.cleanupOldMemories(30).catch(console.error);
 }, 24 * 60 * 60 * 1000);
