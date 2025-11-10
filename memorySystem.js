@@ -4,8 +4,10 @@ import * as db from './database.js';
 const EMBEDDING_MODEL = 'text-embedding-004';
 const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
-const MAX_FULL_MESSAGES = Math.floor(MAX_CONTEXT_TOKENS / TOKENS_PER_MESSAGE * 0.6);
-const COMPRESSION_THRESHOLD = MAX_FULL_MESSAGES * 2;
+
+// Reduced from 120 to 30 messages for more efficient context usage
+const MAX_FULL_MESSAGES = 30; // Recent messages to always include
+const COMPRESSION_THRESHOLD = 60; // Start compressing after 60 messages
 
 class MemorySystem {
   constructor() {
@@ -20,13 +22,11 @@ class MemorySystem {
     }
 
     try {
-      // Use embedContent method - the correct embedding API
       const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
         contents: text,
       });
       
-      // Extract embedding from response
       const embedding = result.embeddings?.[0]?.values;
       
       if (!embedding) {
@@ -36,7 +36,6 @@ class MemorySystem {
 
       this.embeddingCache.set(cacheKey, embedding);
       
-      // Keep cache size manageable
       if (this.embeddingCache.size > 1000) {
         const firstKey = this.embeddingCache.keys().next().value;
         this.embeddingCache.delete(firstKey);
@@ -235,6 +234,7 @@ class MemorySystem {
     }
   }
 
+  // Manual cleanup method - call this yourself when needed
   async cleanupOldMemories(daysOld = 30) {
     try {
       const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
@@ -248,7 +248,6 @@ class MemorySystem {
 
 export const memorySystem = new MemorySystem();
 
-// Cleanup old memories every 24 hours
-setInterval(() => {
-  memorySystem.cleanupOldMemories(30).catch(console.error);
-}, 24 * 60 * 60 * 1000);
+// ❌ REMOVED: Automatic cleanup interval
+// The cleanup function is still available to call manually if needed
+// You can run it via: memorySystem.cleanupOldMemories(30)
