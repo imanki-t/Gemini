@@ -20,13 +20,23 @@ class MemorySystem {
     }
 
     try {
-      // Fixed: Use the correct embedding API method
-      const model = genAI.models.get(EMBEDDING_MODEL);
-      const result = await model.embedContent({
-        content: { parts: [{ text }] }
+      // Use embedContent with proper format for Google GenAI SDK
+      const result = await genAI.models.generateContent({
+        model: EMBEDDING_MODEL,
+        contents: [{
+          role: "user",
+          parts: [{ text }]
+        }]
       });
       
-      const embedding = result.embedding.values;
+      // Extract embedding from response
+      const embedding = result.embedding?.values || result.candidates?.[0]?.embedding?.values;
+      
+      if (!embedding) {
+        console.error('No embedding returned from API');
+        return null;
+      }
+
       this.embeddingCache.set(cacheKey, embedding);
       
       // Keep cache size manageable
@@ -227,9 +237,6 @@ class MemorySystem {
       return [];
     }
   }
-
-  // Removed shouldUseSearch - search tool will always be available
-  // The AI model will decide when to use it based on the query
 
   async cleanupOldMemories(daysOld = 30) {
     try {
