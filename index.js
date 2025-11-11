@@ -676,19 +676,22 @@ async function processAttachment(attachment, userId, interactionId) {
       // Download the file
       await downloadFile(attachment.url, filePath);
       
-      // Special handling for GIFs - convert to MP4
+      // Special handling for GIFs and animated stickers/emojis - convert to MP4
 const isGif = contentType === 'image/gif' || fileExtension === '.gif';
-if (isGif) {
+const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
+const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
+
+if (isGif || isAnimatedSticker || isAnimatedEmoji) {
   const mp4FilePath = filePath.replace(/\.gif$/i, '.mp4');
   
   try {
-    // Convert GIF to MP4 using ffmpeg
+    // Convert to MP4 using ffmpeg
     await new Promise((resolve, reject) => {
       ffmpeg(filePath)
         .outputOptions([
           '-movflags', 'faststart',
           '-pix_fmt', 'yuv420p',
-          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2' // Ensure even dimensions
+          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
         ])
         .output(mp4FilePath)
         .on('end', resolve)
@@ -727,16 +730,26 @@ if (isGif) {
     await fs.unlink(filePath).catch(() => {});
     await fs.unlink(mp4FilePath).catch(() => {});
     
-    // Return the video URI with a note that it's originally a GIF
+    // Determine the type of content with metadata
+    let metadata = '';
+    if (isAnimatedSticker) {
+      metadata = `[Animated Sticker converted to video format: ${attachment.name}]`;
+    } else if (isAnimatedEmoji) {
+      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video format]`;
+    } else {
+      metadata = `[Animated GIF converted to video format: ${sanitizedFileName}]`;
+    }
+    
+    // Return the video URI with metadata
     return [
       {
-        text: `[Animated GIF converted to video format for processing: ${sanitizedFileName}]`
+        text: metadata
       },
       createPartFromUri(uploadResult.uri, uploadResult.mimeType)
     ];
     
   } catch (gifError) {
-    console.error('Error converting GIF to MP4:', gifError);
+    console.error('Error converting to MP4:', gifError);
     
     // Fallback: try to upload just the first frame as PNG
     try {
@@ -757,9 +770,18 @@ if (isGif) {
       await fs.unlink(filePath).catch(() => {});
       await fs.unlink(pngFilePath).catch(() => {});
       
+      let fallbackMetadata = '';
+      if (isAnimatedSticker) {
+        fallbackMetadata = `[Static frame from Animated Sticker (conversion failed): ${attachment.name}]`;
+      } else if (isAnimatedEmoji) {
+        fallbackMetadata = `[Static frame from Animated Emoji (conversion failed): :${attachment.emojiName}:]`;
+      } else {
+        fallbackMetadata = `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`;
+      }
+      
       return [
         {
-          text: `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`
+          text: fallbackMetadata
         },
         createPartFromUri(uploadResult.uri, uploadResult.mimeType)
       ];
@@ -3084,6 +3106,7 @@ async function fetchMessagesForSummary(message, messageLink, count = 1) {
 function extractForwardedContent(message) {
   let forwardedText = '';
   let forwardedAttachments = [];
+  let forwardedStickers = [];
   
   if (message.messageSnapshots && message.messageSnapshots.size > 0) {
     const snapshot = message.messageSnapshots.first();
@@ -3111,9 +3134,14 @@ function extractForwardedContent(message) {
     if (snapshot.attachments && snapshot.attachments.size > 0) {
       forwardedAttachments = Array.from(snapshot.attachments.values());
     }
+    
+    // Extract stickers from forwarded message
+    if (snapshot.stickers && snapshot.stickers.size > 0) {
+      forwardedStickers = Array.from(snapshot.stickers.values());
+    }
   }
   
-  return { forwardedText, forwardedAttachments };
+  return { forwardedText, forwardedAttachments, forwardedStickers };
 }
 
 // Replace the beginning of handleTextMessage function with this:
@@ -3124,7 +3152,8 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  const { forwardedText, forwardedAttachments } = extractForwardedContent(message);
+  // Extract forwarded content including stickers
+  const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
   
   if (forwardedText) {
     if (messageContent === '') {
@@ -3134,8 +3163,50 @@ async function handleTextMessage(message) {
     }
   }
   
+  // Process stickers from current message
+  const currentStickers = message.stickers ? Array.from(message.stickers.values()) : [];
+  const allStickers = [...currentStickers, ...forwardedStickers];
+  
+  // Convert stickers to pseudo-attachments
+  const stickerAttachments = [];
+  for (const sticker of allStickers) {
+    const stickerAttachment = await processStickerAsAttachment(sticker);
+    if (stickerAttachment) {
+      stickerAttachments.push(stickerAttachment);
+      // Add note about sticker in message content
+      const stickerType = stickerAttachment.isAnimated ? 'Animated Sticker' : 'Sticker';
+      if (!messageContent.includes(sticker.name)) {
+        messageContent += `\n[${stickerType}: ${sticker.name}]`;
+      }
+    }
+  }
+  
+  // Process custom emojis (with rate limiting to max 5)
+  const customEmojis = extractCustomEmojis(messageContent);
+  const limitedEmojis = customEmojis.slice(0, 5);
+  const exceededEmojis = customEmojis.slice(5);
+  
+  const emojiAttachments = [];
+  if (limitedEmojis.length > 0) {
+    for (const emoji of limitedEmojis) {
+      const emojiAttachment = await processEmojiAsAttachment(emoji);
+      if (emojiAttachment) {
+        emojiAttachments.push(emojiAttachment);
+      }
+    }
+  }
+  
+  // For emojis beyond the 5 limit, replace them with their names
+  if (exceededEmojis.length > 0) {
+    for (const emoji of exceededEmojis) {
+      // Replace custom emoji format with just the name
+      messageContent = messageContent.replace(emoji.fullMatch, `:${emoji.name}:`);
+    }
+  }
+  
+  // Combine all attachments
   const regularAttachments = Array.from(message.attachments.values());
-  const allAttachments = [...regularAttachments, ...forwardedAttachments];
+  const allAttachments = [...regularAttachments, ...forwardedAttachments, ...stickerAttachments, ...emojiAttachments];
   
   const hasAnyContent = messageContent !== '' || 
                         (allAttachments.length > 0 && allAttachments.some(att => {
@@ -3158,16 +3229,18 @@ async function handleTextMessage(message) {
     if (activeRequests.has(userId)) {
       activeRequests.delete(userId);
     }
+    // No settings button - just simple message
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('💬 Empty Message')
       .setDescription("You didn't provide any content. What would you like to talk about?");
-    const botMessage = await message.reply({
+    await message.reply({
       embeds: [embed]
     });
-    await addSettingsButton(botMessage);
     return;
   }
+
+  // Rest of the function continues exactly as before...
 
   message.channel.sendTyping();
   const typingInterval = setInterval(() => {
@@ -3976,6 +4049,7 @@ try {
 
 
 client.login(token);
+
 
 
 
