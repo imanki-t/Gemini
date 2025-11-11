@@ -320,10 +320,23 @@ export async function initialize() {
   }
 }
 
-export function getHistory(id) {
+export function getHistory(id, guildId = null) {
   const historyObject = chatHistories[id] || {};
   let combinedHistory = [];
 
+  // If in a guild with user memory, also get recent guild-wide messages
+  if (guildId && chatHistories[guildId]) {
+    const guildHistory = chatHistories[guildId] || {};
+    
+    // Get all messages from all users in this guild
+    for (const messagesId in guildHistory) {
+      if (guildHistory.hasOwnProperty(messagesId)) {
+        combinedHistory = [...combinedHistory, ...guildHistory[messagesId]];
+      }
+    }
+  }
+
+  // Also add user's personal history
   for (const messagesId in historyObject) {
     if (historyObject.hasOwnProperty(messagesId)) {
       combinedHistory = [...combinedHistory, ...historyObject[messagesId]];
@@ -333,13 +346,19 @@ export function getHistory(id) {
   // Sort by timestamp to maintain chronological order
   combinedHistory.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
+  // Keep only recent messages to avoid context window overflow
+  const maxMessages = 100;
+  if (combinedHistory.length > maxMessages) {
+    combinedHistory = combinedHistory.slice(-maxMessages);
+  }
+
   const apiHistory = combinedHistory.map(entry => {
     let textContent = entry.content
       .filter(part => part.text !== undefined)
       .map(part => part.text)
       .join('\n');
 
-    // Add user attribution for user messages in server/channel memory
+    // Add user attribution
     if (entry.role === 'user' && entry.username && entry.displayName) {
       textContent = `[${entry.displayName} (@${entry.username})]: ${textContent}`;
     }
