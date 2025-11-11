@@ -564,14 +564,15 @@ try {
         }]
       });
 
-      botMessage = await interaction.fetchReply();
+            botMessage = await interaction.fetchReply();
 
       await chatHistoryLock.runExclusive(async () => {
-        const username = message.author.username;
-const displayName = message.author.displayName || message.author.username;
-updateChatHistory(historyId, newHistory, message.author.id, username, displayName);
+        const username = interaction.user.username;
+        const displayName = interaction.member?.displayName || interaction.user.displayName || interaction.user.username;
+        updateChatHistory(historyId, newHistory, interaction.user.id, username, displayName);
         await saveStateToFile();
       });
+      
 
       if (!isLargeResponse) {
         if (responseFormat === 'Embedded') {
@@ -4241,6 +4242,7 @@ try {
 
 
 client.login(token);
+
 
 
 
