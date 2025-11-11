@@ -3275,8 +3275,38 @@ async function handleTextMessage(message) {
   }
   
   // Combine all attachments
+    const embedMediaAttachments = [];
+  if (message.embeds && message.embeds.length > 0) {
+    for (const embed of message.embeds) {
+      const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
+      const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
+      const mediaUrl = embed.video?.url || embed.image?.url;
+
+      if ((isTenor || isGiphy) && mediaUrl) {
+        const mediaName = embed.title ? `${embed.title}.gif` : `embedded_gif_${Date.now()}.gif`;
+        embedMediaAttachments.push({
+          id: `embed-${Date.now()}`,
+          name: mediaName,
+          url: mediaUrl,
+          contentType: 'image/gif', 
+          size: 0
+        });
+
+        const tenorGiphyRegex = /https?:\/\/(?:www\.)?(?:tenor\.com|giphy\.com)\/(?:view|gifs)\/\S+/ig;
+        messageContent = messageContent.replace(tenorGiphyRegex, '').trim();
+      }
+    }
+  }
+
   const regularAttachments = Array.from(message.attachments.values());
-  const allAttachments = [...regularAttachments, ...forwardedAttachments, ...stickerAttachments, ...emojiAttachments];
+  const allAttachments = [
+    ...regularAttachments, 
+    ...forwardedAttachments, 
+    ...stickerAttachments, 
+    ...emojiAttachments,
+    ...embedMediaAttachments
+  ];
+  
   
   const hasAnyContent = messageContent !== '' || 
                         (allAttachments.length > 0 && allAttachments.some(att => {
@@ -4116,6 +4146,7 @@ try {
 
 
 client.login(token);
+
 
 
 
