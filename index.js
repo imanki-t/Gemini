@@ -2342,68 +2342,106 @@ try {
 }
 
 async function downloadUserConversation(interaction) {
-try {
-  const userId = interaction.user.id;
-  const conversationHistory = getHistory(userId);
-
-  if (!conversationHistory || conversationHistory.length === 0) {
-    const embed = new EmbedBuilder()
-      .setColor(0xFF5555)
-      .setTitle('❌ No History Found')
-      .setDescription('You don\'t have any conversation history to download.');
-    return interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
-  let conversationText = conversationHistory.map(entry => {
-    const role = entry.role === 'user' ? '[User]' : '[Model]';
-    const content = entry.parts.map(c => c.text).join('\n');
-    return `${role}:\n${content}\n\n`;
-  }).join('');
-
-  const tempFileName = path.join(TEMP_DIR, `conversation_${interaction.id}.txt`);
-  await fs.writeFile(tempFileName, conversationText, 'utf8');
-
-  const file = new AttachmentBuilder(tempFileName, {
-    name: 'conversation_history.txt'
-  });
-
-  const isDM = interaction.channel.type === ChannelType.DM;
-  const historyType = isDM ? 'DM History' : 'Personal History';
-
   try {
-    await interaction.user.send({
-      content: `📥 **Your Conversation History**\n\`${historyType}\``,
-      files: [file]
-    });
-    const embed = new EmbedBuilder()
-      .setColor(0x00FF00)
-      .setTitle('✅ History Sent')
-      .setDescription('Your conversation history has been sent to your DMs!');
-    await interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral
-    });
-  } catch (error) {
-    console.error(`Failed to send DM: ${error}`);
-    const embed = new EmbedBuilder()
-      .setColor(0xFF5555)
-      .setTitle('❌ Delivery Failed')
-      .setDescription('Could not send to DMs. Make sure you have DMs enabled.');
-    await interaction.reply({
-      embeds: [embed],
-      files: [file],
-      flags: MessageFlags.Ephemeral
-    });
-  } finally {
+    const userId = interaction.user.id;
+    const conversationHistory = getHistory(userId);
+
+    if (!conversationHistory || conversationHistory.length === 0) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ No History Found')
+        .setDescription('You don\'t have any conversation history to download.');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    let conversationText = conversationHistory.map(entry => {
+      const role = entry.role === 'user' ? '[User]' : '[Model]';
+      const content = entry.parts.map(c => c.text).join('\n');
+      return `${role}:\n${content}\n\n`;
+    }).join('');
+
+    const tempFileName = path.join(TEMP_DIR, `conversation_${interaction.id}.txt`);
+    await fs.writeFile(tempFileName, conversationText, 'utf8');
+
+    const stats = await fs.stat(tempFileName);
+    const fileSizeMB = stats.size / (1024 * 1024);
+    const MAX_DISCORD_MB = 9.5; // Safety margin below 10MB free limit
+
+    const isDM = interaction.channel.type === ChannelType.DM;
+    const historyType = isDM ? 'DM History' : 'Personal History';
+    
+    let fileSent = false;
+    let fallbackEmbed;
+
+    if (fileSizeMB <= MAX_DISCORD_MB) {
+      const file = new AttachmentBuilder(tempFileName, {
+        name: 'conversation_history.txt'
+      });
+
+      try {
+        await interaction.user.send({
+          content: `📥 **Your Conversation History**\n\`${historyType}\``,
+          files: [file]
+        });
+        
+        await interaction.reply({
+          embeds: [new EmbedBuilder().setColor(0x00FF00).setTitle('✅ History Sent').setDescription('Your conversation history has been sent to your DMs!')],
+          flags: MessageFlags.Ephemeral
+        });
+        fileSent = true;
+      } catch (error) {
+        // DM failed (DMs blocked) or actual small-file upload error
+        console.error(`Discord Send Error for ${tempFileName}:`, error);
+        fallbackEmbed = new EmbedBuilder()
+          .setColor(0xFFAA00)
+          .setTitle('❌ DM Failed / Upload Error')
+          .setDescription('Could not send the history file via DM. Attempting external upload fallback.');
+      }
+    } else {
+      // File too large for Discord limits
+      fallbackEmbed = new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle('🔗 History Too Large')
+        .setDescription(`The conversation history is too large (${fileSizeMB.toFixed(2)} MB) to send directly via Discord. It will be uploaded to an external site.`);
+    }
+
+    if (!fileSent) {
+      const msgUrlText = await uploadText(conversationText); // Upload to external service
+      const msgUrl = msgUrlText.match(/🔗 URL: (.+)/)?.[1] || 'URL generation failed.';
+
+      const finalEmbed = fallbackEmbed || new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle('🔗 History Upload Fallback');
+        
+      finalEmbed.addFields({
+        name: 'External Link',
+        value: `[View History Content](${msgUrl})`,
+        inline: false
+      });
+
+      await interaction.reply({
+        embeds: [finalEmbed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
     await fs.unlink(tempFileName).catch(() => {});
+  } catch (error) {
+    console.error('Error downloading user conversation:', error);
+    const embed = new EmbedBuilder()
+      .setColor(0xFF0000)
+      .setTitle('❌ Error')
+      .setDescription('An unexpected error occurred while processing your history download.');
+    await interaction.reply({
+      embeds: [embed],
+      flags: MessageFlags.Ephemeral
+    });
   }
-} catch (error) {
-  console.error('Error downloading user conversation:', error);
 }
-}
+
 
 // Replace the downloadServerConversation function in index.js with this fixed version:
 
@@ -2421,9 +2459,8 @@ async function downloadServerConversation(interaction) {
     }
 
     const guildId = interaction.guild.id;
-    
-    // Check if server chat history is enabled
     const serverSettings = state.serverSettings[guildId] || {};
+    
     if (!serverSettings.serverChatHistory) {
       const embed = new EmbedBuilder()
         .setColor(0xFF5555)
@@ -2435,7 +2472,6 @@ async function downloadServerConversation(interaction) {
       });
     }
 
-    // Get raw history object to check if anything exists
     const historyObject = state.chatHistories[guildId];
     
     if (!historyObject || Object.keys(historyObject).length === 0) {
@@ -2449,7 +2485,6 @@ async function downloadServerConversation(interaction) {
       });
     }
 
-    // Build conversation history including all messages
     let conversationText = '';
     let messageCount = 0;
     
@@ -2461,14 +2496,11 @@ async function downloadServerConversation(interaction) {
           const role = entry.role === 'user' ? '[User]' : '[Assistant]';
           const contentParts = [];
           
-          // Extract text content
           for (const part of entry.content) {
             if (part.text !== undefined && part.text !== '') {
               contentParts.push(part.text);
-            } else if (part.fileUri) {
+            } else if (part.fileUri || part.fileData) {
               contentParts.push('[Media File Attached]');
-            } else if (part.fileData) {
-              contentParts.push('[File Attached]');
             }
           }
           
@@ -2496,45 +2528,73 @@ async function downloadServerConversation(interaction) {
     const header = `Server Conversation History\nServer: ${interaction.guild.name}\nMessages: ${messageCount}\nExported: ${new Date().toLocaleString()}\n${'='.repeat(50)}\n\n`;
     await fs.writeFile(tempFileName, header + conversationText, 'utf8');
 
-    const file = new AttachmentBuilder(tempFileName, {
-      name: `${interaction.guild.name.replace(/[^a-z0-9]/gi, '_')}_history.txt`
-    });
-
+    const stats = await fs.stat(tempFileName);
+    const fileSizeMB = stats.size / (1024 * 1024);
+    const MAX_DISCORD_MB = 9.5; // Safety margin below 10MB free limit
     const serverName = interaction.guild.name;
+    
+    let fileSent = false;
+    let fallbackEmbed;
 
-    try {
-      await interaction.user.send({
-        content: `📥 **Server Conversation History**\n\`Server: ${serverName}\`\n\`Messages: ${messageCount}\``,
-        files: [file]
+    if (fileSizeMB <= MAX_DISCORD_MB) {
+      const file = new AttachmentBuilder(tempFileName, {
+        name: `${serverName.replace(/[^a-z0-9]/gi, '_')}_history.txt`
       });
-      const embed = new EmbedBuilder()
-        .setColor(0x00FF00)
-        .setTitle('✅ History Sent')
-        .setDescription(`Server conversation history (${messageCount} messages) has been sent to your DMs!`);
-      await interaction.reply({
-        embeds: [embed],
-        flags: MessageFlags.Ephemeral
-      });
-    } catch (error) {
-      console.error(`Failed to send DM: ${error}`);
-      const embed = new EmbedBuilder()
-        .setColor(0xFF5555)
-        .setTitle('❌ Delivery Failed')
-        .setDescription('Could not send to DMs. Make sure you have DMs enabled. Sending here instead:');
-      await interaction.reply({
-        embeds: [embed],
-        files: [file],
-        flags: MessageFlags.Ephemeral
-      });
-    } finally {
-      await fs.unlink(tempFileName).catch(() => {});
+
+      try {
+        await interaction.user.send({
+          content: `📥 **Server Conversation History**\n\`Server: ${serverName}\`\n\`Messages: ${messageCount}\``,
+          files: [file]
+        });
+        
+        await interaction.reply({
+          embeds: [new EmbedBuilder().setColor(0x00FF00).setTitle('✅ History Sent').setDescription(`Server conversation history (${messageCount} messages) has been sent to your DMs!`)],
+          flags: MessageFlags.Ephemeral
+        });
+        fileSent = true;
+      } catch (error) {
+        // DM failed (DMs blocked) or actual small-file upload error
+        console.error(`Discord Send Error for ${tempFileName}:`, error);
+        fallbackEmbed = new EmbedBuilder()
+          .setColor(0xFFAA00)
+          .setTitle('❌ DM Failed / Upload Error')
+          .setDescription('Could not send the history file via DM. Attempting external upload fallback.');
+      }
+    } else {
+      // File too large for Discord limits
+      fallbackEmbed = new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle('🔗 History Too Large')
+        .setDescription(`The server history is too large (${fileSizeMB.toFixed(2)} MB) to send directly via Discord. It will be uploaded to an external site.`);
     }
+
+    if (!fileSent) {
+      const msgUrlText = await uploadText(conversationText); // Upload to external service
+      const msgUrl = msgUrlText.match(/🔗 URL: (.+)/)?.[1] || 'URL generation failed.';
+
+      const finalEmbed = fallbackEmbed || new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle('🔗 History Upload Fallback');
+        
+      finalEmbed.addFields({
+        name: 'External Link',
+        value: `[View History Content](${msgUrl})`,
+        inline: false
+      });
+      
+      await interaction.reply({
+        embeds: [finalEmbed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    await fs.unlink(tempFileName).catch(() => {});
   } catch (error) {
     console.error('Error downloading server conversation:', error);
     const embed = new EmbedBuilder()
       .setColor(0xFF0000)
       .setTitle('❌ Error')
-      .setDescription('An error occurred while downloading server history.');
+      .setDescription('An unexpected error occurred while processing your server history download.');
     await interaction.reply({
       embeds: [embed],
       flags: MessageFlags.Ephemeral
@@ -4242,6 +4302,7 @@ try {
 
 
 client.login(token);
+
 
 
 
