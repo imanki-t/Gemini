@@ -3403,21 +3403,21 @@ async function handleTextMessage(message) {
 
   const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
-  const chat = genAI.chats.create({
-    model: modelName,
-    config: {
-      systemInstruction: {
-        role: "system",
-        parts: [{
-          text: finalInstructions
-        }]
-      },
-      ...generationConfig,
-      safetySettings,
-      tools  // All tools always available
+  // Around line 3395 in handleTextMessage function
+const chat = genAI.chats.create({
+  model: modelName,
+  config: {
+    systemInstruction: {
+      role: "system",
+      parts: [{
+        text: finalInstructions
+      }]
     },
-    history: optimizedHistory
-  });
+    temperature: effectiveSettings.temperature || 0.7,
+    topP: 0.95
+  },
+  history: getHistory(historyId, guildId)  // ← Pass guildId here
+});
   
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
       } 
@@ -4119,6 +4119,7 @@ try {
 
 
 client.login(token);
+
 
 
 
