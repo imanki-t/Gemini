@@ -3393,31 +3393,28 @@ async function handleTextMessage(message) {
 
   // FIXED: Always include all tools - let the AI decide when to use them
   const tools = [
-    { googleSearch: {} },    // Always available
-    { urlContext: {} }       // Always available
-  ];
+  { googleSearch: {} },
+  { urlContext: {} }
+];
+if (!hasMedia) { tools.push({ codeExecution: {} }); }
+const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
-  if (!hasMedia) {
-    tools.push({ codeExecution: {} });
-  }
-
-  const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
-
-  // Around line 3395 in handleTextMessage function
-const chat = genAI.chats.create({
-  model: modelName,
-  config: {
-    systemInstruction: {
-      role: "system",
-      parts: [{
-        text: finalInstructions
-      }]
-    },
-    temperature: effectiveSettings.temperature || 0.7,
-    topP: 0.95
-  },
-  history: getHistory(historyId, guildId)  // ← Pass guildId here
+const chat = genAI.chats.create({ 
+  model: modelName, 
+  config: { 
+    systemInstruction: { 
+      role: "system", 
+      parts: [{ text: finalInstructions }] 
+    }, 
+    ...generationConfig, 
+    safetySettings,
+    tools,
+    temperature: effectiveSettings.temperature || generationConfig.temperature,
+    topP: effectiveSettings.topP || generationConfig.topP,
+  }, 
+  history: getHistory(historyId, guildId)
 });
+  
   
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
       } 
@@ -4119,6 +4116,7 @@ try {
 
 
 client.login(token);
+
 
 
 
