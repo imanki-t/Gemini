@@ -330,25 +330,32 @@ export function getHistory(id) {
     }
   }
 
+  // Sort by timestamp to maintain chronological order
+  combinedHistory.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
   const apiHistory = combinedHistory.map(entry => {
+    let textContent = entry.content
+      .filter(part => part.text !== undefined)
+      .map(part => part.text)
+      .join('\n');
+
+    // Add user attribution for user messages in server/channel memory
+    if (entry.role === 'user' && entry.username && entry.displayName) {
+      textContent = `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+    }
+
     return {
       role: entry.role === 'assistant' ? 'model' : entry.role,
-      parts: entry.content.filter(part => {
-        if (part.text !== undefined) {
-          return true;
-        }
-        if (part.fileData || part.fileUri) {
-          return false;
-        }
-        return false;
-      })
+      parts: [{
+        text: textContent
+      }]
     };
-  }).filter(entry => entry.parts.length > 0);
+  }).filter(entry => entry.parts.length > 0 && entry.parts[0].text);
 
   return apiHistory;
 }
 
-export function updateChatHistory(id, newHistory, messagesId) {
+export function updateChatHistory(id, newHistory, messagesId, username = null, displayName = null) {
   if (!chatHistories[id]) {
     chatHistories[id] = {};
   }
@@ -357,7 +364,25 @@ export function updateChatHistory(id, newHistory, messagesId) {
     chatHistories[id][messagesId] = [];
   }
 
-  chatHistories[id][messagesId] = [...chatHistories[id][messagesId], ...newHistory];
+  // Add user attribution to each message
+  const historyWithUserInfo = newHistory.map(entry => {
+    // Only add user info if this is a user message and we have the data
+    if (entry.role === 'user' && (username || displayName)) {
+      return {
+        ...entry,
+        userId: messagesId,
+        username: username,
+        displayName: displayName,
+        timestamp: Date.now()
+      };
+    }
+    return {
+      ...entry,
+      timestamp: entry.timestamp || Date.now()
+    };
+  });
+
+  chatHistories[id][messagesId] = [...chatHistories[id][messagesId], ...historyWithUserInfo];
 }
 
 export function getUserResponsePreference(userId) {
