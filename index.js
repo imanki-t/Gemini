@@ -922,9 +922,7 @@ async function processAttachment(attachment, userId, interactionId) {
   console.warn(`Unsupported file type: ${attachment.name} (${contentType})`);
   return {
     text: `\n\n[Unsupported file type: ${attachment.name}]`
-  };
-        }
-      
+  };      
 }
 
 async function handleButtonInteraction(interaction) {
@@ -3976,6 +3974,7 @@ try {
 
 
 client.login(token);
+
 
 
 
