@@ -3231,22 +3231,27 @@ while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
   gifLinks.push(gifMatch[0]);
 }
 
-// Also check for GIFs in embeds (Discord's /gif command)
+// Also check for GIFs in embeds (Discord's /gif and /tenor commands)
 if (message.embeds && message.embeds.length > 0) {
   for (const embed of message.embeds) {
     const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
     const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
     
-    // Check for video or image URLs in embeds
-    const mediaUrl = embed.video?.url || embed.image?.url || embed.url;
-    
-    if ((isTenor || isGiphy) && mediaUrl) {
-      gifLinks.push(mediaUrl);
+    if (isTenor || isGiphy) {
+      // Discord /gif embeds have the actual media in video.url (for MP4) or image.url (for GIF)
+      const mediaUrl = embed.video?.url || embed.video?.proxyURL || 
+                       embed.image?.url || embed.image?.proxyURL || 
+                       embed.thumbnail?.url || embed.thumbnail?.proxyURL;
       
-      // Add context about the GIF to message content
-      const gifDescription = embed.description || embed.title || 'GIF';
-      if (!messageContent.includes(gifDescription)) {
-        messageContent += `\n[User sent a ${embed.provider?.name || 'GIF'}: ${gifDescription}]`;
+      if (mediaUrl) {
+        gifLinks.push(mediaUrl);
+        
+        // Add context about the GIF to message content
+        const gifDescription = embed.description || embed.title || embed.url || 'GIF';
+        const contextText = `[User sent a ${embed.provider?.name || 'GIF'}${gifDescription !== 'GIF' ? ': ' + gifDescription : ''}]`;
+        if (!messageContent.includes(contextText)) {
+          messageContent += `\n${contextText}`;
+        }
       }
     }
   }
@@ -4039,17 +4044,15 @@ while (attempts > 0 && !stopGeneration) {
           .setTitle('❌ Generation Failed')
           .setDescription('All generation attempts failed. Please try again later.');
 
-        let errorMsg;
         if (continuousReply) {
-          errorMsg = await originalMessage.channel.send({
+          await originalMessage.channel.send({
             embeds: [embed]
           });
         } else {
-          errorMsg = await originalMessage.reply({
+          await originalMessage.reply({
             embeds: [embed]
           });
         }
-        await addSettingsButton(errorMsg);
       }
       break;
     } else {
@@ -4238,6 +4241,7 @@ try {
 
 
 client.login(token);
+
 
 
 
