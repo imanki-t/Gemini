@@ -567,7 +567,9 @@ try {
       botMessage = await interaction.fetchReply();
 
       await chatHistoryLock.runExclusive(async () => {
-        updateChatHistory(historyId, newHistory, botMessage.id);
+        const username = message.author.username;
+const displayName = message.author.displayName || message.author.username;
+updateChatHistory(historyId, newHistory, message.author.id, username, displayName);
         await saveStateToFile();
       });
 
@@ -4117,6 +4119,7 @@ try {
 
 
 client.login(token);
+
 
 
 
