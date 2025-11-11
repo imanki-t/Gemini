@@ -140,6 +140,74 @@ import {
 commands
 } from './commands.js';
 
+/**
+ * Extracts custom emojis from message content
+ * Returns array of {id, name, animated} objects
+ */
+function extractCustomEmojis(content) {
+  const emojiRegex = /<a?:(\w+):(\d+)>/g;
+  const emojis = [];
+  let match;
+  
+  while ((match = emojiRegex.exec(content)) !== null) {
+    const animated = match[0].startsWith('<a:');
+    emojis.push({
+      name: match[1],
+      id: match[2],
+      animated: animated,
+      fullMatch: match[0]
+    });
+  }
+  
+  return emojis;
+}
+
+/**
+ * Converts stickers to attachments
+ */
+async function processStickerAsAttachment(sticker) {
+  try {
+    // Check if sticker is animated (Lottie or APNG)
+    const isAnimated = sticker.format === 3 || sticker.format === 4; // APNG or LOTTIE
+    const format = isAnimated ? 'gif' : 'png';
+    
+    const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
+    
+    return {
+      name: `${sticker.name}.${format}`,
+      url: url,
+      contentType: isAnimated ? 'image/gif' : 'image/png',
+      isAnimated: isAnimated,
+      isSticker: true
+    };
+  } catch (error) {
+    console.error('Error processing sticker:', error);
+    return null;
+  }
+}
+
+/**
+ * Converts custom emoji to attachment
+ */
+async function processEmojiAsAttachment(emoji) {
+  try {
+    const extension = emoji.animated ? 'gif' : 'png';
+    const url = `https://cdn.discordapp.com/emojis/${emoji.id}.${extension}`;
+    
+    return {
+      name: `${emoji.name}.${extension}`,
+      url: url,
+      contentType: emoji.animated ? 'image/gif' : 'image/png',
+      isAnimated: emoji.animated,
+      isEmoji: true,
+      emojiName: emoji.name
+    };
+  } catch (error) {
+    console.error('Error processing emoji:', error);
+    return null;
+  }
+}
+
 let activityIndex = 0;
 client.once('ready', async () => {
 console.log(`Logged in as ${client.user.tag}!`);
@@ -4049,6 +4117,7 @@ try {
 
 
 client.login(token);
+
 
 
 
