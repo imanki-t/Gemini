@@ -3222,8 +3222,17 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Extract forwarded content including stickers
-  const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
+  // Extract GIF links from Tenor/Giphy BEFORE extracting forwarded content
+const gifLinks = [];
+const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.gif|media\.giphy\.com\/media\/[^\s]+\/giphy\.gif)/gi;
+let gifMatch;
+
+while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
+  gifLinks.push(gifMatch[0]);
+}
+
+// Extract forwarded content including stickers
+const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
   
   if (forwardedText) {
     if (messageContent === '') {
@@ -3250,7 +3259,70 @@ async function handleTextMessage(message) {
       }
     }
   }
-  
+
+
+  // Process GIF links from Tenor/Giphy
+const gifLinkAttachments = [];
+for (const gifUrl of gifLinks) {
+  try {
+    // Extract a meaningful name from the URL
+    let gifName = 'tenor_gif.gif';
+    if (gifUrl.includes('tenor.com')) {
+      const nameMatch = gifUrl.match(/\/view\/([^\/\-]+)/);
+      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'tenor_gif.gif';
+    } else if (gifUrl.includes('giphy.com')) {
+      const nameMatch = gifUrl.match(/\/gifs\/([^\/\-]+)/);
+      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'giphy_gif.gif';
+    }
+    
+    // Convert Tenor/Giphy page URLs to direct GIF URLs if needed
+    let directGifUrl = gifUrl;
+    
+    // Handle Tenor view links
+    if (gifUrl.includes('tenor.com/view/')) {
+      try {
+        const response = await axios.get(gifUrl, { timeout: 5000 });
+        const htmlContent = response.data;
+        const gifMatch = htmlContent.match(/"contentUrl":"([^"]+\.gif)"/);
+        if (gifMatch) {
+          directGifUrl = gifMatch[1].replace(/\\u002F/g, '/');
+        }
+      } catch (error) {
+        console.error('Error fetching Tenor page:', error);
+        continue;
+      }
+    }
+    
+    // Handle Giphy page links
+    if (gifUrl.includes('giphy.com/gifs/')) {
+      try {
+        const response = await axios.get(gifUrl, { timeout: 5000 });
+        const htmlContent = response.data;
+        const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
+        if (gifMatch) {
+          directGifUrl = gifMatch[1];
+        }
+      } catch (error) {
+        console.error('Error fetching Giphy page:', error);
+        continue;
+      }
+    }
+    
+    gifLinkAttachments.push({
+      id: `gif-link-${Date.now()}-${Math.random()}`,
+      name: gifName,
+      url: directGifUrl,
+      contentType: 'image/gif',
+      size: 0,
+      isGifLink: true
+    });
+    
+    // Remove the link from message content
+    messageContent = messageContent.replace(gifUrl, '').trim();
+  } catch (error) {
+    console.error('Error processing GIF link:', error);
+  }
+}
   // Process custom emojis (with rate limiting to max 5)
   const customEmojis = extractCustomEmojis(messageContent);
   const limitedEmojis = customEmojis.slice(0, 5);
@@ -3300,12 +3372,13 @@ async function handleTextMessage(message) {
 
   const regularAttachments = Array.from(message.attachments.values());
   const allAttachments = [
-    ...regularAttachments, 
-    ...forwardedAttachments, 
-    ...stickerAttachments, 
-    ...emojiAttachments,
-    ...embedMediaAttachments
-  ];
+  ...regularAttachments, 
+  ...forwardedAttachments, 
+  ...stickerAttachments, 
+  ...emojiAttachments,
+  ...embedMediaAttachments,
+  ...gifLinkAttachments  // Add GIF links from Tenor/Giphy
+];
   
   
   const hasAnyContent = messageContent !== '' || 
@@ -4146,6 +4219,7 @@ try {
 
 
 client.login(token);
+
 
 
 
