@@ -37,6 +37,7 @@ cpu
 } = osu;
 import axios from 'axios';
 import express from 'express';
+import ffmpeg from 'fluent-ffmpeg';
 
 import config from './config.js';
 import {
@@ -675,97 +676,98 @@ async function processAttachment(attachment, userId, interactionId) {
       // Download the file
       await downloadFile(attachment.url, filePath);
       
-      // Special handling for GIFs - extract multiple frames
-      const isGif = contentType === 'image/gif' || fileExtension === '.gif';
-      if (isGif) {
-        const sharp = (await import('sharp')).default;
-        const parts = [];
-        
-        try {
-          // Get GIF metadata to determine frame count
-          const metadata = await sharp(filePath, { animated: true }).metadata();
-          const frameCount = metadata.pages || 1;
-          
-          // Extract key frames (first, middle, last, and a few in between)
-          const framesToExtract = [];
-          if (frameCount === 1) {
-            framesToExtract.push(0);
-          } else if (frameCount <= 4) {
-            for (let i = 0; i < frameCount; i++) {
-              framesToExtract.push(i);
-            }
-          } else {
-            framesToExtract.push(0); // First frame
-            framesToExtract.push(Math.floor(frameCount * 0.25)); // 25% through
-            framesToExtract.push(Math.floor(frameCount * 0.5)); // Middle
-            framesToExtract.push(Math.floor(frameCount * 0.75)); // 75% through
-            framesToExtract.push(frameCount - 1); // Last frame
-          }
-          
-          // Extract and upload each frame
-          for (let i = 0; i < framesToExtract.length; i++) {
-            const frameIndex = framesToExtract[i];
-            const frameFilePath = path.join(TEMP_DIR, `${userId}-${interactionId}-${Date.now()}-frame${i}.png`);
-            
-            try {
-              await sharp(filePath, { page: frameIndex, animated: false })
-                .png()
-                .toFile(frameFilePath);
-              
-              const uploadResult = await genAI.files.upload({
-                file: frameFilePath,
-                config: {
-                  mimeType: 'image/png',
-                  displayName: `${sanitizedFileName}-frame${i+1}of${framesToExtract.length}`,
-                }
-              });
-              
-              if (uploadResult.uri) {
-                parts.push(createPartFromUri(uploadResult.uri, uploadResult.mimeType));
-              }
-              
-              await fs.unlink(frameFilePath).catch(() => {});
-            } catch (frameError) {
-              console.error(`Error processing frame ${frameIndex}:`, frameError);
-            }
-          }
-          
-          await fs.unlink(filePath).catch(() => {});
-          
-          if (parts.length > 0) {
-            parts.unshift({
-              text: `[Animated GIF with ${frameCount} frames - showing ${parts.length} key frames]`
-            });
-          }
-          
-          return parts.length > 0 ? parts : null;
-          
-        } catch (gifError) {
-          console.error('Error processing GIF frames:', gifError);
-          // Fallback: try to upload just the first frame
-          try {
-            const pngFilePath = filePath.replace(/\.gif$/i, '.png');
-            await sharp(filePath, { animated: false })
-              .png()
-              .toFile(pngFilePath);
-            
-            const uploadResult = await genAI.files.upload({
-              file: pngFilePath,
-              config: {
-                mimeType: 'image/png',
-                displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
-              }
-            });
-            
-            await fs.unlink(filePath).catch(() => {});
-            await fs.unlink(pngFilePath).catch(() => {});
-            
-            return createPartFromUri(uploadResult.uri, uploadResult.mimeType);
-          } catch (fallbackError) {
-            throw gifError;
-          }
-        }
+      // Special handling for GIFs - convert to MP4
+const isGif = contentType === 'image/gif' || fileExtension === '.gif';
+if (isGif) {
+  const mp4FilePath = filePath.replace(/\.gif$/i, '.mp4');
+  
+  try {
+    // Convert GIF to MP4 using ffmpeg
+    await new Promise((resolve, reject) => {
+      ffmpeg(filePath)
+        .outputOptions([
+          '-movflags', 'faststart',
+          '-pix_fmt', 'yuv420p',
+          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2' // Ensure even dimensions
+        ])
+        .output(mp4FilePath)
+        .on('end', resolve)
+        .on('error', reject)
+        .run();
+    });
+    
+    // Upload the MP4 to Gemini API
+    const uploadResult = await genAI.files.upload({
+      file: mp4FilePath,
+      config: {
+        mimeType: 'video/mp4',
+        displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
       }
+    });
+
+    const name = uploadResult.name;
+    if (!name) {
+      throw new Error(`Unable to extract file name from upload result.`);
+    }
+
+    // Wait for video processing
+    let file = await genAI.files.get({ name: name });
+    let attempts = 0;
+    while (file.state === 'PROCESSING' && attempts < 60) {
+      await delay(10000);
+      file = await genAI.files.get({ name: name });
+      attempts++;
+    }
+    
+    if (file.state === 'FAILED') {
+      throw new Error(`Video processing failed for ${sanitizedFileName}.`);
+    }
+
+    // Clean up temporary files
+    await fs.unlink(filePath).catch(() => {});
+    await fs.unlink(mp4FilePath).catch(() => {});
+    
+    // Return the video URI with a note that it's originally a GIF
+    return [
+      {
+        text: `[Animated GIF converted to video format for processing: ${sanitizedFileName}]`
+      },
+      createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+    ];
+    
+  } catch (gifError) {
+    console.error('Error converting GIF to MP4:', gifError);
+    
+    // Fallback: try to upload just the first frame as PNG
+    try {
+      const sharp = (await import('sharp')).default;
+      const pngFilePath = filePath.replace(/\.gif$/i, '.png');
+      await sharp(filePath, { animated: false })
+        .png()
+        .toFile(pngFilePath);
+      
+      const uploadResult = await genAI.files.upload({
+        file: pngFilePath,
+        config: {
+          mimeType: 'image/png',
+          displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
+        }
+      });
+      
+      await fs.unlink(filePath).catch(() => {});
+      await fs.unlink(pngFilePath).catch(() => {});
+      
+      return [
+        {
+          text: `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`
+        },
+        createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+      ];
+    } catch (fallbackError) {
+      throw gifError;
+    }
+  }
+}
       
       // For plain text files, check size - small ones can be inlined
       if (apiUploadableTypes.plainText.extensions.includes(fileExtension)) {
@@ -3974,6 +3976,7 @@ try {
 
 
 client.login(token);
+
 
 
 
