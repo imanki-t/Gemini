@@ -748,120 +748,122 @@ async function processAttachment(attachment, userId, interactionId) {
       await downloadFile(attachment.url, filePath);
       
       // Special handling for GIFs and animated stickers/emojis - convert to MP4
-const isGif = contentType === 'image/gif' || fileExtension === '.gif';
-const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
-const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
-const isFromEmbed = attachment.isFromEmbed; // Check if it's from a Discord embed
-
-// Only convert actual GIF files, not MP4s that are already in video format
-if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentType.includes('video')) {
-  
-  try {
-    // Convert to MP4 using ffmpeg
-    await new Promise((resolve, reject) => {
-      ffmpeg(filePath)
-        .outputOptions([
-          '-movflags', 'faststart',
-          '-pix_fmt', 'yuv420p',
-          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-        ])
-        .output(mp4FilePath)
-        .on('end', resolve)
-        .on('error', reject)
-        .run();
-    });
-    
-    // Upload the MP4 to Gemini API
-    const uploadResult = await genAI.files.upload({
-      file: mp4FilePath,
-      config: {
-        mimeType: 'video/mp4',
-        displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
-      }
-    });
-
-    const name = uploadResult.name;
-    if (!name) {
-      throw new Error(`Unable to extract file name from upload result.`);
-    }
-
-    // Wait for video processing
-    let file = await genAI.files.get({ name: name });
-    let attempts = 0;
-    while (file.state === 'PROCESSING' && attempts < 60) {
-      await delay(10000);
-      file = await genAI.files.get({ name: name });
-      attempts++;
-    }
-    
-    if (file.state === 'FAILED') {
-      throw new Error(`Video processing failed for ${sanitizedFileName}.`);
-    }
-
-    // Clean up temporary files
-    await fs.unlink(filePath).catch(() => {});
-    await fs.unlink(mp4FilePath).catch(() => {});
-    
-    // Determine the type of content with metadata
-    let metadata = '';
-    if (isAnimatedSticker) {
-      metadata = `[Animated Sticker converted to video format: ${attachment.name}]`;
-    } else if (isAnimatedEmoji) {
-      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video format]`;
-    } else {
-      metadata = `[Animated GIF converted to video format: ${sanitizedFileName}]`;
-    }
-    
-    // Return the video URI with metadata
-    return [
-      {
-        text: metadata
-      },
-      createPartFromUri(uploadResult.uri, uploadResult.mimeType)
-    ];
-    
-  } catch (gifError) {
-    console.error('Error converting to MP4:', gifError);
-    
-    // Fallback: try to upload just the first frame as PNG
-    try {
-      const sharp = (await import('sharp')).default;
-      const pngFilePath = filePath.replace(/\.gif$/i, '.png');
-      await sharp(filePath, { animated: false })
-        .png()
-        .toFile(pngFilePath);
+      const isGif = contentType === 'image/gif' || fileExtension === '.gif';
+      const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
+      const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
+      const isFromEmbed = attachment.isFromEmbed;
       
-      const uploadResult = await genAI.files.upload({
-        file: pngFilePath,
-        config: {
-          mimeType: 'image/png',
-          displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
+      // Only convert if it's actually a GIF file and not already an MP4
+      if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentType.includes('video')) {
+        const mp4FilePath = filePath.replace(/\.(gif|png|jpg|jpeg)$/i, '.mp4');
+        
+        try {
+          // Convert to MP4 using ffmpeg
+          await new Promise((resolve, reject) => {
+            ffmpeg(filePath)
+              .outputOptions([
+                '-movflags', 'faststart',
+                '-pix_fmt', 'yuv420p',
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+              ])
+              .output(mp4FilePath)
+              .on('end', resolve)
+              .on('error', reject)
+              .run();
+          });
+          
+          // Upload the MP4 to Gemini API
+          const uploadResult = await genAI.files.upload({
+            file: mp4FilePath,
+            config: {
+              mimeType: 'video/mp4',
+              displayName: sanitizedFileName.replace(/\.(gif|png|jpg|jpeg)$/i, '.mp4'),
+            }
+          });
+
+          const name = uploadResult.name;
+          if (!name) {
+            throw new Error(`Unable to extract file name from upload result.`);
+          }
+
+          // Wait for video processing
+          let file = await genAI.files.get({ name: name });
+          let attempts = 0;
+          while (file.state === 'PROCESSING' && attempts < 60) {
+            await delay(10000);
+            file = await genAI.files.get({ name: name });
+            attempts++;
+          }
+          
+          if (file.state === 'FAILED') {
+            throw new Error(`Video processing failed for ${sanitizedFileName}.`);
+          }
+
+          // Clean up temporary files
+          await fs.unlink(filePath).catch(() => {});
+          await fs.unlink(mp4FilePath).catch(() => {});
+          
+          // Determine the type of content with metadata
+          let metadata = '';
+          if (isAnimatedSticker) {
+            metadata = `[Animated Sticker converted to video format: ${attachment.name}]`;
+          } else if (isAnimatedEmoji) {
+            metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video format]`;
+          } else {
+            metadata = `[Animated GIF converted to video format: ${sanitizedFileName}]`;
+          }
+          
+          // Return the video URI with metadata
+          return [
+            {
+              text: metadata
+            },
+            createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+          ];
+          
+        } catch (gifError) {
+          console.error('Error converting to MP4:', gifError);
+          
+          // Fallback: try to upload just the first frame as PNG
+          try {
+            const sharp = (await import('sharp')).default;
+            const pngFilePath = filePath.replace(/\.(gif|png|jpg|jpeg)$/i, '_frame.png');
+            await sharp(filePath, { animated: false })
+              .png()
+              .toFile(pngFilePath);
+            
+            const uploadResult = await genAI.files.upload({
+              file: pngFilePath,
+              config: {
+                mimeType: 'image/png',
+                displayName: sanitizedFileName.replace(/\.(gif|png|jpg|jpeg)$/i, '_frame.png'),
+              }
+            });
+            
+            await fs.unlink(filePath).catch(() => {});
+            await fs.unlink(pngFilePath).catch(() => {});
+            
+            let fallbackMetadata = '';
+            if (isAnimatedSticker) {
+              fallbackMetadata = `[Static frame from Animated Sticker (conversion failed): ${attachment.name}]`;
+            } else if (isAnimatedEmoji) {
+              fallbackMetadata = `[Static frame from Animated Emoji (conversion failed): :${attachment.emojiName}:]`;
+            } else {
+              fallbackMetadata = `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`;
+            }
+            
+            return [
+              {
+                text: fallbackMetadata
+              },
+              createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+            ];
+          } catch (fallbackError) {
+            console.error('Fallback PNG extraction also failed:', fallbackError);
+            throw gifError;
+          }
         }
-      });
-      
-      await fs.unlink(filePath).catch(() => {});
-      await fs.unlink(pngFilePath).catch(() => {});
-      
-      let fallbackMetadata = '';
-      if (isAnimatedSticker) {
-        fallbackMetadata = `[Static frame from Animated Sticker (conversion failed): ${attachment.name}]`;
-      } else if (isAnimatedEmoji) {
-        fallbackMetadata = `[Static frame from Animated Emoji (conversion failed): :${attachment.emojiName}:]`;
-      } else {
-        fallbackMetadata = `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`;
       }
-      
-      return [
-        {
-          text: fallbackMetadata
-        },
-        createPartFromUri(uploadResult.uri, uploadResult.mimeType)
-      ];
-    } catch (fallbackError) {
-      throw gifError;
-    }
-  }
-}
       
       // For plain text files, check size - small ones can be inlined
       if (apiUploadableTypes.plainText.extensions.includes(fileExtension)) {
@@ -1020,6 +1022,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
     text: `\n\n[Unsupported file type: ${attachment.name}]`
   };      
 }
+       
 
 async function handleButtonInteraction(interaction) {
 if (!interaction.isButton()) return;
@@ -4260,6 +4263,7 @@ try {
 
 
 client.login(token);
+
 
 
 
