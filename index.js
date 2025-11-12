@@ -167,20 +167,50 @@ function extractCustomEmojis(content) {
  */
 async function processStickerAsAttachment(sticker) {
   try {
-    // Check if sticker is animated (APNG, Lottie, or GIF)
-    const isAnimated = sticker.format === 2 || sticker.format === 3 || sticker.format === 4; // APNG, Lottie, or GIF
-    const format = isAnimated ? 'gif' : 'png';
+    // Discord sticker format types:
+    // 1 = PNG (static)
+    // 2 = APNG (animated)
+    // 3 = Lottie (animated JSON)
+    // 4 = GIF (rare/deprecated)
     
-    const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
+    const isAnimated = sticker.format === 2 || sticker.format === 3 || sticker.format === 4;
+    
+    // Determine the correct file extension based on format
+    let extension, contentType, url;
+    
+    if (sticker.format === 3) {
+      // Lottie format - JSON-based animation, not directly supported
+      // Use .png extension as fallback (Discord may provide a static preview)
+      extension = 'png';
+      contentType = 'application/json'; // Mark as Lottie
+      url = `https://media.discordapp.net/stickers/${sticker.id}.png`;
+    } else if (sticker.format === 2) {
+      // APNG format - animated PNG
+      // Discord serves APNG with .png extension (NOT .gif)
+      extension = 'png';
+      contentType = 'image/apng';
+      url = `https://media.discordapp.net/stickers/${sticker.id}.${extension}`;
+    } else if (sticker.format === 4) {
+      // GIF format (rare)
+      extension = 'gif';
+      contentType = 'image/gif';
+      url = `https://media.discordapp.net/stickers/${sticker.id}.${extension}`;
+    } else {
+      // Static PNG (format 1)
+      extension = 'png';
+      contentType = 'image/png';
+      url = `https://media.discordapp.net/stickers/${sticker.id}.${extension}`;
+    }
     
     return {
       id: `sticker-${sticker.id}`,
-      name: `${sticker.name}.${format}`,
+      name: `${sticker.name}.${extension}`,
       url: url,
-      contentType: isAnimated ? 'image/gif' : 'image/png',
+      contentType: contentType,
       size: 0,
       isAnimated: isAnimated,
-      isSticker: true
+      isSticker: true,
+      stickerFormat: sticker.format
     };
   } catch (error) {
     console.error('Error processing sticker:', error);
@@ -751,16 +781,27 @@ async function processAttachment(attachment, userId, interactionId) {
       // Download the file
       await downloadFile(attachment.url, filePath);
       
-      // Special handling for GIFs and animated stickers/emojis - convert to MP4
+      // In processAttachment function, REPLACE the GIF conversion section with this:
+
+// Check for animated content that needs conversion to MP4
 const isGif = contentType === 'image/gif' || fileExtension === '.gif';
-const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
+const isAPNG = contentType === 'image/apng' || attachment.stickerFormat === 2;
+const isAnimatedGifSticker = attachment.isSticker && attachment.isAnimated && attachment.stickerFormat === 4;
 const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
 
-if (isGif || isAnimatedSticker || isAnimatedEmoji) {
-  const mp4FilePath = filePath.replace(/\.(gif|png)$/i, '.mp4');
-  
+// Convert all animated formats (GIF, APNG) to MP4 for Gemini
+if (isGif || isAPNG || isAnimatedGifSticker || isAnimatedEmoji) {
+  const sanitizedFileName = sanitizeFileName(attachment.name);
+  const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
+  const filePath = path.join(TEMP_DIR, uniqueTempFilename);
+
   try {
+    // Download the file
+    await downloadFile(attachment.url, filePath);
+    
     // Convert to MP4 using ffmpeg
+    const mp4FilePath = filePath.replace(/\.(gif|png)$/i, '.mp4');
+    
     await new Promise((resolve, reject) => {
       ffmpeg(filePath)
         .outputOptions([
@@ -805,14 +846,17 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
     await fs.unlink(filePath).catch(() => {});
     await fs.unlink(mp4FilePath).catch(() => {});
     
-    // Determine the type of content with metadata
+    // Create descriptive metadata
     let metadata = '';
-    if (isAnimatedSticker) {
-      metadata = `[Animated Sticker converted to video format: ${attachment.name}]`;
-    } else if (isAnimatedEmoji) {
-      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video format]`;
+    if (attachment.isSticker) {
+      const stickerType = isAPNG ? 'Animated Sticker (APNG)' : 'Animated Sticker (GIF)';
+      metadata = `[${stickerType} converted to video: ${attachment.name}]`;
+    } else if (attachment.isEmoji) {
+      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video]`;
+    } else if (isAPNG) {
+      metadata = `[APNG image converted to video: ${sanitizedFileName}]`;
     } else {
-      metadata = `[Animated GIF converted to video format: ${sanitizedFileName}]`;
+      metadata = `[GIF converted to video: ${sanitizedFileName}]`;
     }
     
     // Return the video URI with metadata
@@ -823,14 +867,14 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
       createPartFromUri(uploadResult.uri, uploadResult.mimeType)
     ];
     
-  } catch (gifError) {
-    console.error('Error converting to MP4:', gifError);
+  } catch (conversionError) {
+    console.error('Error converting to MP4:', conversionError);
     
-    // Fallback: try to upload just the first frame as PNG
+    // Fallback: try to extract and upload just the first frame as PNG
     try {
       const sharp = (await import('sharp')).default;
-      const pngFilePath = filePath.replace(/\.(gif|png)$/i, '.png');
-      await sharp(filePath, { animated: false })
+      const pngFilePath = filePath.replace(/\.(gif|png)$/i, '-frame.png');
+      await sharp(filePath, { animated: false, page: 0 })
         .png()
         .toFile(pngFilePath);
       
@@ -838,7 +882,7 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
         file: pngFilePath,
         config: {
           mimeType: 'image/png',
-          displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '.png'),
+          displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '-frame.png'),
         }
       });
       
@@ -846,12 +890,12 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
       await fs.unlink(pngFilePath).catch(() => {});
       
       let fallbackMetadata = '';
-      if (isAnimatedSticker) {
-        fallbackMetadata = `[Static frame from Animated Sticker (conversion failed): ${attachment.name}]`;
-      } else if (isAnimatedEmoji) {
-        fallbackMetadata = `[Static frame from Animated Emoji (conversion failed): :${attachment.emojiName}:]`;
+      if (attachment.isSticker) {
+        fallbackMetadata = `[Static frame from Animated Sticker (animation conversion failed): ${attachment.name}]`;
+      } else if (attachment.isEmoji) {
+        fallbackMetadata = `[Static frame from Animated Emoji (animation conversion failed): :${attachment.emojiName}:]`;
       } else {
-        fallbackMetadata = `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`;
+        fallbackMetadata = `[Static frame from animation (conversion failed): ${sanitizedFileName}]`;
       }
       
       return [
@@ -861,10 +905,24 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
         createPartFromUri(uploadResult.uri, uploadResult.mimeType)
       ];
     } catch (fallbackError) {
-      throw gifError;
+      // Final fallback: just describe it as text
+      console.error('All conversion attempts failed:', fallbackError);
+      await fs.unlink(filePath).catch(() => {});
+      
+      if (attachment.isSticker) {
+        return {
+          text: `[Animated Sticker: ${attachment.name} - could not be processed]`
+        };
+      } else if (attachment.isEmoji) {
+        return {
+          text: `[Animated Emoji: :${attachment.emojiName}: - could not be processed]`
+        };
+      }
+      throw conversionError;
     }
   }
 }
+      
       
       // For plain text files, check size - small ones can be inlined
       if (apiUploadableTypes.plainText.extensions.includes(fileExtension)) {
@@ -4306,6 +4364,7 @@ try {
 
 
 client.login(token);
+
 
 
 
