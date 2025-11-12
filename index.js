@@ -209,7 +209,7 @@ async function processEmojiAsAttachment(emoji) {
 }
 
 let activityIndex = 0;
-client.once('ready', async () => {
+client.once('clientReady', async () => {
 console.log(`Logged in as ${client.user.tag}!`);
 
 const rest = new REST().setToken(token);
@@ -751,9 +751,10 @@ async function processAttachment(attachment, userId, interactionId) {
 const isGif = contentType === 'image/gif' || fileExtension === '.gif';
 const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
 const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
+const isFromEmbed = attachment.isFromEmbed; // Check if it's from a Discord embed
 
-if (isGif || isAnimatedSticker || isAnimatedEmoji) {
-  const mp4FilePath = filePath.replace(/\.gif$/i, '.mp4');
+// Only convert actual GIF files, not MP4s that are already in video format
+if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentType.includes('video')) {
   
   try {
     // Convert to MP4 using ffmpeg
@@ -3300,11 +3301,17 @@ if (message.embeds && message.embeds.length > 0) {
     
     if (isTenor || isGiphy) {
       // Discord /gif embeds have the actual media in video.url (for MP4) or image.url (for GIF)
+      // Priority: video > image > thumbnail
       const mediaUrl = embed.video?.url || embed.video?.proxyURL || 
                        embed.image?.url || embed.image?.proxyURL || 
                        embed.thumbnail?.url || embed.thumbnail?.proxyURL;
       
       if (mediaUrl) {
+        // Determine if it's a video (MP4) or image (GIF)
+        const isVideo = mediaUrl.includes('.mp4') || embed.video?.url;
+        const contentType = isVideo ? 'video/mp4' : 'image/gif';
+        const extension = isVideo ? 'mp4' : 'gif';
+        
         gifLinks.push(mediaUrl);
         
         // Add context about the GIF to message content
@@ -3348,85 +3355,36 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
   }
 
 
-  // Process GIF links from Tenor/Giphy
+  // Process GIF links from Tenor/Giphy (including from embeds)
 const gifLinkAttachments = [];
 for (const gifUrl of gifLinks) {
   try {
     // Extract a meaningful name from the URL
-    let gifName = 'tenor_gif.gif';
-    if (gifUrl.includes('tenor.com')) {
-      const nameMatch = gifUrl.match(/\/view\/([^\/\-]+)/);
-      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'tenor_gif.gif';
-    } else if (gifUrl.includes('giphy.com')) {
-      const nameMatch = gifUrl.match(/\/gifs\/([^\/\-]+)/);
-      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'giphy_gif.gif';
+    let gifName = 'gif_content';
+    const extension = gifUrl.includes('.mp4') ? '.mp4' : '.gif';
+    
+    if (gifUrl.includes('tenor.com') || gifUrl.includes('media.tenor.co')) {
+      const nameMatch = gifUrl.match(/\/([^\/\-]+)(?:\.gif|\.mp4)?$/);
+      gifName = nameMatch ? `tenor_${nameMatch[1]}${extension}` : `tenor_gif${extension}`;
+    } else if (gifUrl.includes('giphy.com') || gifUrl.includes('media.giphy.com')) {
+      const nameMatch = gifUrl.match(/\/([^\/\-]+)(?:\.gif|\.mp4)?$/);
+      gifName = nameMatch ? `giphy_${nameMatch[1]}${extension}` : `giphy_gif${extension}`;
+    } else {
+      gifName = `gif_content${extension}`;
     }
     
-    // Convert Tenor/Giphy page URLs to direct GIF/MP4 URLs if needed
-    let directGifUrl = gifUrl;
-    
-    // Handle media.tenor.com or media.giphy.com direct links (already direct)
-    if (gifUrl.includes('media.tenor.com') || gifUrl.includes('media.giphy.com')) {
-      directGifUrl = gifUrl;
-    }
-    // Handle Tenor view links
-    else if (gifUrl.includes('tenor.com/view/')) {
-      try {
-        // Try adding .gif first (simpler approach)
-        if (!gifUrl.endsWith('.gif')) {
-          directGifUrl = gifUrl + '.gif';
-        }
-        
-        // Verify the URL works by attempting to fetch it
-        const testResponse = await axios.head(directGifUrl, { timeout: 3000 }).catch(() => null);
-        if (!testResponse || testResponse.status !== 200) {
-          // Fallback: scrape the page for the actual media URL
-          const response = await axios.get(gifUrl, { timeout: 5000 });
-          const htmlContent = response.data;
-          
-          // Try to find MP4 or GIF URLs in the page
-          const mp4Match = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.mp4)"/);
-          const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.gif)"/);
-          
-          if (mp4Match) {
-            directGifUrl = mp4Match[1].replace(/\\u002F/g, '/');
-          } else if (gifMatch) {
-            directGifUrl = gifMatch[1].replace(/\\u002F/g, '/');
-          }
-        }
-      } catch (error) {
-        console.error('Error processing Tenor URL:', error);
-        continue;
-      }
-    }
-    // Handle Giphy page links
-    else if (gifUrl.includes('giphy.com/gifs/')) {
-      try {
-        const response = await axios.get(gifUrl, { timeout: 5000 });
-        const htmlContent = response.data;
-        const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
-        if (gifMatch) {
-          directGifUrl = gifMatch[1];
-        } else {
-          // Try adding .gif to the URL
-          directGifUrl = gifUrl + (gifUrl.endsWith('.gif') ? '' : '.gif');
-        }
-      } catch (error) {
-        console.error('Error processing Giphy URL:', error);
-        continue;
-      }
-    }
-    
+    // Use the URL directly - no need to convert since Discord already provides the right format
     gifLinkAttachments.push({
       id: `gif-link-${Date.now()}-${Math.random()}`,
       name: gifName,
-      url: directGifUrl,
-      contentType: 'image/gif',
+      url: gifUrl,
+      contentType: extension === '.mp4' ? 'video/mp4' : 'image/gif',
       size: 0,
-      isGifLink: true
+      isGifLink: true,
+      isFromEmbed: true
     });
     
-    // Remove the link from message content
+    // Remove the link from message content if it exists
     messageContent = messageContent.replace(gifUrl, '').trim();
   } catch (error) {
     console.error('Error processing GIF link:', error);
@@ -4302,6 +4260,7 @@ try {
 
 
 client.login(token);
+
 
 
 
