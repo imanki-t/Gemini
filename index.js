@@ -167,16 +167,18 @@ function extractCustomEmojis(content) {
  */
 async function processStickerAsAttachment(sticker) {
   try {
-    // Check if sticker is animated (Lottie or APNG)
-    const isAnimated = sticker.format === 3 || sticker.format === 4; // APNG or LOTTIE
+    // Check if sticker is animated (APNG, Lottie, or GIF)
+    const isAnimated = sticker.format === 2 || sticker.format === 3 || sticker.format === 4; // APNG, Lottie, or GIF
     const format = isAnimated ? 'gif' : 'png';
     
     const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
     
     return {
+      id: `sticker-${sticker.id}`,
       name: `${sticker.name}.${format}`,
       url: url,
       contentType: isAnimated ? 'image/gif' : 'image/png',
+      size: 0,
       isAnimated: isAnimated,
       isSticker: true
     };
@@ -195,9 +197,11 @@ async function processEmojiAsAttachment(emoji) {
     const url = `https://cdn.discordapp.com/emojis/${emoji.id}.${extension}`;
     
     return {
+      id: `emoji-${emoji.id}`,
       name: `${emoji.name}.${extension}`,
       url: url,
       contentType: emoji.animated ? 'image/gif' : 'image/png',
+      size: 0,
       isAnimated: emoji.animated,
       isEmoji: true,
       emojiName: emoji.name
@@ -753,7 +757,7 @@ const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
 const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
 
 if (isGif || isAnimatedSticker || isAnimatedEmoji) {
-  const mp4FilePath = filePath.replace(/\.gif$/i, '.mp4');
+  const mp4FilePath = filePath.replace(/\.(gif|png)$/i, '.mp4');
   
   try {
     // Convert to MP4 using ffmpeg
@@ -775,7 +779,7 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
       file: mp4FilePath,
       config: {
         mimeType: 'video/mp4',
-        displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
+        displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '.mp4'),
       }
     });
 
@@ -825,7 +829,7 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
     // Fallback: try to upload just the first frame as PNG
     try {
       const sharp = (await import('sharp')).default;
-      const pngFilePath = filePath.replace(/\.gif$/i, '.png');
+      const pngFilePath = filePath.replace(/\.(gif|png)$/i, '.png');
       await sharp(filePath, { animated: false })
         .png()
         .toFile(pngFilePath);
@@ -834,7 +838,7 @@ if (isGif || isAnimatedSticker || isAnimatedEmoji) {
         file: pngFilePath,
         config: {
           mimeType: 'image/png',
-          displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
+          displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '.png'),
         }
       });
       
@@ -4302,6 +4306,7 @@ try {
 
 
 client.login(token);
+
 
 
 
