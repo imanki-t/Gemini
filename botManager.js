@@ -280,7 +280,7 @@ function removeFileData(histories) {
   }
 }
 
-// --- NEW HELPER FUNCTION FOR TIME FORMATTING ---
+// --- HELPER FUNCTION FOR TIME FORMATTING ---
 function formatDuration(milliseconds) {
   const seconds = Math.floor(milliseconds / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -292,7 +292,7 @@ function formatDuration(milliseconds) {
   if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''}`;
   return `${seconds} second${seconds > 1 ? 's' : ''}`;
 }
-// -----------------------------------------------
+// -------------------------------------------
 
 function scheduleDailyReset() {
   try {
@@ -485,4 +485,5 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-}
+
+    
