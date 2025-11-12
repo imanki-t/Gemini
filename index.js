@@ -3558,7 +3558,12 @@ for (const gifUrl of gifLinks) {
 
     messageContent = await extractFileText(message, messageContent);
     parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
-    hasMedia = parts.some(part => part.text === undefined);
+    
+    // Check if any parts contain media (not just text)
+    hasMedia = parts.some(part => {
+      // A part is media if it doesn't have text, or has fileUri/fileData
+      return part.text === undefined || part.fileUri || part.fileData;
+    });
 
   } catch (error) {
     console.error('Error initializing message:', error);
@@ -3605,12 +3610,16 @@ for (const gifUrl of gifLinks) {
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
 
-  // FIXED: Always include all tools - let the AI decide when to use them
+  // FIXED: Always include search tools - let the AI decide when to use them
   const tools = [
-  { googleSearch: {} },
-  { urlContext: {} }
-];
-if (!hasMedia) { tools.push({ codeExecution: {} }); }
+    { googleSearch: {} },
+    { urlContext: {} }
+  ];
+  
+  // Only add code execution if there's no media (images, videos, audio, GIFs)
+  if (!hasMedia) {
+    tools.push({ codeExecution: {} });
+  }
 const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
 
 const chat = genAI.chats.create({ 
@@ -4328,6 +4337,7 @@ try {
 
 
 client.login(token);
+
 
 
 
