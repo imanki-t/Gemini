@@ -280,6 +280,20 @@ function removeFileData(histories) {
   }
 }
 
+// --- NEW HELPER FUNCTION FOR TIME FORMATTING ---
+function formatDuration(milliseconds) {
+  const seconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
+  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''}`;
+  if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+  return `${seconds} second${seconds > 1 ? 's' : ''}`;
+}
+// -----------------------------------------------
+
 function scheduleDailyReset() {
   try {
     const now = new Date();
@@ -352,24 +366,48 @@ export function getHistory(id, guildId = null) {
     combinedHistory = combinedHistory.slice(-maxMessages);
   }
 
-  const apiHistory = combinedHistory.map(entry => {
+  const apiHistory = [];
+  let previousTimestamp = null;
+  const timeThresholdMs = 30 * 60 * 1000; // 30 minutes threshold
+
+  for (const entry of combinedHistory) {
+    let timePassed = "";
+    
+    // Only calculate time elapsed if there was a previous message
+    if (previousTimestamp) {
+      const timeDiffMs = entry.timestamp - previousTimestamp;
+
+      // Only add a time context note if the gap is greater than the threshold (30 minutes)
+      if (timeDiffMs > timeThresholdMs) { 
+          const durationString = formatDuration(timeDiffMs);
+          timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+      }
+    }
+    
+    previousTimestamp = entry.timestamp; // Update for the next iteration
+
     let textContent = entry.content
       .filter(part => part.text !== undefined)
       .map(part => part.text)
       .join('\n');
+      
+    // Prepend the time passed note to the content
+    textContent = timePassed + textContent;
 
     // Add user attribution
     if (entry.role === 'user' && entry.username && entry.displayName) {
       textContent = `[${entry.displayName} (@${entry.username})]: ${textContent}`;
     }
 
-    return {
-      role: entry.role === 'assistant' ? 'model' : entry.role,
-      parts: [{
-        text: textContent
-      }]
-    };
-  }).filter(entry => entry.parts.length > 0 && entry.parts[0].text);
+    if (textContent.trim()) {
+      apiHistory.push({
+        role: entry.role === 'assistant' ? 'model' : entry.role,
+        parts: [{
+          text: textContent
+        }]
+      });
+    }
+  }
 
   return apiHistory;
 }
@@ -446,3 +484,5 @@ process.on('SIGTERM', async () => {
   await db.closeDB();
   process.exit(0);
 });
+
+}
