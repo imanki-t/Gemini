@@ -164,21 +164,47 @@ function extractCustomEmojis(content) {
 
 /**
  * Converts stickers to attachments
+ * Discord Sticker Format Types:
+ * 1 = PNG (static)
+ * 2 = APNG (animated)
+ * 3 = Lottie (animated)
+ * 4 = GIF (animated)
  */
 async function processStickerAsAttachment(sticker) {
   try {
-    // Check if sticker is animated (Lottie or APNG)
-    const isAnimated = sticker.format === 3 || sticker.format === 4; // APNG or LOTTIE
-    const format = isAnimated ? 'gif' : 'png';
+    // Check if sticker is animated
+    // Format 1 = PNG (static), Format 2 = APNG, Format 3 = Lottie, Format 4 = GIF
+    const isAnimated = sticker.format === 2 || sticker.format === 3 || sticker.format === 4;
     
-    const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
+    // Discord CDN URLs for stickers
+    // APNG/Lottie stickers are served as PNG from this endpoint, but they're animated
+    // We'll try to get them in a format that works
+    let extension = 'png';
+    let contentType = 'image/png';
+    
+    if (sticker.format === 4) {
+      // GIF format
+      extension = 'gif';
+      contentType = 'image/gif';
+    } else if (sticker.format === 2) {
+      // APNG format - Discord serves these as .png but they're animated
+      extension = 'png';
+      contentType = 'image/apng';
+    } else if (sticker.format === 3) {
+      // Lottie format - served as .json
+      extension = 'json';
+      contentType = 'application/json';
+    }
+    
+    const url = `https://media.discordapp.net/stickers/${sticker.id}.${extension}`;
     
     return {
-      name: `${sticker.name}.${format}`,
+      name: `${sticker.name}.${extension}`,
       url: url,
-      contentType: isAnimated ? 'image/gif' : 'image/png',
+      contentType: contentType,
       isAnimated: isAnimated,
-      isSticker: true
+      isSticker: true,
+      stickerFormat: sticker.format // Store the format for later processing
     };
   } catch (error) {
     console.error('Error processing sticker:', error);
@@ -4302,6 +4328,7 @@ try {
 
 
 client.login(token);
+
 
 
 
