@@ -753,13 +753,10 @@ const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
 const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
 const isFromEmbed = attachment.isFromEmbed; // Check if it's from a Discord embed
 
-// Only convert actual GIF files and animated stickers/emojis, not MP4s that are already in video format
+// Only convert actual GIF files, not MP4s that are already in video format
 if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentType.includes('video')) {
   
   try {
-    // Define the MP4 output path BEFORE using it
-    const mp4FilePath = filePath.replace(/\.(gif|png)$/i, '.mp4');
-    
     // Convert to MP4 using ffmpeg
     await new Promise((resolve, reject) => {
       ffmpeg(filePath)
@@ -779,7 +776,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
       file: mp4FilePath,
       config: {
         mimeType: 'video/mp4',
-        displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '.mp4'),
+        displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
       }
     });
 
@@ -829,7 +826,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
     // Fallback: try to upload just the first frame as PNG
     try {
       const sharp = (await import('sharp')).default;
-      const pngFilePath = filePath.replace(/\.(gif|png)$/i, '_frame.png');
+      const pngFilePath = filePath.replace(/\.gif$/i, '.png');
       await sharp(filePath, { animated: false })
         .png()
         .toFile(pngFilePath);
@@ -838,7 +835,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
         file: pngFilePath,
         config: {
           mimeType: 'image/png',
-          displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '.png'),
+          displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
         }
       });
       
@@ -4263,7 +4260,6 @@ try {
 
 
 client.login(token);
-
 
 
 
