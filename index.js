@@ -167,18 +167,33 @@ function extractCustomEmojis(content) {
  */
 async function processStickerAsAttachment(sticker) {
   try {
-    // Check if sticker is animated (Lottie or APNG)
-    const isAnimated = sticker.format === 3 || sticker.format === 4; // APNG or LOTTIE
-    const format = isAnimated ? 'gif' : 'png';
+    // Check if sticker is animated
+    // Format: 1=PNG (static), 2=APNG (animated), 3=Lottie (animated), 4=GIF (animated)
+    const isAnimated = sticker.format === 2 || sticker.format === 3 || sticker.format === 4;
     
-    const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
+    let format, url;
+    
+    if (sticker.format === 3) {
+      // Lottie format - returns JSON, needs special handling
+      format = 'json';
+      url = `https://media.discordapp.net/stickers/${sticker.id}.json`;
+    } else if (isAnimated) {
+      // APNG or GIF - try to get as PNG first, will be animated
+      format = 'png';
+      url = `https://media.discordapp.net/stickers/${sticker.id}.png`;
+    } else {
+      // Static PNG
+      format = 'png';
+      url = `https://media.discordapp.net/stickers/${sticker.id}.png`;
+    }
     
     return {
       name: `${sticker.name}.${format}`,
       url: url,
-      contentType: isAnimated ? 'image/gif' : 'image/png',
+      contentType: format === 'json' ? 'application/json' : (isAnimated ? 'image/apng' : 'image/png'),
       isAnimated: isAnimated,
-      isSticker: true
+      isSticker: true,
+      stickerFormat: sticker.format
     };
   } catch (error) {
     console.error('Error processing sticker:', error);
@@ -678,7 +693,16 @@ try {
 async function processAttachment(attachment, userId, interactionId) {
   const contentType = (attachment.contentType || "").toLowerCase();
   const fileExtension = path.extname(attachment.name).toLowerCase();
-
+  
+  console.log(`Processing attachment: ${attachment.name}, Type: ${contentType}, Extension: ${fileExtension}`);
+  if (attachment.isSticker) {
+    console.log(`Sticker format: ${attachment.stickerFormat}, Animated: ${attachment.isAnimated}`);
+  }
+  if (attachment.isEmoji) {
+    console.log(`Emoji: ${attachment.emojiName}, Animated: ${attachment.isAnimated}`);
+  }
+  
+  // Rest of the function...
   // Define file types that can be DIRECTLY uploaded to Gemini API
   const apiUploadableTypes = {
     // Images
@@ -747,28 +771,51 @@ async function processAttachment(attachment, userId, interactionId) {
       // Download the file
       await downloadFile(attachment.url, filePath);
       
-      // Special handling for GIFs and animated stickers/emojis - convert to MP4
+      // Special handling for animated content - convert to MP4 for Gemini API
 const isGif = contentType === 'image/gif' || fileExtension === '.gif';
+const isApng = contentType === 'image/apng' || attachment.contentType === 'image/apng';
 const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
 const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
-const isFromEmbed = attachment.isFromEmbed; // Check if it's from a Discord embed
+const isFromEmbed = attachment.isFromEmbed;
+const isLottieSticker = attachment.stickerFormat === 3;
 
-// Only convert actual GIF files, not MP4s that are already in video format
-if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentType.includes('video')) {
+// Skip conversion for:
+// 1. Already MP4 files from embeds
+// 2. Lottie stickers (JSON format, can't be converted with ffmpeg)
+const shouldConvert = (isGif || isApng || isAnimatedSticker || isAnimatedEmoji) && 
+                      !isFromEmbed && 
+                      !contentType.includes('video') &&
+                      !isLottieSticker;
+
+if (shouldConvert) {
+  const mp4FilePath = filePath.replace(/\.(gif|png)$/i, '.mp4');
   
   try {
-    // Convert to MP4 using ffmpeg
+    console.log(`Converting animated media to MP4: ${sanitizedFileName}`);
+    
+    // Convert to MP4 using ffmpeg with better error handling
     await new Promise((resolve, reject) => {
-      ffmpeg(filePath)
+      const ffmpegCommand = ffmpeg(filePath)
         .outputOptions([
           '-movflags', 'faststart',
           '-pix_fmt', 'yuv420p',
-          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+          '-t', '10' // Limit to 10 seconds to avoid huge files
         ])
         .output(mp4FilePath)
-        .on('end', resolve)
-        .on('error', reject)
-        .run();
+        .on('start', (commandLine) => {
+          console.log('FFmpeg command:', commandLine);
+        })
+        .on('end', () => {
+          console.log('Conversion successful');
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error('FFmpeg conversion error:', err.message);
+          reject(err);
+        });
+      
+      ffmpegCommand.run();
     });
     
     // Upload the MP4 to Gemini API
@@ -776,7 +823,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
       file: mp4FilePath,
       config: {
         mimeType: 'video/mp4',
-        displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
+        displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '.mp4'),
       }
     });
 
@@ -805,11 +852,13 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
     // Determine the type of content with metadata
     let metadata = '';
     if (isAnimatedSticker) {
-      metadata = `[Animated Sticker converted to video format: ${attachment.name}]`;
+      metadata = `[Animated Sticker (${attachment.stickerFormat === 2 ? 'APNG' : 'GIF'}) converted to video: ${attachment.name}]`;
     } else if (isAnimatedEmoji) {
-      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video format]`;
+      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video]`;
+    } else if (isApng) {
+      metadata = `[Animated PNG converted to video: ${sanitizedFileName}]`;
     } else {
-      metadata = `[Animated GIF converted to video format: ${sanitizedFileName}]`;
+      metadata = `[Animated GIF converted to video: ${sanitizedFileName}]`;
     }
     
     // Return the video URI with metadata
@@ -820,14 +869,15 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
       createPartFromUri(uploadResult.uri, uploadResult.mimeType)
     ];
     
-  } catch (gifError) {
-    console.error('Error converting to MP4:', gifError);
+  } catch (conversionError) {
+    console.error('Error converting animated media:', conversionError);
     
-    // Fallback: try to upload just the first frame as PNG
+    // Fallback: try to extract first frame as static image
     try {
       const sharp = (await import('sharp')).default;
-      const pngFilePath = filePath.replace(/\.gif$/i, '.png');
-      await sharp(filePath, { animated: false })
+      const pngFilePath = filePath.replace(/\.(gif|png)$/i, '_static.png');
+      
+      await sharp(filePath, { animated: false, pages: 1 })
         .png()
         .toFile(pngFilePath);
       
@@ -835,7 +885,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
         file: pngFilePath,
         config: {
           mimeType: 'image/png',
-          displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
+          displayName: sanitizedFileName.replace(/\.(gif|png)$/i, '_static.png'),
         }
       });
       
@@ -847,6 +897,8 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
         fallbackMetadata = `[Static frame from Animated Sticker (conversion failed): ${attachment.name}]`;
       } else if (isAnimatedEmoji) {
         fallbackMetadata = `[Static frame from Animated Emoji (conversion failed): :${attachment.emojiName}:]`;
+      } else if (isApng) {
+        fallbackMetadata = `[Static frame from APNG (conversion failed): ${sanitizedFileName}]`;
       } else {
         fallbackMetadata = `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`;
       }
@@ -858,9 +910,20 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentT
         createPartFromUri(uploadResult.uri, uploadResult.mimeType)
       ];
     } catch (fallbackError) {
-      throw gifError;
+      console.error('Fallback extraction also failed:', fallbackError);
+      // Clean up on complete failure
+      await fs.unlink(filePath).catch(() => {});
+      throw conversionError;
     }
   }
+}
+
+// If Lottie sticker, return error message
+if (isLottieSticker) {
+  await fs.unlink(filePath).catch(() => {});
+  return {
+    text: `\n\n[Lottie animated sticker cannot be processed: ${attachment.name}. This format is not supported.]`
+  };
 }
       
       // For plain text files, check size - small ones can be inlined
@@ -4260,6 +4323,7 @@ try {
 
 
 client.login(token);
+
 
 
 
