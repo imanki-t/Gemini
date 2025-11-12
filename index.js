@@ -3425,89 +3425,7 @@ async function handleTextMessage(message) {
 
 
   // Process GIF links from Tenor/Giphy
-const gifLinkAttachments = [];
-for (const gifUrl of gifLinks) {
-  try {
-    // Extract a meaningful name from the URL
-    let gifName = 'tenor_gif.gif';
-    if (gifUrl.includes('tenor.com')) {
-      const nameMatch = gifUrl.match(/\/view\/([^\/\-]+)/);
-      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'tenor_gif.gif';
-    } else if (gifUrl.includes('giphy.com')) {
-      const nameMatch = gifUrl.match(/\/gifs\/([^\/\-]+)/);
-      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'giphy_gif.gif';
-    }
-    
-    // Convert Tenor/Giphy page URLs to direct GIF/MP4 URLs if needed
-    let directGifUrl = gifUrl;
-    
-    // Handle media.tenor.com or media.giphy.com direct links (already direct)
-    if (gifUrl.includes('media.tenor.com') || gifUrl.includes('media.giphy.com')) {
-      directGifUrl = gifUrl;
-    }
-    // Handle Tenor view links
-    else if (gifUrl.includes('tenor.com/view/')) {
-      try {
-        // Try adding .gif first (simpler approach)
-        if (!gifUrl.endsWith('.gif')) {
-          directGifUrl = gifUrl + '.gif';
-        }
         
-        // Verify the URL works by attempting to fetch it
-        const testResponse = await axios.head(directGifUrl, { timeout: 3000 }).catch(() => null);
-        if (!testResponse || testResponse.status !== 200) {
-          // Fallback: scrape the page for the actual media URL
-          const response = await axios.get(gifUrl, { timeout: 5000 });
-          const htmlContent = response.data;
-          
-          // Try to find MP4 or GIF URLs in the page
-          const mp4Match = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.mp4)"/);
-          const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.gif)"/);
-          
-          if (mp4Match) {
-            directGifUrl = mp4Match[1].replace(/\\u002F/g, '/');
-          } else if (gifMatch) {
-            directGifUrl = gifMatch[1].replace(/\\u002F/g, '/');
-          }
-        }
-      } catch (error) {
-        console.error('Error processing Tenor URL:', error);
-        continue;
-      }
-    }
-    // Handle Giphy page links
-    else if (gifUrl.includes('giphy.com/gifs/')) {
-      try {
-        const response = await axios.get(gifUrl, { timeout: 5000 });
-        const htmlContent = response.data;
-        const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
-        if (gifMatch) {
-          directGifUrl = gifMatch[1];
-        } else {
-          // Try adding .gif to the URL
-          directGifUrl = gifUrl + (gifUrl.endsWith('.gif') ? '' : '.gif');
-        }
-      } catch (error) {
-        console.error('Error processing Giphy URL:', error);
-        continue;
-      }
-    }
-    
-    gifLinkAttachments.push({
-      id: `gif-link-${Date.now()}-${Math.random()}`,
-      name: gifName,
-      url: directGifUrl,
-      contentType: 'image/gif',
-      size: 0,
-      isGifLink: true
-    });  
-    
-    // Remove the link from message content
-    messageContent = messageContent.replace(gifUrl, '').trim();
-  } catch (error) {
-    console.error('Error processing GIF link:', error);
-  }
-}
   // Process custom emojis (with rate limiting to max 5)
   const customEmojis = extractCustomEmojis(messageContent);
   const limitedEmojis = customEmojis.slice(0, 5);
@@ -4387,6 +4305,7 @@ try {
 
 
 client.login(token);
+
 
 
 
