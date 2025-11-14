@@ -1012,8 +1012,8 @@ const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
 const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
 const isFromEmbed = attachment.isFromEmbed; // Check if it's from a Discord embed
 
-// Only convert actual GIF files, not MP4s that are already in video format
-if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !isFromEmbed && !contentType.includes('video')) {
+// Only convert actual GIF files (not MP4s that are already in video format)
+if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('video')) {
   
   try {
     // Convert to MP4 using ffmpeg
@@ -4539,6 +4539,7 @@ try {
 
 
 client.login(token);
+
 
 
 
