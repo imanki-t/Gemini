@@ -43,5 +43,12 @@ export default {
     continuousReply: true,
     customPersonality: null,
     embedColor: "#5865F2"
+  },
+  // Poll handling configuration
+  pollConfig: {
+    maxPollsPerMinute: 3,
+    maxResultsPerMinute: 5,
+    autoRespondToPolls: true,
+    minVotesForAnalysis: 1
   }
 };
