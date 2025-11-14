@@ -167,16 +167,46 @@ function extractCustomEmojis(content) {
  */
 async function processStickerAsAttachment(sticker) {
   try {
-    // Check if sticker is animated (Lottie or APNG)
-    const isAnimated = sticker.format === 3 || sticker.format === 4; // APNG or LOTTIE
-    const format = isAnimated ? 'gif' : 'png';
+    let format;
+    let contentType;
+    let isAnimated;
+
+    switch (sticker.format) {
+      case 1: // PNG
+        format = 'png';
+        contentType = 'image/png';
+        isAnimated = false;
+        break;
+      case 2: // APNG (Static) - Treat as PNG
+        format = 'png';
+        contentType = 'image/png';
+        isAnimated = false;
+        break;
+      case 3: // APNG (Animated)
+        format = 'png';
+        contentType = 'image/png';
+        isAnimated = true;
+        break;
+      case 4: // LOTTIE (JSON)
+        // Lottie files are JSON, but Discord proxy can serve a GIF.
+        // The existing ffmpeg conversion logic expects a GIF.
+        format = 'gif';
+        contentType = 'image/gif';
+        isAnimated = true;
+        break;
+      default:
+        // Fallback for unknown/future formats
+        format = 'png';
+        contentType = 'image/png';
+        isAnimated = false;
+    }
     
     const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
     
     return {
       name: `${sticker.name}.${format}`,
       url: url,
-      contentType: isAnimated ? 'image/gif' : 'image/png',
+      contentType: contentType,
       isAnimated: isAnimated,
       isSticker: true
     };
@@ -185,6 +215,7 @@ async function processStickerAsAttachment(sticker) {
     return null;
   }
 }
+
 
 /**
  * Converts custom emoji to attachment
@@ -4260,6 +4291,7 @@ try {
 
 
 client.login(token);
+
 
 
 
