@@ -169,33 +169,30 @@ async function processStickerAsAttachment(sticker) {
   try {
     let format;
     let contentType;
-    let isAnimated;
+    let isAnimated = true; // Most stickers are animated, default to true
 
+    // Based on Discord API: 1: PNG, 2: APNG, 3: LOTTIE, 4: GIF
     switch (sticker.format) {
       case 1: // PNG
         format = 'png';
         contentType = 'image/png';
         isAnimated = false;
         break;
-      case 2: // APNG (Static) - Treat as PNG
-        format = 'png';
+      case 2: // APNG
+        format = 'png'; // APNGs use the .png extension
         contentType = 'image/png';
-        isAnimated = false;
         break;
-      case 3: // APNG (Animated)
-        format = 'png';
-        contentType = 'image/png';
-        isAnimated = true;
+      case 3: // LOTTIE
+        // Discord's proxy serves Lottie files as GIFs
+        format = 'gif'; 
+        contentType = 'image/gif';
         break;
-      case 4: // LOTTIE (JSON)
-        // Lottie files are JSON, but Discord proxy can serve a GIF.
-        // The existing ffmpeg conversion logic expects a GIF.
+      case 4: // GIF
         format = 'gif';
         contentType = 'image/gif';
-        isAnimated = true;
         break;
       default:
-        // Fallback for unknown/future formats
+        // Fallback for unknown formats
         format = 'png';
         contentType = 'image/png';
         isAnimated = false;
@@ -215,6 +212,7 @@ async function processStickerAsAttachment(sticker) {
     return null;
   }
 }
+
 
 
 /**
@@ -4291,6 +4289,7 @@ try {
 
 
 client.login(token);
+
 
 
 
