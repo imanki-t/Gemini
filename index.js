@@ -167,41 +167,30 @@ function extractCustomEmojis(content) {
  */
 async function processStickerAsAttachment(sticker) {
   try {
-    let format;
-    let contentType;
-    let isAnimated = true; // Most stickers are animated, default to true
+    // sticker.format: 1 = PNG, 2 = APNG, 3 = LOTTIE, 4 = GIF
+    const isAnimated = sticker.format === 2 || sticker.format === 3 || sticker.format === 4;
+    let contentType = 'image/png'; // Default for format 1
+    let fileExtension = '.png';
+    let url = sticker.url; // Use the URL directly from discord.js
 
-    // Based on Discord API: 1: PNG, 2: APNG, 3: LOTTIE, 4: GIF
-    switch (sticker.format) {
-      case 1: // PNG
-        format = 'png';
-        contentType = 'image/png';
-        isAnimated = false;
-        break;
-      case 2: // APNG
-        format = 'png'; // APNGs use the .png extension
-        contentType = 'image/png';
-        break;
-      case 3: // LOTTIE
-        // Discord's proxy serves Lottie files as GIFs
-        format = 'gif'; 
-        contentType = 'image/gif';
-        break;
-      case 4: // GIF
-        format = 'gif';
-        contentType = 'image/gif';
-        break;
-      default:
-        // Fallback for unknown formats
-        format = 'png';
-        contentType = 'image/png';
-        isAnimated = false;
+    if (sticker.format === 2) { // APNG
+      contentType = 'image/png';
+      fileExtension = '.png';
+    } else if (sticker.format === 3) { // LOTTIE
+      contentType = 'application/json';
+      fileExtension = '.json';
+    } else if (sticker.format === 4) { // GIF
+      contentType = 'image/gif';
+      fileExtension = '.gif';
+      // Per Discord docs, GIF stickers must use the media.discordapp.net endpoint
+      url = `https://media.discordapp.net/stickers/${sticker.id}.gif`;
     }
     
-    const url = `https://media.discordapp.net/stickers/${sticker.id}.${format}`;
-    
+    // Ensure the file name has the correct extension
+    const name = sticker.name.endsWith(fileExtension) ? sticker.name : `${sticker.name}${fileExtension}`;
+
     return {
-      name: `${sticker.name}.${format}`,
+      name: name,
       url: url,
       contentType: contentType,
       isAnimated: isAnimated,
@@ -4289,6 +4278,7 @@ try {
 
 
 client.login(token);
+
 
 
 
