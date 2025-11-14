@@ -128,6 +128,203 @@ const activities = config.activities.map(activity => ({
 name: activity.name,
 type: ActivityType[activity.type]
 }));
+
+// ========== ADD THIS ENTIRE SECTION ==========
+// Poll rate limiting system
+const pollRateLimits = {
+  polls: new Map(), // channelId -> { count, resetTime }
+  results: new Map(), // channelId -> { count, resetTime }
+  maxPollsPerMinute: 3,
+  maxResultsPerMinute: 5,
+  processedPolls: new Set(), // Store processed poll message IDs to avoid duplicates
+  processedResults: new Set() // Store processed result message IDs
+};
+
+// Clean up old entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  
+  // Clean poll rate limits
+  for (const [channelId, data] of pollRateLimits.polls.entries()) {
+    if (now > data.resetTime) {
+      pollRateLimits.polls.delete(channelId);
+    }
+  }
+  
+  // Clean result rate limits
+  for (const [channelId, data] of pollRateLimits.results.entries()) {
+    if (now > data.resetTime) {
+      pollRateLimits.results.delete(channelId);
+    }
+  }
+  
+  // Clean old processed IDs (keep last 1000)
+  if (pollRateLimits.processedPolls.size > 1000) {
+    const arr = Array.from(pollRateLimits.processedPolls);
+    pollRateLimits.processedPolls = new Set(arr.slice(-1000));
+  }
+  if (pollRateLimits.processedResults.size > 1000) {
+    const arr = Array.from(pollRateLimits.processedResults);
+    pollRateLimits.processedResults = new Set(arr.slice(-1000));
+  }
+}, 300000);
+
+/**
+ * Check if a poll can be processed in this channel
+ */
+function canProcessPoll(channelId) {
+  const now = Date.now();
+  const limit = pollRateLimits.polls.get(channelId);
+  
+  if (!limit || now > limit.resetTime) {
+    pollRateLimits.polls.set(channelId, {
+      count: 1,
+      resetTime: now + 60000 // 1 minute
+    });
+    return true;
+  }
+  
+  if (limit.count >= pollRateLimits.maxPollsPerMinute) {
+    return false;
+  }
+  
+  limit.count++;
+  return true;
+}
+
+/**
+ * Check if poll results can be processed in this channel
+ */
+function canProcessPollResults(channelId) {
+  const now = Date.now();
+  const limit = pollRateLimits.results.get(channelId);
+  
+  if (!limit || now > limit.resetTime) {
+    pollRateLimits.results.set(channelId, {
+      count: 1,
+      resetTime: now + 60000 // 1 minute
+    });
+    return true;
+  }
+  
+  if (limit.count >= pollRateLimits.maxResultsPerMinute) {
+    return false;
+  }
+  
+  limit.count++;
+  return true;
+}
+
+/**
+ * Extract poll data from a message
+ */
+function extractPollData(message) {
+  if (!message.poll) return null;
+  
+  const poll = message.poll;
+  const question = poll.question.text;
+  const answers = poll.answers.map(answer => ({
+    id: answer.answerId,
+    text: answer.text,
+    voteCount: answer.voteCount || 0
+  }));
+  
+  const totalVotes = answers.reduce((sum, answer) => sum + answer.voteCount, 0);
+  const isExpired = poll.expiresAt ? new Date(poll.expiresAt) < new Date() : false;
+  const allowMultiselect = poll.allowMultiselect || false;
+  
+  return {
+    question,
+    answers,
+    totalVotes,
+    isExpired,
+    allowMultiselect,
+    expiresAt: poll.expiresAt,
+    layoutType: poll.layoutType
+  };
+}
+
+/**
+ * Format poll data into readable text for AI
+ */
+function formatPollForAI(pollData, messageId, isResults = false) {
+  const header = isResults ? 
+    `[Poll Results - Final]` : 
+    `[Active Poll${pollData.isExpired ? ' (Expired)' : ''}]`;
+  
+  let text = `${header}\n`;
+  text += `Question: ${pollData.question}\n`;
+  text += `Total Votes: ${pollData.totalVotes}\n`;
+  text += `Multiselect: ${pollData.allowMultiselect ? 'Yes' : 'No'}\n`;
+  
+  if (pollData.expiresAt) {
+    text += `Expires: ${new Date(pollData.expiresAt).toLocaleString()}\n`;
+  }
+  
+  text += `\nAnswers:\n`;
+  pollData.answers.forEach((answer, index) => {
+    const percentage = pollData.totalVotes > 0 
+      ? ((answer.voteCount / pollData.totalVotes) * 100).toFixed(1)
+      : '0.0';
+    text += `${index + 1}. ${answer.text}: ${answer.voteCount} votes (${percentage}%)\n`;
+  });
+  
+  if (isResults) {
+    text += `\n[This poll has ended and these are the final results]`;
+  }
+  
+  return text;
+}
+
+/**
+ * Process poll in a message - to be called from handleTextMessage
+ */
+async function processPollInMessage(message, messageContent) {
+  // Check if message has a poll
+  if (!message.poll) return messageContent;
+  
+  const messageId = message.id;
+  const channelId = message.channel.id;
+  
+  // Check if this poll was already processed
+  if (pollRateLimits.processedPolls.has(messageId)) {
+    return messageContent;
+  }
+  
+  // Extract poll data
+  const pollData = extractPollData(message);
+  if (!pollData) return messageContent;
+  
+  // Determine if this is a results message (poll has ended)
+  const isResults = pollData.isExpired && pollData.totalVotes > 0;
+  
+  // Check rate limits
+  if (isResults) {
+    if (!canProcessPollResults(channelId)) {
+      console.log(`Poll results rate limit reached for channel ${channelId}`);
+      return messageContent;
+    }
+    pollRateLimits.processedResults.add(messageId);
+  } else {
+    if (!canProcessPoll(channelId)) {
+      console.log(`Poll rate limit reached for channel ${channelId}`);
+      return messageContent;
+    }
+    pollRateLimits.processedPolls.add(messageId);
+  }
+  
+  // Format poll data for AI
+  const pollText = formatPollForAI(pollData, messageId, isResults);
+  
+  // Append to message content
+  if (messageContent.trim()) {
+    return `${messageContent}\n\n${pollText}`;
+  } else {
+    return pollText;
+  }
+}
+// ========== END OF POLL SYSTEM ADDITION ==========
+
 const defaultPersonality = config.defaultPersonality;
 const workInDMs = config.workInDMs;
 
@@ -276,6 +473,50 @@ client.on('guildCreate', async (guild) => {
     console.error('Error sending welcome message:', error);
   }
 });
+
+// ========== ADD THIS ENTIRE EVENT LISTENER ==========
+// Listen for poll vote updates
+client.on('messagePollVoteAdd', async (pollAnswer, userId) => {
+  try {
+    const message = pollAnswer.poll.message;
+    if (!message) return;
+    
+    const channelId = message.channel.id;
+    const guildId = message.guild?.id;
+    
+    // Don't process if bot or in blacklist
+    if (userId === client.user.id) return;
+    if (guildId) {
+      initializeBlacklistForGuild(guildId);
+      if (state.blacklistedUsers[guildId]?.includes(userId)) return;
+    }
+    
+    // Extract poll data to check if ended
+    const pollData = extractPollData(message);
+    if (!pollData) return;
+    
+    // Only process if poll has ended and has votes
+    if (!pollData.isExpired || pollData.totalVotes === 0) return;
+    
+    // Check if we already processed this poll's results
+    if (pollRateLimits.processedResults.has(message.id)) return;
+    
+    // Check rate limit
+    if (!canProcessPollResults(channelId)) {
+      console.log(`Poll results rate limit reached for channel ${channelId}`);
+      return;
+    }
+    
+    // Mark as processed
+    pollRateLimits.processedResults.add(message.id);
+    
+    console.log(`Poll ended: "${pollData.question}" - ${pollData.totalVotes} total votes`);
+    
+  } catch (error) {
+    console.error('Error handling poll vote:', error);
+  }
+});
+// ========== END OF POLL VOTE LISTENER ==========
 
 client.on('messageCreate', async (message) => {
 try {
@@ -3431,7 +3672,7 @@ for (const gifUrl of gifLinks) {
     }
   }
   
-  // Combine all attachments
+// Combine all attachments
   const regularAttachments = Array.from(message.attachments.values());
   const allAttachments = [
   ...regularAttachments, 
@@ -3441,6 +3682,10 @@ for (const gifUrl of gifLinks) {
   ...gifLinkAttachments  // Add GIF links from Tenor/Giphy (includes embed GIFs)
 ];
   
+  // ========== ADD THIS SECTION ==========
+  // Process poll if present
+  messageContent = await processPollInMessage(message, messageContent);
+  // ========== END ADDITION ==========
   
   const hasAnyContent = messageContent !== '' || 
                         (allAttachments.length > 0 && allAttachments.some(att => {
@@ -3463,6 +3708,22 @@ for (const gifUrl of gifLinks) {
     if (activeRequests.has(userId)) {
       activeRequests.delete(userId);
     }
+    
+    // ========== ADD THIS CHECK ==========
+    // Check if the message had a poll that was rate-limited
+    if (message.poll && !pollRateLimits.processedPolls.has(message.id) && 
+        !pollRateLimits.processedResults.has(message.id)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFFAA00)
+        .setTitle('⏳ Rate Limit')
+        .setDescription('Too many polls are being processed right now. Please try again in a minute.');
+      await message.reply({
+        embeds: [embed]
+      });
+      return;
+    }
+    // ========== END ADDITION ==========
+    
     // No settings button - just simple message
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
@@ -4278,6 +4539,7 @@ try {
 
 
 client.login(token);
+
 
 
 
