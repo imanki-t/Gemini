@@ -76,6 +76,19 @@ class MemorySystem {
     return text.trim();
   }
 
+  // Helper function to format time duration
+  formatDuration(milliseconds) {
+    const seconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''}`;
+    if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+    return `${seconds} second${seconds > 1 ? 's' : ''}`;
+  }
+
   async compressOldMessages(messages, model) {
     if (messages.length <= 5) return messages;
 
@@ -112,7 +125,8 @@ class MemorySystem {
         role: 'user',
         content: [{
           text: `[Previous conversation summary: ${summary}]`
-        }]
+        }],
+        timestamp: Date.now()
       }];
     } catch (error) {
       console.error('Compression failed:', error);
@@ -182,13 +196,53 @@ class MemorySystem {
 
       if (historyArray.length === 0) return [];
 
+      // If history is short enough, return it with time context and attribution
       if (historyArray.length <= MAX_FULL_MESSAGES) {
-        return historyArray.map(entry => ({
-          role: entry.role === 'assistant' ? 'model' : entry.role,
-          parts: entry.content.filter(part => part.text !== undefined)
-        })).filter(entry => entry.parts.length > 0);
+        // Sort by timestamp
+        historyArray.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        
+        let previousTimestamp = null;
+        const timeThresholdMs = 30 * 60 * 1000; // 30 minutes
+
+        return historyArray.map(entry => {
+          const apiEntry = {
+            role: entry.role === 'assistant' ? 'model' : entry.role,
+            parts: []
+          };
+
+          // Extract text content
+          let textContent = entry.content
+            .filter(part => part.text !== undefined)
+            .map(part => part.text)
+            .join('\n');
+
+          // Add time elapsed context if gap > 30 minutes
+          let timePassed = "";
+          if (previousTimestamp && entry.timestamp) {
+            const timeDiffMs = entry.timestamp - previousTimestamp;
+            if (timeDiffMs > timeThresholdMs) {
+              const durationString = this.formatDuration(timeDiffMs);
+              timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+            }
+          }
+          previousTimestamp = entry.timestamp;
+
+          // Add user attribution if this is a user message with user info
+          if (entry.role === 'user' && entry.username && entry.displayName) {
+            textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+          } else {
+            textContent = timePassed + textContent;
+          }
+
+          if (textContent.trim()) {
+            apiEntry.parts.push({ text: textContent });
+          }
+
+          return apiEntry;
+        }).filter(entry => entry.parts.length > 0);
       }
 
+      // For longer histories, use RAG with compression
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
 
@@ -216,36 +270,58 @@ class MemorySystem {
         ...recentMessages
       ];
 
+      // Remove duplicates while preserving order
       const uniqueMessages = Array.from(
         new Map(combined.map(msg => [
-          this.extractTextFromMessage(msg),
+          this.extractTextFromMessage(msg) + (msg.timestamp || ''),
           msg
         ])).values()
       );
 
+      // Sort by timestamp to maintain chronological order
+      uniqueMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+      // Apply time context and user attribution
+      let previousTimestamp = null;
+      const timeThresholdMs = 30 * 60 * 1000; // 30 minutes
+
       return uniqueMessages.map(entry => {
-  const apiEntry = {
-    role: entry.role === 'assistant' ? 'model' : entry.role,
-    parts: []
-  };
+        const apiEntry = {
+          role: entry.role === 'assistant' ? 'model' : entry.role,
+          parts: []
+        };
 
-  // Extract text content
-  let textContent = entry.content
-    .filter(part => part.text !== undefined)
-    .map(part => part.text)
-    .join('\n');
+        // Extract text content
+        let textContent = entry.content
+          .filter(part => part.text !== undefined)
+          .map(part => part.text)
+          .join('\n');
 
-  // Add user attribution if this is a user message with user info
-  if (entry.role === 'user' && entry.username && entry.displayName) {
-    textContent = `[${entry.displayName} (@${entry.username})]: ${textContent}`;
-  }
+        // Add time elapsed context if gap > 30 minutes
+        let timePassed = "";
+        if (previousTimestamp && entry.timestamp) {
+          const timeDiffMs = entry.timestamp - previousTimestamp;
+          if (timeDiffMs > timeThresholdMs) {
+            const durationString = this.formatDuration(timeDiffMs);
+            timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+          }
+        }
+        previousTimestamp = entry.timestamp;
 
-  if (textContent.trim()) {
-    apiEntry.parts.push({ text: textContent });
-  }
+        // Add user attribution if this is a user message with user info
+        if (entry.role === 'user' && entry.username && entry.displayName) {
+          textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+        } else {
+          textContent = timePassed + textContent;
+        }
 
-  return apiEntry;
-}).filter(entry => entry.parts.length > 0);
+        if (textContent.trim()) {
+          apiEntry.parts.push({ text: textContent });
+        }
+
+        return apiEntry;
+      }).filter(entry => entry.parts.length > 0);
+      
     } catch (error) {
       console.error('History optimization failed:', error);
       return [];
