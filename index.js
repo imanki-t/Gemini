@@ -4443,10 +4443,12 @@ while (attempts > 0 && !stopGeneration) {
     }
 
     if (newHistory.length > 1) {
-      await chatHistoryLock.runExclusive(async () => {
-        updateChatHistory(historyId, newHistory, finalMessage.id);
-        await saveStateToFile();
-      });
+  await chatHistoryLock.runExclusive(async () => {
+    const username = originalMessage.author.username;
+    const displayName = originalMessage.author.displayName;
+    updateChatHistory(historyId, newHistory, finalMessage.id, username, displayName);
+    await saveStateToFile();
+  });
     }
     break;
   } catch (error) {
@@ -4668,6 +4670,7 @@ try {
 
 
 client.login(token);
+
 
 
 
