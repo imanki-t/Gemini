@@ -4049,28 +4049,8 @@ async function extractFileText(message, messageContent) {
   const messageLinks = messageContent.match(discordLinkRegex);
   
   if (messageLinks && messageLinks.length > 0) {
-    // Check if the linked message is a poll - if so, skip processing it
-    for (const link of messageLinks) {
-      const parsed = parseDiscordMessageLink(link);
-      if (parsed) {
-        const { guildId, channelId, messageId } = parsed;
-        const guild = client.guilds.cache.get(guildId);
-        if (guild) {
-          const channel = guild.channels.cache.get(channelId);
-          if (channel) {
-            const linkedMessage = await channel.messages.fetch(messageId).catch(() => null);
-            if (linkedMessage && linkedMessage.poll) {
-              // This is a poll link - remove it from processing
-              messageContent = messageContent.replace(link, '').trim();
-              messageContent += '\n\n[Note: Poll links are not supported and have been ignored]';
-              continue;
-            }
-          }
-        }
-      }
-    }
     
-    // Continue with existing message summarization logic...
+    
     const patterns = [
       /(?:summarize|summarise|summary).*?(?:around|next|following|from)\s+(\d+)\s+messages?/i,
       /(?:around|next|following|from)\s+(\d+)\s+messages?/i,
@@ -4666,6 +4646,7 @@ try {
 
 
 client.login(token);
+
 
 
 
