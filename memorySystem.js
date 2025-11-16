@@ -1,12 +1,12 @@
 import { genAI } from './botManager.js';
 import * as db from './database.js';
 
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
 const MAX_FULL_MESSAGES = 30; // The most recent messages to keep in active context
 const COMPRESSION_THRESHOLD = 60;
-const INDEX_BATCH_SIZE = 10; // Index every 20 messages
+const INDEX_BATCH_SIZE = 20; // Index every 20 messages
 
 class MemorySystem {
   constructor() {
