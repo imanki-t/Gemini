@@ -3653,7 +3653,8 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Extract GIF links from embeds and add them to message content as plain URLs
+  // Extract GIF links from embeds and create pseudo-attachments
+const gifPseudoAttachments = [];
 if (message.embeds && message.embeds.length > 0) {
   for (const embed of message.embeds) {
     // Check if this is a Tenor/Giphy embed
@@ -3684,15 +3685,24 @@ if (message.embeds && message.embeds.length > 0) {
         mediaUrl = embed.url;
       }
       
-      // If we found a media URL, add it to message content
-      if (mediaUrl && !messageContent.includes(mediaUrl)) {
-        messageContent += `\n${mediaUrl}`;
-        console.log(`✅ Extracted GIF link from embed: ${mediaUrl}`);
+      // If we found a media URL, create a pseudo-attachment
+      if (mediaUrl) {
+        const isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
+        const extension = isVideo ? (mediaUrl.includes('.webm') ? '.webm' : '.mp4') : '.gif';
+        const contentType = isVideo ? (mediaUrl.includes('.webm') ? 'video/webm' : 'video/mp4') : 'image/gif';
+        
+        gifPseudoAttachments.push({
+          name: `gif_from_embed${extension}`,
+          url: mediaUrl,
+          contentType: contentType,
+          isFromEmbed: true
+        });
+        
+        console.log(`✅ Extracted GIF from embed: ${mediaUrl}`);
       }
     }
   }
 }
-
 // Extract forwarded content including stickers
 const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
   
@@ -3749,13 +3759,14 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
     }
   }
   
-// Combine all attachments - make sure GIF links are included
+// Combine all attachments - include GIFs from embeds
 const regularAttachments = Array.from(message.attachments.values());
 const allAttachments = [
   ...regularAttachments, 
   ...forwardedAttachments, 
   ...stickerAttachments, 
-  ...emojiAttachments
+  ...emojiAttachments,
+  ...gifPseudoAttachments  // Add GIF pseudo-attachments here
 ];
   
   // ========== ADD THIS SECTION ==========
@@ -4621,6 +4632,7 @@ try {
 
 
 client.login(token);
+
 
 
 
