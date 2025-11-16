@@ -276,54 +276,7 @@ function formatPollForAI(pollData, messageId, isResults = false) {
   return text;
 }
 
-/**
- * Process poll in a message - to be called from handleTextMessage
- */
-async function processPollInMessage(message, messageContent) {
-  // Check if message has a poll
-  if (!message.poll) return messageContent;
-  
-  const messageId = message.id;
-  const channelId = message.channel.id;
-  
-  // Check if this poll was already processed
-  if (pollRateLimits.processedPolls.has(messageId)) {
-    return messageContent;
-  }
-  
-  // Extract poll data
-  const pollData = extractPollData(message);
-  if (!pollData) return messageContent;
-  
-  // Determine if this is a results message (poll has ended)
-  const isResults = pollData.isExpired && pollData.totalVotes > 0;
-  
-  // Check rate limits
-  if (isResults) {
-    if (!canProcessPollResults(channelId)) {
-      console.log(`Poll results rate limit reached for channel ${channelId}`);
-      return messageContent;
-    }
-    pollRateLimits.processedResults.add(messageId);
-  } else {
-    if (!canProcessPoll(channelId)) {
-      console.log(`Poll rate limit reached for channel ${channelId}`);
-      return messageContent;
-    }
-    pollRateLimits.processedPolls.add(messageId);
-  }
-  
-  // Format poll data for AI
-  const pollText = formatPollForAI(pollData, messageId, isResults);
-  
-  // Append to message content
-  if (messageContent.trim()) {
-    return `${messageContent}\n\n${pollText}`;
-  } else {
-    return pollText;
-  }
-}
-// ========== END OF POLL SYSTEM ADDITION ==========
+
 
 const defaultPersonality = config.defaultPersonality;
 const workInDMs = config.workInDMs;
@@ -3838,16 +3791,13 @@ const allAttachments = [
   ...gifLinkAttachments   // NEW NAME - matches the working version
 ];
   
-  // ========== ADD THIS SECTION ==========
-  // Process poll ONLY if user explicitly mentions analyzing it
-const mentionsPoll = /\b(poll|vote|voting|survey|results?)\b/i.test(messageContent);
-if (message.poll && mentionsPoll) {
-  messageContent = await processPollInMessage(message, messageContent);
-} else if (message.poll && !mentionsPoll) {
-  // User sent a poll but didn't ask about it - ignore it completely
-  console.log(`Ignoring poll in message ${message.id} - no explicit request to analyze it`);
-}
-  // ========== END ADDITION ==========
+  // Completely ignore all polls - don't process them at all
+  if (message.poll) {
+    if (activeRequests.has(userId)) {
+      activeRequests.delete(userId);
+    }
+    return; // Exit early, don't respond to poll messages
+  }
   
   const hasAnyContent = messageContent !== '' || 
                         (allAttachments.length > 0 && allAttachments.some(att => {
@@ -3870,21 +3820,6 @@ if (message.poll && mentionsPoll) {
     if (activeRequests.has(userId)) {
       activeRequests.delete(userId);
     }
-    
-    // ========== ADD THIS CHECK ==========
-    // Check if the message had a poll that was rate-limited
-    if (message.poll && !pollRateLimits.processedPolls.has(message.id) && 
-        !pollRateLimits.processedResults.has(message.id)) {
-      const embed = new EmbedBuilder()
-        .setColor(0xFFAA00)
-        .setTitle('⏳ Rate Limit')
-        .setDescription('Too many polls are being processed right now. Please try again in a minute.');
-      await message.reply({
-        embeds: [embed]
-      });
-      return;
-    }
-    // ========== END ADDITION ==========
     
     // No settings button - just simple message
     const embed = new EmbedBuilder()
@@ -4106,6 +4041,28 @@ async function extractFileText(message, messageContent) {
   const messageLinks = messageContent.match(discordLinkRegex);
   
   if (messageLinks && messageLinks.length > 0) {
+    // Check if the linked message is a poll - if so, skip processing it
+    for (const link of messageLinks) {
+      const parsed = parseDiscordMessageLink(link);
+      if (parsed) {
+        const { guildId, channelId, messageId } = parsed;
+        const guild = client.guilds.cache.get(guildId);
+        if (guild) {
+          const channel = guild.channels.cache.get(channelId);
+          if (channel) {
+            const linkedMessage = await channel.messages.fetch(messageId).catch(() => null);
+            if (linkedMessage && linkedMessage.poll) {
+              // This is a poll link - remove it from processing
+              messageContent = messageContent.replace(link, '').trim();
+              messageContent += '\n\n[Note: Poll links are not supported and have been ignored]';
+              continue;
+            }
+          }
+        }
+      }
+    }
+    
+    // Continue with existing message summarization logic...
     const patterns = [
       /(?:summarize|summarise|summary).*?(?:around|next|following|from)\s+(\d+)\s+messages?/i,
       /(?:around|next|following|from)\s+(\d+)\s+messages?/i,
@@ -4701,6 +4658,7 @@ try {
 
 
 client.login(token);
+
 
 
 
