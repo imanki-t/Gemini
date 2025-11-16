@@ -223,11 +223,29 @@ class MemorySystem {
         ])).values()
       );
 
-      return uniqueMessages.map(entry => ({
-        role: entry.role === 'assistant' ? 'model' : entry.role,
-        parts: entry.content.filter(part => part.text !== undefined)
-      })).filter(entry => entry.parts.length > 0);
+      return uniqueMessages.map(entry => {
+  const apiEntry = {
+    role: entry.role === 'assistant' ? 'model' : entry.role,
+    parts: []
+  };
 
+  // Extract text content
+  let textContent = entry.content
+    .filter(part => part.text !== undefined)
+    .map(part => part.text)
+    .join('\n');
+
+  // Add user attribution if this is a user message with user info
+  if (entry.role === 'user' && entry.username && entry.displayName) {
+    textContent = `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+  }
+
+  if (textContent.trim()) {
+    apiEntry.parts.push({ text: textContent });
+  }
+
+  return apiEntry;
+}).filter(entry => entry.parts.length > 0);
     } catch (error) {
       console.error('History optimization failed:', error);
       return [];
