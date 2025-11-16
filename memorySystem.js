@@ -4,40 +4,18 @@ import * as db from './database.js';
 const EMBEDDING_MODEL = 'text-embedding-004';
 const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
-const MAX_FULL_MESSAGES = 30;
+const MAX_FULL_MESSAGES = 30; // The most recent messages to keep in active context
 const COMPRESSION_THRESHOLD = 60;
-const INDEX_BATCH_SIZE = 20; // 🔥 Index every 20 messages
-const QUEUE_CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
-const QUEUE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days
+const INDEX_BATCH_SIZE = 10; // Index every 20 messages
 
 class MemorySystem {
   constructor() {
     this.embeddingCache = new Map();
-    this.indexingQueue = new Map(); // Track messages waiting to be indexed
+    this.indexingQueue = new Map(); // Track messages waiting to be indexed (used for diagnostics)
     this.lastIndexedCount = new Map(); // Track last indexed message count per history
-    
-    // Start cleanup interval
-    this.startQueueCleanup();
   }
 
-  startQueueCleanup() {
-    setInterval(() => {
-      const now = Date.now();
-      let cleaned = 0;
-      
-      // Clean up old indexing queue entries
-      for (const [historyId, data] of this.indexingQueue.entries()) {
-        if (now - data.timestamp > QUEUE_EXPIRY) {
-          this.indexingQueue.delete(historyId);
-          cleaned++;
-        }
-      }
-      
-      if (cleaned > 0) {
-        console.log(`✅ Cleaned ${cleaned} expired indexing queue entries`);
-      }
-    }, QUEUE_CLEANUP_INTERVAL);
-  }
+  // startQueueCleanup() method has been removed.
 
   async generateEmbedding(text) {
     const cacheKey = text.slice(0, 100);
@@ -207,7 +185,6 @@ class MemorySystem {
     }
   }
 
-  // 🔥 NEW: Check and trigger instant indexing every 20 messages
   async checkAndIndexMessages(historyId, allHistory) {
     try {
       const historyArray = [];
@@ -225,7 +202,7 @@ class MemorySystem {
       if (messagesSinceLastIndex >= INDEX_BATCH_SIZE) {
         console.log(`🔄 Auto-indexing ${messagesSinceLastIndex} new messages for ${historyId}`);
         
-        // Get the unindexed messages (everything after MAX_FULL_MESSAGES, excluding recent)
+        // Get the unindexed messages (everything before the recent 30 messages)
         const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
         
         if (oldMessages.length > 0) {
@@ -263,7 +240,7 @@ class MemorySystem {
 
       if (historyArray.length === 0) return [];
 
-      // 🔥 NEW: Trigger instant indexing check (non-blocking)
+      // Trigger instant indexing check (non-blocking)
       this.checkAndIndexMessages(historyId, allHistory).catch(console.error);
 
       // If history is short enough, return it with time context and attribution
@@ -351,17 +328,7 @@ class MemorySystem {
     }).filter(entry => entry.parts.length > 0);
   }
 
-  async cleanupOldMemories(daysOld = 30) {
-    try {
-      const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
-      const deleted = await db.deleteOldMemoryEntries(cutoffTime);
-      console.log(`✅ Cleaned up ${deleted} memories older than ${daysOld} days`);
-      return deleted;
-    } catch (error) {
-      console.error('Memory cleanup failed:', error);
-      return 0;
-    }
-  }
+  // cleanupOldMemories() method has been removed.
 
   getQueueStatus() {
     return {
@@ -375,7 +342,6 @@ class MemorySystem {
     };
   }
 
-  // 🔥 NEW: Force immediate indexing for a specific history
   async forceIndexNow(historyId) {
     try {
       const allHistory = await db.getChatHistory(historyId);
@@ -422,3 +388,4 @@ class MemorySystem {
 }
 
 export const memorySystem = new MemorySystem();
+      
