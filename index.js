@@ -3653,56 +3653,125 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Extract GIF links from embeds and create pseudo-attachments
-const gifPseudoAttachments = [];
+  // Extract GIF links from Tenor/Giphy BEFORE extracting forwarded content
+const gifLinks = [];
+const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.gif|media\.giphy\.com\/media\/[^\s]+\/giphy\.gif)/gi;
+let gifMatch;
+
+while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
+  gifLinks.push(gifMatch[0]);
+}
+
+// Also check for GIFs in embeds (Discord's /gif and /tenor commands)
 if (message.embeds && message.embeds.length > 0) {
   for (const embed of message.embeds) {
-    // Check if this is a Tenor/Giphy embed
-    const isTenor = embed.provider?.name?.toLowerCase() === 'tenor' || 
-                    embed.url?.includes('tenor.com');
-    const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy' || 
-                    embed.url?.includes('giphy.com');
-    const isGifEmbed = embed.type === 'gifv';
+    const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
+    const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
     
-    if (isTenor || isGiphy || isGifEmbed) {
-      // Extract the actual media URL
-      let mediaUrl = null;
+    if (isTenor || isGiphy) {
+      // Discord /gif embeds have the actual media in video.url (for MP4) or image.url (for GIF)
+      const mediaUrl = embed.video?.url || embed.video?.proxyURL || 
+                       embed.image?.url || embed.image?.proxyURL || 
+                       embed.thumbnail?.url || embed.thumbnail?.proxyURL;
       
-      // Try all possible locations
-      if (embed.video?.proxyURL) {
-        mediaUrl = embed.video.proxyURL;
-      } else if (embed.video?.url) {
-        mediaUrl = embed.video.url;
-      } else if (embed.image?.proxyURL) {
-        mediaUrl = embed.image.proxyURL;
-      } else if (embed.image?.url) {
-        mediaUrl = embed.image.url;
-      } else if (embed.thumbnail?.proxyURL) {
-        mediaUrl = embed.thumbnail.proxyURL;
-      } else if (embed.thumbnail?.url) {
-        mediaUrl = embed.thumbnail.url;
-      } else if (embed.url) {
-        mediaUrl = embed.url;
-      }
-      
-      // If we found a media URL, create a pseudo-attachment
       if (mediaUrl) {
-        const isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-        const extension = isVideo ? (mediaUrl.includes('.webm') ? '.webm' : '.mp4') : '.gif';
-        const contentType = isVideo ? (mediaUrl.includes('.webm') ? 'video/webm' : 'video/mp4') : 'image/gif';
+        gifLinks.push(mediaUrl);
         
-        gifPseudoAttachments.push({
-          name: `gif_from_embed${extension}`,
-          url: mediaUrl,
-          contentType: contentType,
-          isFromEmbed: true
-        });
-        
-        console.log(`✅ Extracted GIF from embed: ${mediaUrl}`);
+        // Add context about the GIF to message content
+        const gifDescription = embed.description || embed.title || embed.url || 'GIF';
+        const contextText = `[User sent a ${embed.provider?.name || 'GIF'}${gifDescription !== 'GIF' ? ': ' + gifDescription : ''}]`;
+        if (!messageContent.includes(contextText)) {
+          messageContent += `\n${contextText}`;
+        }
       }
     }
   }
 }
+
+// Process GIF links from Tenor/Giphy
+const gifLinkAttachments = [];
+for (const gifUrl of gifLinks) {
+  try {
+    // Extract a meaningful name from the URL
+    let gifName = 'tenor_gif.gif';
+    if (gifUrl.includes('tenor.com')) {
+      const nameMatch = gifUrl.match(/\/view\/([^\/\-]+)/);
+      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'tenor_gif.gif';
+    } else if (gifUrl.includes('giphy.com')) {
+      const nameMatch = gifUrl.match(/\/gifs\/([^\/\-]+)/);
+      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'giphy_gif.gif';
+    }
+    
+    // Convert Tenor/Giphy page URLs to direct GIF/MP4 URLs if needed
+    let directGifUrl = gifUrl;
+    
+    // Handle media.tenor.com or media.giphy.com direct links (already direct)
+    if (gifUrl.includes('media.tenor.com') || gifUrl.includes('media.giphy.com')) {
+      directGifUrl = gifUrl;
+    }
+    // Handle Tenor view links
+    else if (gifUrl.includes('tenor.com/view/')) {
+      try {
+        // Try adding .gif first (simpler approach)
+        if (!gifUrl.endsWith('.gif')) {
+          directGifUrl = gifUrl + '.gif';
+        }
+        
+        // Verify the URL works by attempting to fetch it
+        const testResponse = await axios.head(directGifUrl, { timeout: 3000 }).catch(() => null);
+        if (!testResponse || testResponse.status !== 200) {
+          // Fallback: scrape the page for the actual media URL
+          const response = await axios.get(gifUrl, { timeout: 5000 });
+          const htmlContent = response.data;
+          
+          // Try to find MP4 or GIF URLs in the page
+          const mp4Match = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.mp4)"/);
+          const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.gif)"/);
+          
+          if (mp4Match) {
+            directGifUrl = mp4Match[1].replace(/\\u002F/g, '/');
+          } else if (gifMatch) {
+            directGifUrl = gifMatch[1].replace(/\\u002F/g, '/');
+          }
+        }
+      } catch (error) {
+        console.error('Error processing Tenor URL:', error);
+        continue;
+      }
+    }
+    // Handle Giphy page links
+    else if (gifUrl.includes('giphy.com/gifs/')) {
+      try {
+        const response = await axios.get(gifUrl, { timeout: 5000 });
+        const htmlContent = response.data;
+        const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
+        if (gifMatch) {
+          directGifUrl = gifMatch[1];
+        } else {
+          // Try adding .gif to the URL
+          directGifUrl = gifUrl + (gifUrl.endsWith('.gif') ? '' : '.gif');
+        }
+      } catch (error) {
+        console.error('Error processing Giphy URL:', error);
+        continue;
+      }
+    }
+    
+    gifLinkAttachments.push({
+      id: `gif-link-${Date.now()}-${Math.random()}`,
+      name: gifName,
+      url: directGifUrl,
+      contentType: 'image/gif',
+      size: 0,
+      isGifLink: true
+    });
+    
+    // Remove the link from message content
+    messageContent = messageContent.replace(gifUrl, '').trim();
+  } catch (error) {
+    console.error('Error processing GIF link:', error);
+  }
+  }
 // Extract forwarded content including stickers
 const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
   
@@ -3766,7 +3835,7 @@ const allAttachments = [
   ...forwardedAttachments,
   ...stickerAttachments,
   ...emojiAttachments,
-  ...gifPseudoAttachments   // THIS FIXES /gif GIFs
+  ...gifLinkAttachments   // NEW NAME - matches the working version
 ];
   
   // ========== ADD THIS SECTION ==========
@@ -4632,6 +4701,7 @@ try {
 
 
 client.login(token);
+
 
 
 
