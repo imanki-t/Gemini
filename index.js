@@ -3653,64 +3653,60 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-    // Extract GIF links from embeds and create pseudo-attachments
+      // Extract GIF links from embeds and create pseudo-attachments
   const gifPseudoAttachments = [];
   if (message.embeds && message.embeds.length > 0) {
     for (const embed of message.embeds) {
-      // Check if this is a Tenor/Giphy embed
-      const isTenor = embed.provider?.name?.toLowerCase() === 'tenor' ||
-        embed.url?.includes('tenor.com');
-      const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy' ||
-        embed.url?.includes('giphy.com');
-      const isGifEmbed = embed.type === 'gifv';
+      let mediaUrl = null;
+      let contentType = 'image/gif'; // Default
+      let extension = '.gif';        // Default
 
-      // NEW: Add checks for any embed that contains a GIF/video URL
-      const hasGifImage = embed.image?.url?.endsWith('.gif');
-      const hasGifVideo = embed.video?.url?.endsWith('.mp4') || embed.video?.url?.endsWith('.webm');
-
-      if (isTenor || isGiphy || isGifEmbed || hasGifImage || hasGifVideo) {
-        // Extract the actual media URL
-        let mediaUrl = null;
-
-        // Try all possible locations
-        if (embed.video?.proxyURL) {
-          mediaUrl = embed.video.proxyURL;
-        } else if (embed.video?.url) {
-          mediaUrl = embed.video.url;
-        } else if (embed.image?.proxyURL) {
-          mediaUrl = embed.image.proxyURL;
-        } else if (embed.image?.url) {
-          mediaUrl = embed.image.url;
-        } else if (embed.thumbnail?.proxyURL) {
-          mediaUrl = embed.thumbnail.proxyURL;
-        } else if (embed.thumbnail?.url) {
-          mediaUrl = embed.thumbnail.url;
-        } else if (embed.url) {
-          mediaUrl = embed.url;
+      // A /gif command creates a 'gifv' embed, which is a video.
+      if (embed.type === 'gifv' && embed.video?.url) {
+        mediaUrl = embed.video.url;
+        // It's a video, so treat it as such
+        isVideo = true;
+        extension = mediaUrl.includes('.webm') ? '.webm' : '.mp4';
+        contentType = mediaUrl.includes('.webm') ? 'video/webm' : 'video/mp4';
+      
+      } 
+      // A standard pasted link might be an 'image' embed.
+      else if (embed.type === 'image' && embed.image?.url) {
+        mediaUrl = embed.image.url;
+        if (mediaUrl.endsWith('.gif')) {
+          contentType = 'image/gif';
+          extension = '.gif';
+        } else {
+          // It's a static image, but we'll try to process it anyway.
+          contentType = 'image/png';
+          extension = '.png';
         }
+      } 
+      // Fallback for other weird embeds that have a URL
+      else if (!mediaUrl && embed.url && (embed.url.includes('.gif') || embed.url.includes('.mp4') || embed.url.includes('.webm'))) {
+          mediaUrl = embed.url;
+          if (mediaUrl.includes('.mp4') || mediaUrl.includes('.webm')) {
+            extension = mediaUrl.includes('.webm') ? '.webm' : '.mp4';
+            contentType = mediaUrl.includes('.webm') ? 'video/webm' : 'video/mp4';
+          }
+      }
 
-        // If we found a media URL, create a pseudo-attachment
-        if (mediaUrl) {
-          const isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-          const extension = isVideo ? (mediaUrl.includes('.webm') ? '.webm' : '.mp4') : '.gif';
-          const contentType = isVideo ? (mediaUrl.includes('.webm') ? 'video/webm' : 'video/mp4') : 'image/gif';
-
+      // If we found a media URL, create a pseudo-attachment
+      if (mediaUrl) {
+        // Check if this GIF is already in the list (prevents duplicates)
+        if (!gifPseudoAttachments.some(att => att.url === mediaUrl)) {
           gifPseudoAttachments.push({
             name: `gif_from_embed${extension}`,
             url: mediaUrl,
             contentType: contentType,
             isFromEmbed: true
           });
-
-          console.log(`✅ Extracted GIF from embed: ${mediaUrl}`);
+          console.log(`✅ Extracted media from embed (v3): ${mediaUrl}`);
         }
       }
     }
   }
-
-
-  
-  
+ 
 // Extract forwarded content including stickers
 const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
   
@@ -4640,6 +4636,7 @@ try {
 
 
 client.login(token);
+
 
 
 
