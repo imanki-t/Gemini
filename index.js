@@ -458,12 +458,17 @@ try {
   const channelContinuousReply = state.continuousReplyChannels?.[channelId] || false;
 
   const shouldRespond = (
-    (workInDMs && isDM) ||
-    (guildId && (channelContinuousReply || continuousReply) && !message.mentions.users.has(client.user.id)) ||
-    state.alwaysRespondChannels[channelId] ||
-    (message.mentions.users.has(client.user.id) && !isDM) ||
-    state.activeUsersInChannels[channelId]?.[userId]
-  );
+  // In DMs: only respond if continuous reply is enabled OR bot is mentioned
+  (isDM && workInDMs && (continuousReply || message.mentions.users.has(client.user.id))) ||
+  // In servers: existing logic for server-level continuous reply
+  (guildId && (channelContinuousReply || continuousReply) && !message.mentions.users.has(client.user.id)) ||
+  // Channel-specific always respond setting
+  state.alwaysRespondChannels[channelId] ||
+  // Mentioned in server (and not already handled above)
+  (message.mentions.users.has(client.user.id) && !isDM) ||
+  // Active conversation mode
+  state.activeUsersInChannels[channelId]?.[userId]
+);
 
   if (shouldRespond) {
     if (activeRequests.has(userId)) {
@@ -3904,18 +3909,30 @@ const allAttachments = [
     instructions = effectiveSettings.customPersonality || state.customInstructions[userId];
   }
 
-  let infoStr = '';
-  if (guildId) {
-    const userInfo = {
-      username: message.author.username,
-      displayName: message.author.displayName
-    };
-    infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
-  }
+  // Build user/server context info
+let infoStr = '';
+if (guildId) {
+  // In a server - include both server name and user info
+  const userInfo = {
+    username: message.author.username,
+    displayName: message.author.displayName
+  };
+  infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
+} else {
+  // In DMs - just include user info
+  const userInfo = {
+    username: message.author.username,
+    displayName: message.author.displayName
+  };
+  infoStr = `\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
+}
 
-  const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
-  const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
-  const finalInstructions = isServerChatHistoryEnabled ? (instructions || defaultPersonality) + infoStr : (instructions || defaultPersonality);
+const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
+const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
+
+// ALWAYS include user info in instructions
+const finalInstructions = (instructions || defaultPersonality) + infoStr;
+    
   const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
@@ -3927,7 +3944,12 @@ const allAttachments = [
   { urlContext: {} }
 ];
 if (!hasMedia) { tools.push({ codeExecution: {} }); }
-const optimizedHistory = await memorySystem.getOptimizedHistory(historyId, messageContent, modelName);
+// Use RAG-optimized history with compression and semantic search
+const optimizedHistory = await memorySystem.getOptimizedHistory(
+  historyId, 
+  messageContent, 
+  modelName
+);
 
 const chat = genAI.chats.create({ 
   model: modelName, 
@@ -3942,7 +3964,7 @@ const chat = genAI.chats.create({
     temperature: effectiveSettings.temperature || generationConfig.temperature,
     topP: effectiveSettings.topP || generationConfig.topP,
   }, 
-  history: getHistory(historyId, guildId)
+  history: optimizedHistory  // ✅ NOW USING RAG!
 });
   
   
@@ -4646,6 +4668,7 @@ try {
 
 
 client.login(token);
+
 
 
 
