@@ -3660,31 +3660,49 @@ const processedGifUrls = new Set(); // Track processed URLs to avoid duplicates
 // Check for GIFs in embeds FIRST (Discord's /gif and /tenor commands)
 if (message.embeds && message.embeds.length > 0) {
   for (const embed of message.embeds) {
-    const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
-    const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
+    // FIXED: Check for Tenor/Giphy by URL pattern OR provider name OR video presence
+    const isTenor = embed.provider?.name?.toLowerCase() === 'tenor' || 
+                    embed.url?.includes('tenor.com') ||
+                    embed.video?.url?.includes('tenor.co');
+    const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy' || 
+                    embed.url?.includes('giphy.com') ||
+                    embed.video?.url?.includes('giphy.com');
     
-    if (isTenor || isGiphy) {
+    // CRITICAL: Also check for ANY embed with video but no provider (Discord's native /tenor and /gif)
+    const isGifEmbed = embed.type === 'gifv' || 
+                       (embed.video && !embed.description && message.content.trim() === '');
+    
+    if (isTenor || isGiphy || isGifEmbed) {
       let mediaUrl = null;
       let isVideo = false;
+      let providerName = 'GIF';
       
-      // CRITICAL FIX: Check embed.video FIRST (this is where /tenor and /giphy commands put the media)
-      if (embed.video?.url) {
-        mediaUrl = embed.video.url;
-        isVideo = true;
-      } else if (embed.video?.proxyURL) {
+      // Determine provider name
+      if (isTenor) providerName = 'Tenor';
+      else if (isGiphy) providerName = 'Giphy';
+      
+      // CRITICAL FIX: Check embed.video FIRST (Discord /tenor and /giphy put media here)
+      // For Discord's native commands, prioritize proxyURL over url
+      if (embed.video?.proxyURL) {
         mediaUrl = embed.video.proxyURL;
         isVideo = true;
+      } else if (embed.video?.url) {
+        mediaUrl = embed.video.url;
+        isVideo = true;
       }
-      // Fallback to image if video not found (rare case)
-      else if (embed.image?.url) {
-        mediaUrl = embed.image.url;
-        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-      } else if (embed.image?.proxyURL) {
+      // Fallback to image if video not found
+      else if (embed.image?.proxyURL) {
         mediaUrl = embed.image.proxyURL;
+        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
+      } else if (embed.image?.url) {
+        mediaUrl = embed.image.url;
         isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
       }
       // Last fallback to thumbnail
-      else if (embed.thumbnail?.url) {
+      else if (embed.thumbnail?.proxyURL) {
+        mediaUrl = embed.thumbnail.proxyURL;
+        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
+      } else if (embed.thumbnail?.url) {
         mediaUrl = embed.thumbnail.url;
         isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
       }
@@ -3695,13 +3713,13 @@ if (message.embeds && message.embeds.length > 0) {
         gifLinks.push({
           url: mediaUrl,
           isVideo: isVideo,
-          provider: embed.provider?.name || 'GIF',
+          provider: providerName,
           description: embed.description || '',
-          title: embed.title || '',
-          thumbnailUrl: embed.thumbnail?.url || embed.thumbnail?.proxyURL // Store thumbnail for fallback
+          title: embed.title || embed.url || '',
+          thumbnailUrl: embed.thumbnail?.url || embed.thumbnail?.proxyURL
         });
         
-        console.log(`✅ Extracted ${isVideo ? 'video' : 'GIF'} from ${embed.provider?.name}: ${mediaUrl}`);
+        console.log(`✅ Extracted ${isVideo ? 'video' : 'GIF'} from ${providerName}: ${mediaUrl}`);
       }
     }
   }
@@ -3726,7 +3744,7 @@ while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
       thumbnailUrl: null
     });
     
-    console.log(`Extracted ${isVideo ? 'video' : 'GIF'} from text link: ${gifMatch[0]}`);
+    console.log(`✅ Extracted ${isVideo ? 'video' : 'GIF'} from text link: ${gifMatch[0]}`);
   }
 }
 
@@ -4722,6 +4740,7 @@ try {
 
 
 client.login(token);
+
 
 
 
