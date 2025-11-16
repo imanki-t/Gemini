@@ -474,49 +474,7 @@ client.on('guildCreate', async (guild) => {
   }
 });
 
-// ========== ADD THIS ENTIRE EVENT LISTENER ==========
-// Listen for poll vote updates
-client.on('messagePollVoteAdd', async (pollAnswer, userId) => {
-  try {
-    const message = pollAnswer.poll.message;
-    if (!message) return;
-    
-    const channelId = message.channel.id;
-    const guildId = message.guild?.id;
-    
-    // Don't process if bot or in blacklist
-    if (userId === client.user.id) return;
-    if (guildId) {
-      initializeBlacklistForGuild(guildId);
-      if (state.blacklistedUsers[guildId]?.includes(userId)) return;
-    }
-    
-    // Extract poll data to check if ended
-    const pollData = extractPollData(message);
-    if (!pollData) return;
-    
-    // Only process if poll has ended and has votes
-    if (!pollData.isExpired || pollData.totalVotes === 0) return;
-    
-    // Check if we already processed this poll's results
-    if (pollRateLimits.processedResults.has(message.id)) return;
-    
-    // Check rate limit
-    if (!canProcessPollResults(channelId)) {
-      console.log(`Poll results rate limit reached for channel ${channelId}`);
-      return;
-    }
-    
-    // Mark as processed
-    pollRateLimits.processedResults.add(message.id);
-    
-    console.log(`Poll ended: "${pollData.question}" - ${pollData.totalVotes} total votes`);
-    
-  } catch (error) {
-    console.error('Error handling poll vote:', error);
-  }
-});
-// ========== END OF POLL VOTE LISTENER ==========
+
 
 client.on('messageCreate', async (message) => {
 try {
@@ -3552,30 +3510,29 @@ while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
   gifLinks.push(gifMatch[0]);
 }
 
-// Also check for GIFs in embeds (Discord's /gif and /tenor commands)
+// Check for GIFs in embeds (Discord's /gif and /tenor commands)
 if (message.embeds && message.embeds.length > 0) {
   for (const embed of message.embeds) {
     const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
     const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
     
     if (isTenor || isGiphy) {
-      // Discord /gif embeds have the actual media in video.url (for MP4) or image.url (for GIF)
-      // Priority: video > image > thumbnail
-      const mediaUrl = embed.video?.url || embed.video?.proxyURL || 
-                       embed.image?.url || embed.image?.proxyURL || 
-                       embed.thumbnail?.url || embed.thumbnail?.proxyURL;
+      // Priority order: video.url > video.proxyURL > image.url > image.proxyURL > thumbnail.url
+      const mediaUrl = embed.video?.url || 
+                       embed.video?.proxyURL || 
+                       embed.image?.url || 
+                       embed.image?.proxyURL || 
+                       embed.thumbnail?.url || 
+                       embed.thumbnail?.proxyURL;
       
       if (mediaUrl) {
-        // Determine if it's a video (MP4) or image (GIF)
-        const isVideo = mediaUrl.includes('.mp4') || embed.video?.url;
-        const contentType = isVideo ? 'video/mp4' : 'image/gif';
-        const extension = isVideo ? 'mp4' : 'gif';
-        
         gifLinks.push(mediaUrl);
         
         // Add context about the GIF to message content
-        const gifDescription = embed.description || embed.title || embed.url || 'GIF';
-        const contextText = `[User sent a ${embed.provider?.name || 'GIF'}${gifDescription !== 'GIF' ? ': ' + gifDescription : ''}]`;
+        const gifDescription = embed.description || embed.title || 'GIF';
+        const providerName = embed.provider?.name || 'GIF';
+        const contextText = `[User sent a ${providerName}${gifDescription !== 'GIF' ? ': ' + gifDescription : ''}]`;
+        
         if (!messageContent.includes(contextText)) {
           messageContent += `\n${contextText}`;
         }
@@ -3583,7 +3540,6 @@ if (message.embeds && message.embeds.length > 0) {
     }
   }
 }
-
 // Extract forwarded content including stickers
 const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
   
@@ -3620,24 +3576,39 @@ for (const gifUrl of gifLinks) {
   try {
     // Extract a meaningful name from the URL
     let gifName = 'gif_content';
-    const extension = gifUrl.includes('.mp4') ? '.mp4' : '.gif';
+    let extension = '.gif';
+    
+    // Detect format from URL
+    if (gifUrl.includes('.mp4') || gifUrl.includes('/videos/')) {
+      extension = '.mp4';
+    } else if (gifUrl.includes('.webm')) {
+      extension = '.webm';
+    }
     
     if (gifUrl.includes('tenor.com') || gifUrl.includes('media.tenor.co')) {
-      const nameMatch = gifUrl.match(/\/([^\/\-]+)(?:\.gif|\.mp4)?$/);
+      const nameMatch = gifUrl.match(/\/([^\/\-]+)(?:\.gif|\.mp4|\.webm)?$/);
       gifName = nameMatch ? `tenor_${nameMatch[1]}${extension}` : `tenor_gif${extension}`;
     } else if (gifUrl.includes('giphy.com') || gifUrl.includes('media.giphy.com')) {
-      const nameMatch = gifUrl.match(/\/([^\/\-]+)(?:\.gif|\.mp4)?$/);
+      const nameMatch = gifUrl.match(/\/([^\/\-]+)(?:\.gif|\.mp4|\.webm)?$/);
       gifName = nameMatch ? `giphy_${nameMatch[1]}${extension}` : `giphy_gif${extension}`;
     } else {
       gifName = `gif_content${extension}`;
     }
     
-    // Use the URL directly - no need to convert since Discord already provides the right format
+    // Determine correct content type
+    let contentType = 'image/gif';
+    if (extension === '.mp4') {
+      contentType = 'video/mp4';
+    } else if (extension === '.webm') {
+      contentType = 'video/webm';
+    }
+    
+    // Use the URL directly
     gifLinkAttachments.push({
       id: `gif-link-${Date.now()}-${Math.random()}`,
       name: gifName,
       url: gifUrl,
-      contentType: extension === '.mp4' ? 'video/mp4' : 'image/gif',
+      contentType: contentType,
       size: 0,
       isGifLink: true,
       isFromEmbed: true
@@ -3683,8 +3654,14 @@ for (const gifUrl of gifLinks) {
 ];
   
   // ========== ADD THIS SECTION ==========
-  // Process poll if present
+  // Process poll ONLY if user explicitly mentions analyzing it
+const mentionsPoll = /\b(poll|vote|voting|survey|results?)\b/i.test(messageContent);
+if (message.poll && mentionsPoll) {
   messageContent = await processPollInMessage(message, messageContent);
+} else if (message.poll && !mentionsPoll) {
+  // User sent a poll but didn't ask about it - ignore it completely
+  console.log(`Ignoring poll in message ${message.id} - no explicit request to analyze it`);
+}
   // ========== END ADDITION ==========
   
   const hasAnyContent = messageContent !== '' || 
@@ -4539,6 +4516,7 @@ try {
 
 
 client.login(token);
+
 
 
 
