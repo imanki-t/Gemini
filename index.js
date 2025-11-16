@@ -3660,19 +3660,24 @@ const processedGifUrls = new Set(); // Track processed URLs to avoid duplicates
 // Check for GIFs in embeds FIRST (Discord's /gif and /tenor commands)
 if (message.embeds && message.embeds.length > 0) {
   for (const embed of message.embeds) {
-    // FIXED: Check for Tenor/Giphy by URL pattern OR provider name OR video presence
+    // CRITICAL FIX: Check multiple indicators for GIF embeds
     const isTenor = embed.provider?.name?.toLowerCase() === 'tenor' || 
                     embed.url?.includes('tenor.com') ||
-                    embed.video?.url?.includes('tenor.co');
+                    embed.video?.url?.includes('tenor.co') ||
+                    embed.video?.proxyURL?.includes('tenor.co');
+    
     const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy' || 
                     embed.url?.includes('giphy.com') ||
-                    embed.video?.url?.includes('giphy.com');
+                    embed.video?.url?.includes('giphy.com') ||
+                    embed.video?.proxyURL?.includes('giphy.com');
     
-    // CRITICAL: Also check for ANY embed with video but no provider (Discord's native /tenor and /gif)
-    const isGifEmbed = embed.type === 'gifv' || 
-                       (embed.video && !embed.description && message.content.trim() === '');
+    // CRITICAL: Check for Discord's native /tenor and /gif commands
+    // These create embeds with type 'gifv' or have video but no other content
+    const isNativeGifCommand = embed.type === 'gifv' || 
+                               (embed.video && !embed.description && 
+                                !embed.title && message.content.trim() === '');
     
-    if (isTenor || isGiphy || isGifEmbed) {
+    if (isTenor || isGiphy || isNativeGifCommand) {
       let mediaUrl = null;
       let isVideo = false;
       let providerName = 'GIF';
@@ -3681,8 +3686,7 @@ if (message.embeds && message.embeds.length > 0) {
       if (isTenor) providerName = 'Tenor';
       else if (isGiphy) providerName = 'Giphy';
       
-      // CRITICAL FIX: Check embed.video FIRST (Discord /tenor and /giphy put media here)
-      // For Discord's native commands, prioritize proxyURL over url
+      // CRITICAL FIX: Prioritize proxyURL from video (Discord's native commands use this)
       if (embed.video?.proxyURL) {
         mediaUrl = embed.video.proxyURL;
         isVideo = true;
@@ -4740,6 +4744,7 @@ try {
 
 
 client.login(token);
+
 
 
 
