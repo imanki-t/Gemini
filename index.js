@@ -638,21 +638,21 @@ try {
     tools.push({ codeExecution: {} });
   }
 
-  const chat = genAI.chats.create({
-    model: modelName,
-    config: {
-      systemInstruction: {
-        role: "system",
-        parts: [{
-          text: finalInstructions
-        }]
-      },
-      ...generationConfig,
-      safetySettings,
-      tools
-    },
-    history: getHistory(historyId)
-  });
+  // In handleSearchCommand, replace:
+const chat = genAI.chats.create({
+  model: modelName,
+  config: {
+    systemInstruction: { /*...*/ },
+    ...generationConfig,
+    safetySettings,
+    tools
+  },
+  history: await memorySystem.getOptimizedHistory(
+    historyId, 
+    prompt || 'search query', 
+    modelName
+  )  // ✅ Now uses RAG!
+});
 
   let botMessage = await interaction.editReply({
     content: 'Lumin is thinking...'
@@ -4670,6 +4670,7 @@ try {
 
 
 client.login(token);
+
 
 
 
