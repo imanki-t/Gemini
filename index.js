@@ -3762,11 +3762,11 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
 // Combine all attachments - include GIFs from embeds
 const regularAttachments = Array.from(message.attachments.values());
 const allAttachments = [
-  ...regularAttachments, 
-  ...forwardedAttachments, 
-  ...stickerAttachments, 
+  ...regularAttachments,
+  ...forwardedAttachments,
+  ...stickerAttachments,
   ...emojiAttachments,
-  ...gifPseudoAttachments  // Add GIF pseudo-attachments here
+  ...gifPseudoAttachments   // THIS FIXES /gif GIFs
 ];
   
   // ========== ADD THIS SECTION ==========
@@ -4632,6 +4632,7 @@ try {
 
 
 client.login(token);
+
 
 
 
