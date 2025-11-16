@@ -4,15 +4,37 @@ import * as db from './database.js';
 const EMBEDDING_MODEL = 'text-embedding-004';
 const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
-
-// Reduced from 120 to 30 messages for more efficient context usage
-const MAX_FULL_MESSAGES = 30; // Recent messages to always include
-const COMPRESSION_THRESHOLD = 60; // Start compressing after 60 messages
+const MAX_FULL_MESSAGES = 30;
+const COMPRESSION_THRESHOLD = 60;
+const REINDEX_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+const QUEUE_CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
+const QUEUE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 class MemorySystem {
   constructor() {
     this.embeddingCache = new Map();
     this.compressionQueue = new Map();
+    
+    // Start cleanup interval
+    this.startQueueCleanup();
+  }
+
+  startQueueCleanup() {
+    setInterval(() => {
+      const now = Date.now();
+      let cleaned = 0;
+      
+      for (const [historyId, timestamp] of this.compressionQueue.entries()) {
+        if (now - timestamp > QUEUE_EXPIRY) {
+          this.compressionQueue.delete(historyId);
+          cleaned++;
+        }
+      }
+      
+      if (cleaned > 0) {
+        console.log(`✅ Cleaned ${cleaned} expired compression queue entries`);
+      }
+    }, QUEUE_CLEANUP_INTERVAL);
   }
 
   async generateEmbedding(text) {
@@ -76,7 +98,6 @@ class MemorySystem {
     return text.trim();
   }
 
-  // Helper function to format time duration
   formatDuration(milliseconds) {
     const seconds = Math.floor(milliseconds / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -177,6 +198,8 @@ class MemorySystem {
         timestamp: Date.now(),
         text: conversationText.slice(0, 500)
       });
+      
+      console.log(`✅ Stored ${messages.length} messages with embeddings for ${historyId}`);
     } catch (error) {
       console.error('Memory storage failed:', error);
     }
@@ -198,56 +221,21 @@ class MemorySystem {
 
       // If history is short enough, return it with time context and attribution
       if (historyArray.length <= MAX_FULL_MESSAGES) {
-        // Sort by timestamp
-        historyArray.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-        
-        let previousTimestamp = null;
-        const timeThresholdMs = 30 * 60 * 1000; // 30 minutes
-
-        return historyArray.map(entry => {
-          const apiEntry = {
-            role: entry.role === 'assistant' ? 'model' : entry.role,
-            parts: []
-          };
-
-          // Extract text content
-          let textContent = entry.content
-            .filter(part => part.text !== undefined)
-            .map(part => part.text)
-            .join('\n');
-
-          // Add time elapsed context if gap > 30 minutes
-          let timePassed = "";
-          if (previousTimestamp && entry.timestamp) {
-            const timeDiffMs = entry.timestamp - previousTimestamp;
-            if (timeDiffMs > timeThresholdMs) {
-              const durationString = this.formatDuration(timeDiffMs);
-              timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
-            }
-          }
-          previousTimestamp = entry.timestamp;
-
-          // Add user attribution if this is a user message with user info
-          if (entry.role === 'user' && entry.username && entry.displayName) {
-            textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
-          } else {
-            textContent = timePassed + textContent;
-          }
-
-          if (textContent.trim()) {
-            apiEntry.parts.push({ text: textContent });
-          }
-
-          return apiEntry;
-        }).filter(entry => entry.parts.length > 0);
+        return this.formatHistoryWithContext(historyArray);
       }
 
       // For longer histories, use RAG with compression
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
 
+      // 🔧 FIX: Time-based re-indexing for compression queue
       if (oldMessages.length > 0) {
-        if (!this.compressionQueue.has(historyId)) {
+        const lastCompression = this.compressionQueue.get(historyId) || 0;
+        const timeSinceLastCompression = Date.now() - lastCompression;
+        
+        // Re-index every 24 hours to catch new old messages
+        if (timeSinceLastCompression > REINDEX_INTERVAL) {
+          console.log(`🔄 Re-indexing old messages for ${historyId} (${oldMessages.length} messages)`);
           this.compressionQueue.set(historyId, Date.now());
           this.storeMemoryWithEmbedding(historyId, oldMessages).catch(console.error);
         }
@@ -278,49 +266,9 @@ class MemorySystem {
         ])).values()
       );
 
-      // Sort by timestamp to maintain chronological order
+      // Sort by timestamp and format
       uniqueMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-      // Apply time context and user attribution
-      let previousTimestamp = null;
-      const timeThresholdMs = 30 * 60 * 1000; // 30 minutes
-
-      return uniqueMessages.map(entry => {
-        const apiEntry = {
-          role: entry.role === 'assistant' ? 'model' : entry.role,
-          parts: []
-        };
-
-        // Extract text content
-        let textContent = entry.content
-          .filter(part => part.text !== undefined)
-          .map(part => part.text)
-          .join('\n');
-
-        // Add time elapsed context if gap > 30 minutes
-        let timePassed = "";
-        if (previousTimestamp && entry.timestamp) {
-          const timeDiffMs = entry.timestamp - previousTimestamp;
-          if (timeDiffMs > timeThresholdMs) {
-            const durationString = this.formatDuration(timeDiffMs);
-            timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
-          }
-        }
-        previousTimestamp = entry.timestamp;
-
-        // Add user attribution if this is a user message with user info
-        if (entry.role === 'user' && entry.username && entry.displayName) {
-          textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
-        } else {
-          textContent = timePassed + textContent;
-        }
-
-        if (textContent.trim()) {
-          apiEntry.parts.push({ text: textContent });
-        }
-
-        return apiEntry;
-      }).filter(entry => entry.parts.length > 0);
+      return this.formatHistoryWithContext(uniqueMessages);
       
     } catch (error) {
       console.error('History optimization failed:', error);
@@ -328,20 +276,70 @@ class MemorySystem {
     }
   }
 
-  // Manual cleanup method - call this yourself when needed
+  formatHistoryWithContext(historyArray) {
+    let previousTimestamp = null;
+    const timeThresholdMs = 30 * 60 * 1000; // 30 minutes
+
+    return historyArray.map(entry => {
+      const apiEntry = {
+        role: entry.role === 'assistant' ? 'model' : entry.role,
+        parts: []
+      };
+
+      let textContent = entry.content
+        .filter(part => part.text !== undefined)
+        .map(part => part.text)
+        .join('\n');
+
+      // Add time elapsed context if gap > 30 minutes
+      let timePassed = "";
+      if (previousTimestamp && entry.timestamp) {
+        const timeDiffMs = entry.timestamp - previousTimestamp;
+        if (timeDiffMs > timeThresholdMs) {
+          const durationString = this.formatDuration(timeDiffMs);
+          timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+        }
+      }
+      previousTimestamp = entry.timestamp;
+
+      // Add user attribution if this is a user message with user info
+      if (entry.role === 'user' && entry.username && entry.displayName) {
+        textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+      } else {
+        textContent = timePassed + textContent;
+      }
+
+      if (textContent.trim()) {
+        apiEntry.parts.push({ text: textContent });
+      }
+
+      return apiEntry;
+    }).filter(entry => entry.parts.length > 0);
+  }
+
   async cleanupOldMemories(daysOld = 30) {
     try {
       const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
-      await db.deleteOldMemoryEntries(cutoffTime);
-      console.log(`Cleaned up memories older than ${daysOld} days`);
+      const deleted = await db.deleteOldMemoryEntries(cutoffTime);
+      console.log(`✅ Cleaned up ${deleted} memories older than ${daysOld} days`);
+      return deleted;
     } catch (error) {
       console.error('Memory cleanup failed:', error);
+      return 0;
     }
+  }
+
+  getQueueStatus() {
+    return {
+      size: this.compressionQueue.size,
+      cacheSize: this.embeddingCache.size,
+      entries: Array.from(this.compressionQueue.entries()).map(([id, timestamp]) => ({
+        historyId: id,
+        lastCompression: new Date(timestamp).toISOString(),
+        age: Date.now() - timestamp
+      }))
+    };
   }
 }
 
 export const memorySystem = new MemorySystem();
-
-// ❌ REMOVED: Automatic cleanup interval
-// The cleanup function is still available to call manually if needed
-// You can run it via: memorySystem.cleanupOldMemories(30)
