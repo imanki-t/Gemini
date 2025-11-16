@@ -6,14 +6,15 @@ const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
 const MAX_FULL_MESSAGES = 30;
 const COMPRESSION_THRESHOLD = 60;
-const REINDEX_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+const INDEX_BATCH_SIZE = 20; // 🔥 Index every 20 messages
 const QUEUE_CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
 const QUEUE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 class MemorySystem {
   constructor() {
     this.embeddingCache = new Map();
-    this.compressionQueue = new Map();
+    this.indexingQueue = new Map(); // Track messages waiting to be indexed
+    this.lastIndexedCount = new Map(); // Track last indexed message count per history
     
     // Start cleanup interval
     this.startQueueCleanup();
@@ -24,15 +25,16 @@ class MemorySystem {
       const now = Date.now();
       let cleaned = 0;
       
-      for (const [historyId, timestamp] of this.compressionQueue.entries()) {
-        if (now - timestamp > QUEUE_EXPIRY) {
-          this.compressionQueue.delete(historyId);
+      // Clean up old indexing queue entries
+      for (const [historyId, data] of this.indexingQueue.entries()) {
+        if (now - data.timestamp > QUEUE_EXPIRY) {
+          this.indexingQueue.delete(historyId);
           cleaned++;
         }
       }
       
       if (cleaned > 0) {
-        console.log(`✅ Cleaned ${cleaned} expired compression queue entries`);
+        console.log(`✅ Cleaned ${cleaned} expired indexing queue entries`);
       }
     }, QUEUE_CLEANUP_INTERVAL);
   }
@@ -199,9 +201,51 @@ class MemorySystem {
         text: conversationText.slice(0, 500)
       });
       
-      console.log(`✅ Stored ${messages.length} messages with embeddings for ${historyId}`);
+      console.log(`✅ Indexed ${messages.length} messages for ${historyId}`);
     } catch (error) {
       console.error('Memory storage failed:', error);
+    }
+  }
+
+  // 🔥 NEW: Check and trigger instant indexing every 20 messages
+  async checkAndIndexMessages(historyId, allHistory) {
+    try {
+      const historyArray = [];
+      for (const messagesId in allHistory) {
+        if (allHistory.hasOwnProperty(messagesId)) {
+          historyArray.push(...allHistory[messagesId]);
+        }
+      }
+
+      const currentCount = historyArray.length;
+      const lastIndexed = this.lastIndexedCount.get(historyId) || 0;
+      const messagesSinceLastIndex = currentCount - lastIndexed;
+
+      // If we have 20+ new messages, index them immediately
+      if (messagesSinceLastIndex >= INDEX_BATCH_SIZE) {
+        console.log(`🔄 Auto-indexing ${messagesSinceLastIndex} new messages for ${historyId}`);
+        
+        // Get the unindexed messages (everything after MAX_FULL_MESSAGES, excluding recent)
+        const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
+        
+        if (oldMessages.length > 0) {
+          // Index in batches of 20
+          const batches = [];
+          for (let i = lastIndexed; i < oldMessages.length; i += INDEX_BATCH_SIZE) {
+            batches.push(oldMessages.slice(i, i + INDEX_BATCH_SIZE));
+          }
+
+          // Index all batches (don't await - run in background)
+          for (const batch of batches) {
+            this.storeMemoryWithEmbedding(historyId, batch).catch(console.error);
+          }
+          
+          // Update the last indexed count
+          this.lastIndexedCount.set(historyId, oldMessages.length);
+        }
+      }
+    } catch (error) {
+      console.error('Auto-indexing check failed:', error);
     }
   }
 
@@ -219,6 +263,9 @@ class MemorySystem {
 
       if (historyArray.length === 0) return [];
 
+      // 🔥 NEW: Trigger instant indexing check (non-blocking)
+      this.checkAndIndexMessages(historyId, allHistory).catch(console.error);
+
       // If history is short enough, return it with time context and attribution
       if (historyArray.length <= MAX_FULL_MESSAGES) {
         return this.formatHistoryWithContext(historyArray);
@@ -227,19 +274,6 @@ class MemorySystem {
       // For longer histories, use RAG with compression
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
-
-      // 🔧 FIX: Time-based re-indexing for compression queue
-      if (oldMessages.length > 0) {
-        const lastCompression = this.compressionQueue.get(historyId) || 0;
-        const timeSinceLastCompression = Date.now() - lastCompression;
-        
-        // Re-index every 24 hours to catch new old messages
-        if (timeSinceLastCompression > REINDEX_INTERVAL) {
-          console.log(`🔄 Re-indexing old messages for ${historyId} (${oldMessages.length} messages)`);
-          this.compressionQueue.set(historyId, Date.now());
-          this.storeMemoryWithEmbedding(historyId, oldMessages).catch(console.error);
-        }
-      }
 
       const relevantContext = await this.getRelevantContext(
         historyId,
@@ -331,14 +365,59 @@ class MemorySystem {
 
   getQueueStatus() {
     return {
-      size: this.compressionQueue.size,
+      indexingQueueSize: this.indexingQueue.size,
       cacheSize: this.embeddingCache.size,
-      entries: Array.from(this.compressionQueue.entries()).map(([id, timestamp]) => ({
+      trackedHistories: this.lastIndexedCount.size,
+      entries: Array.from(this.lastIndexedCount.entries()).map(([id, count]) => ({
         historyId: id,
-        lastCompression: new Date(timestamp).toISOString(),
-        age: Date.now() - timestamp
+        lastIndexedMessageCount: count
       }))
     };
+  }
+
+  // 🔥 NEW: Force immediate indexing for a specific history
+  async forceIndexNow(historyId) {
+    try {
+      const allHistory = await db.getChatHistory(historyId);
+      if (!allHistory) return { success: false, message: 'No history found' };
+
+      const historyArray = [];
+      for (const messagesId in allHistory) {
+        if (allHistory.hasOwnProperty(messagesId)) {
+          historyArray.push(...allHistory[messagesId]);
+        }
+      }
+
+      const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
+      
+      if (oldMessages.length === 0) {
+        return { success: false, message: 'No old messages to index' };
+      }
+
+      // Index in batches
+      const batches = [];
+      for (let i = 0; i < oldMessages.length; i += INDEX_BATCH_SIZE) {
+        batches.push(oldMessages.slice(i, i + INDEX_BATCH_SIZE));
+      }
+
+      console.log(`🔥 Force-indexing ${oldMessages.length} messages in ${batches.length} batches`);
+
+      for (const batch of batches) {
+        await this.storeMemoryWithEmbedding(historyId, batch);
+      }
+
+      this.lastIndexedCount.set(historyId, oldMessages.length);
+
+      return { 
+        success: true, 
+        message: `Indexed ${oldMessages.length} messages in ${batches.length} batches`,
+        batchCount: batches.length,
+        messageCount: oldMessages.length
+      };
+    } catch (error) {
+      console.error('Force indexing failed:', error);
+      return { success: false, message: error.message };
+    }
   }
 }
 
