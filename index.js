@@ -3799,6 +3799,14 @@ const allAttachments = [
     return; // Exit early, don't respond to poll messages
   }
   
+  // Also ignore poll result messages (when a poll ends)
+  if (message.type === 46) { // MessageType.PollResult
+    if (activeRequests.has(userId)) {
+      activeRequests.delete(userId);
+    }
+    return; // Exit early, don't respond to poll result messages
+  }
+  
   const hasAnyContent = messageContent !== '' || 
                         (allAttachments.length > 0 && allAttachments.some(att => {
                           const contentType = (att.contentType || "").toLowerCase();
@@ -4658,6 +4666,7 @@ try {
 
 
 client.login(token);
+
 
 
 
