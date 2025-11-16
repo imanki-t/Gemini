@@ -928,18 +928,68 @@ async function processAttachment(attachment, userId, interactionId) {
     }
   };
 
-  // Files that need text extraction (fallback)
+  // Convertible image formats (will be converted to PNG)
+  const convertibleImages = {
+    extensions: ['.svg', '.avif', '.ico', '.psd', '.eps', '.raw', '.cr2', '.nef'],
+    mimeTypes: ['image/svg+xml', 'image/avif', 'image/x-icon', 'image/vnd.adobe.photoshop']
+  };
+
+  // Convertible audio formats (will be converted to MP3)
+  const convertibleAudio = {
+    extensions: ['.wma', '.amr', '.mid', '.midi', '.ra'],
+    mimeTypes: ['audio/x-ms-wma', 'audio/amr', 'audio/midi', 'audio/x-realaudio']
+  };
+
+  // Convertible video formats (will be converted to MP4)
+  const convertibleVideo = {
+    extensions: ['.mkv', '.vob', '.ogv', '.ts', '.m2ts', '.divx'],
+    mimeTypes: ['video/x-matroska', 'video/mpeg', 'video/ogg', 'video/mp2t']
+  };
+
+  // Files that need text extraction and upload as TXT
   const textExtractionTypes = {
     extensions: ['.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', 
-                 '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'],
+                 '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md',
+                 '.c', '.cpp', '.h', '.hpp', '.cs', '.php', '.rb', '.go', '.rs', '.swift', 
+                 '.kt', '.scala', '.sh', '.bat', '.yml', '.yaml', '.ini', '.cfg', '.conf'],
     mimeTypes: ['application/msword', 
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 'application/vnd.ms-excel',
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 'text/csv', 'text/tab-separated-values',
                 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-                'application/rtf', 'text/html', 'text/markdown']
+                'application/rtf', 'text/html', 'text/markdown', 'application/json',
+                'application/xml', 'text/x-python', 'text/x-java', 'text/javascript',
+                'text/css', 'application/x-sql']
   };
+
+  // Truly unsupported files (archives, executables, etc.)
+  const unsupportedTypes = {
+    extensions: ['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', 
+                 '.exe', '.dll', '.bin', '.dmg', '.pkg', '.deb', '.rpm',
+                 '.iso', '.img', '.msi', '.apk', '.jar',
+                 '.db', '.sqlite', '.mdb', '.accdb'],
+    mimeTypes: ['application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
+                'application/x-tar', 'application/gzip', 'application/x-executable',
+                'application/x-msdownload', 'application/vnd.microsoft.portable-executable',
+                'application/x-iso9660-image']
+  };
+
+  const sanitizedFileName = sanitizeFileName(attachment.name);
+  const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
+  const filePath = path.join(TEMP_DIR, uniqueTempFilename);
+
+  // Check if file is truly unsupported
+  const isUnsupported = 
+    unsupportedTypes.extensions.includes(fileExtension) ||
+    unsupportedTypes.mimeTypes.includes(contentType);
+
+  if (isUnsupported) {
+    console.warn(`Unsupported file type: ${attachment.name} (${contentType})`);
+    return {
+      text: `\n\n[❌ Unsupported File Type: ${attachment.name}]\nThis file format cannot be processed. Supported formats include: images, videos, audio, PDFs, text files, and office documents.`
+    };
+  }
 
   // Check if file can be uploaded directly to API
   const canUploadToAPI = 
@@ -956,145 +1006,109 @@ async function processAttachment(attachment, userId, interactionId) {
 
   // DIRECT UPLOAD PATH - For files supported by Gemini API
   if (canUploadToAPI) {
-    const sanitizedFileName = sanitizeFileName(attachment.name);
-    const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}`;
-    const filePath = path.join(TEMP_DIR, uniqueTempFilename);
-
     try {
-      // Download the file
       await downloadFile(attachment.url, filePath);
       
       // Special handling for GIFs and animated stickers/emojis - convert to MP4
-const isGif = contentType === 'image/gif' || fileExtension === '.gif';
-const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
-const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
-const isFromEmbed = attachment.isFromEmbed;
+      const isGif = contentType === 'image/gif' || fileExtension === '.gif';
+      const isAnimatedSticker = attachment.isSticker && attachment.isAnimated;
+      const isAnimatedEmoji = attachment.isEmoji && attachment.isAnimated;
 
-// Only convert actual GIF files (not MP4s that are already in video format)
-if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('video')) {
-  const mp4FilePath = filePath.replace(/\.(gif|png|jpg|jpeg)$/i, '.mp4');
-  
-  try {
-    // Convert to MP4 using ffmpeg
-    await new Promise((resolve, reject) => {
-      ffmpeg(filePath)
-        .outputOptions([
-          '-movflags', 'faststart',
-          '-pix_fmt', 'yuv420p',
-          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-        ])
-        .output(mp4FilePath)
-        .on('end', resolve)
-        .on('error', reject)
-        .run();
-    });
-    
-    // Upload the MP4 to Gemini API
-    const uploadResult = await genAI.files.upload({
-      file: mp4FilePath,
-      config: {
-        mimeType: 'video/mp4',
-        displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
-      }
-    });
+      if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('video')) {
+        const mp4FilePath = filePath.replace(/\.(gif|png|jpg|jpeg)$/i, '.mp4');
+        
+        try {
+          await new Promise((resolve, reject) => {
+            ffmpeg(filePath)
+              .outputOptions([
+                '-movflags', 'faststart',
+                '-pix_fmt', 'yuv420p',
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+              ])
+              .output(mp4FilePath)
+              .on('end', resolve)
+              .on('error', reject)
+              .run();
+          });
+          
+          const uploadResult = await genAI.files.upload({
+            file: mp4FilePath,
+            config: {
+              mimeType: 'video/mp4',
+              displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
+            }
+          });
 
-    const name = uploadResult.name;
-    if (!name) {
-      throw new Error(`Unable to extract file name from upload result.`);
-    }
+          const name = uploadResult.name;
+          if (!name) {
+            throw new Error(`Unable to extract file name from upload result.`);
+          }
 
-    // Wait for video processing
-    let file = await genAI.files.get({ name: name });
-    let attempts = 0;
-    while (file.state === 'PROCESSING' && attempts < 60) {
-      await delay(10000);
-      file = await genAI.files.get({ name: name });
-      attempts++;
-    }
-    
-    if (file.state === 'FAILED') {
-      throw new Error(`Video processing failed for ${sanitizedFileName}.`);
-    }
+          let file = await genAI.files.get({ name: name });
+          let attempts = 0;
+          while (file.state === 'PROCESSING' && attempts < 60) {
+            await delay(10000);
+            file = await genAI.files.get({ name: name });
+            attempts++;
+          }
+          
+          if (file.state === 'FAILED') {
+            throw new Error(`Video processing failed for ${sanitizedFileName}.`);
+          }
 
-    // Clean up temporary files
-    await fs.unlink(filePath).catch(() => {});
-    await fs.unlink(mp4FilePath).catch(() => {});
-    
-    // Determine the type of content with metadata
-    let metadata = '';
-    if (isAnimatedSticker) {
-      metadata = `[Animated Sticker converted to video format: ${attachment.name}]`;
-    } else if (isAnimatedEmoji) {
-      metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video format]`;
-    } else {
-      metadata = `[Animated GIF converted to video format: ${sanitizedFileName}]`;
-    }
-    
-    // Return the video URI with metadata
-    return [
-      {
-        text: metadata
-      },
-      createPartFromUri(uploadResult.uri, uploadResult.mimeType)
-    ];
-    
-  } catch (gifError) {
-    console.error('Error converting to MP4:', gifError);
-    
-    // Fallback: try to upload just the first frame as PNG
-    try {
-      const sharp = (await import('sharp')).default;
-      const pngFilePath = filePath.replace(/\.gif$/i, '.png');
-      await sharp(filePath, { animated: false })
-        .png()
-        .toFile(pngFilePath);
-      
-      const uploadResult = await genAI.files.upload({
-        file: pngFilePath,
-        config: {
-          mimeType: 'image/png',
-          displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
-        }
-      });
-      
-      await fs.unlink(filePath).catch(() => {});
-      await fs.unlink(pngFilePath).catch(() => {});
-      
-      let fallbackMetadata = '';
-      if (isAnimatedSticker) {
-        fallbackMetadata = `[Static frame from Animated Sticker (conversion failed): ${attachment.name}]`;
-      } else if (isAnimatedEmoji) {
-        fallbackMetadata = `[Static frame from Animated Emoji (conversion failed): :${attachment.emojiName}:]`;
-      } else {
-        fallbackMetadata = `[Static frame from GIF (conversion failed): ${sanitizedFileName}]`;
-      }
-      
-      return [
-        {
-          text: fallbackMetadata
-        },
-        createPartFromUri(uploadResult.uri, uploadResult.mimeType)
-      ];
-    } catch (fallbackError) {
-      throw gifError;
-    }
-  }
-}
-      
-      // For plain text files, check size - small ones can be inlined
-      if (apiUploadableTypes.plainText.extensions.includes(fileExtension)) {
-        const fileStats = await fs.stat(filePath);
-        // If text file is small (< 100KB), read and inline it
-        if (fileStats.size < 100000) {
+          await fs.unlink(filePath).catch(() => {});
+          await fs.unlink(mp4FilePath).catch(() => {});
+          
+          let metadata = '';
+          if (isAnimatedSticker) {
+            metadata = `[Animated Sticker converted to video: ${attachment.name}]`;
+          } else if (isAnimatedEmoji) {
+            metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video]`;
+          } else {
+            metadata = `[Animated GIF converted to video: ${sanitizedFileName}]`;
+          }
+          
+          return [
+            { text: metadata },
+            createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+          ];
+          
+        } catch (gifError) {
+          console.error('Error converting GIF to MP4:', gifError);
+          
           try {
-            const textContent = await fs.readFile(filePath, 'utf8');
+            const sharp = (await import('sharp')).default;
+            const pngFilePath = filePath.replace(/\.gif$/i, '.png');
+            await sharp(filePath, { animated: false })
+              .png()
+              .toFile(pngFilePath);
+            
+            const uploadResult = await genAI.files.upload({
+              file: pngFilePath,
+              config: {
+                mimeType: 'image/png',
+                displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
+              }
+            });
+            
             await fs.unlink(filePath).catch(() => {});
-            return {
-              text: `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${textContent.slice(0, 50000)}\n\`\`\``
-            };
-          } catch (readError) {
-            // If read fails, continue with upload
-            console.error('Error reading text file:', readError);
+            await fs.unlink(pngFilePath).catch(() => {});
+            
+            let fallbackMetadata = '';
+            if (isAnimatedSticker) {
+              fallbackMetadata = `[Static frame from Animated Sticker: ${attachment.name}]`;
+            } else if (isAnimatedEmoji) {
+              fallbackMetadata = `[Static frame from Animated Emoji: :${attachment.emojiName}:]`;
+            } else {
+              fallbackMetadata = `[Static frame from GIF: ${sanitizedFileName}]`;
+            }
+            
+            return [
+              { text: fallbackMetadata },
+              createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+            ];
+          } catch (fallbackError) {
+            throw gifError;
           }
         }
       }
@@ -1102,7 +1116,6 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('vi
       // Determine correct MIME type
       let mimeType = contentType || attachment.contentType;
       
-      // Map file extensions to correct MIME types if contentType is missing/wrong
       if (!mimeType || mimeType === 'application/octet-stream') {
         const mimeMap = {
           '.png': 'image/png',
@@ -1129,7 +1142,6 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('vi
         mimeType = mimeMap[fileExtension] || 'application/octet-stream';
       }
       
-      // Upload file to Gemini API
       const uploadResult = await genAI.files.upload({
         file: filePath,
         config: {
@@ -1143,7 +1155,7 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('vi
         throw new Error(`Unable to extract file name from upload result.`);
       }
 
-      // Only wait for video processing (videos need time to process)
+      // Only wait for video processing
       if (apiUploadableTypes.video.extensions.includes(fileExtension) || 
           apiUploadableTypes.video.mimeTypes.includes(contentType)) {
         let file = await genAI.files.get({ name: name });
@@ -1158,86 +1170,226 @@ if ((isGif || isAnimatedSticker || isAnimatedEmoji) && !contentType.includes('vi
         }
       }
 
-      // Clean up local file
       await fs.unlink(filePath).catch(() => {});
-      
-      // Return the file URI for use in the prompt
       return createPartFromUri(uploadResult.uri, uploadResult.mimeType);
       
     } catch (uploadError) {
       console.error(`Error uploading ${attachment.name} to API:`, uploadError);
-      // Clean up any temporary files
       await fs.unlink(filePath).catch(() => {});
-      
-      // If it's a text file that failed upload, try extraction fallback
-      if (apiUploadableTypes.plainText.extensions.includes(fileExtension)) {
-        try {
-          let fileContent = await downloadAndReadFile(attachment.url, fileExtension);
-          return {
-            text: `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``
-          };
-        } catch (fallbackError) {
-          console.error(`Fallback extraction also failed for ${attachment.name}:`, fallbackError);
-        }
-      }
-      
       throw uploadError;
     }
   }
 
-  // FALLBACK PATH - Text extraction for unsupported file types
-  if (textExtractionTypes.extensions.includes(fileExtension) || 
-      textExtractionTypes.mimeTypes.includes(contentType)) {
+  // CONVERTIBLE IMAGE PATH - Convert to PNG
+  const isConvertibleImage = 
+    convertibleImages.extensions.includes(fileExtension) ||
+    convertibleImages.mimeTypes.includes(contentType);
+
+  if (isConvertibleImage) {
     try {
-      let fileContent = await downloadAndReadFile(attachment.url, fileExtension);
-
-      // If extracted content is very large (>1MB), upload as plain text file
-      if (fileContent.length > 1000000) {
-        const sanitizedFileName = sanitizeFileName(attachment.name);
-        const uniqueTempFilename = `${userId}-${interactionId}-${Date.now()}-${sanitizedFileName}.txt`;
-        const filePath = path.join(TEMP_DIR, uniqueTempFilename);
-
-        await fs.writeFile(filePath, fileContent);
-        
-        try {
-          const uploadResult = await genAI.files.upload({
-            file: filePath,
-            config: {
-              mimeType: 'text/plain',
-              displayName: `${sanitizedFileName} (extracted text)`,
-            }
-          });
-
-          await fs.unlink(filePath).catch(() => {});
-          return createPartFromUri(uploadResult.uri, 'text/plain');
-        } catch (uploadError) {
-          await fs.unlink(filePath).catch(() => {});
-          // Fallback to inline text if upload fails
-          return {
-            text: `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``
-          };
-        }
-      }
-
-      // For smaller files, inline the content
-      return {
-        text: `\n\n[\`${attachment.name}\` File Content]:\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\``
-      };
+      await downloadFile(attachment.url, filePath);
+      const sharp = (await import('sharp')).default;
+      const pngFilePath = filePath.replace(/\.[^.]+$/, '.png');
       
-    } catch (error) {
-      console.error(`Error extracting text from ${attachment.name}: ${error.message}`);
+      await sharp(filePath)
+        .png()
+        .toFile(pngFilePath);
+      
+      const uploadResult = await genAI.files.upload({
+        file: pngFilePath,
+        config: {
+          mimeType: 'image/png',
+          displayName: sanitizedFileName.replace(/\.[^.]+$/, '.png'),
+        }
+      });
+
+      await fs.unlink(filePath).catch(() => {});
+      await fs.unlink(pngFilePath).catch(() => {});
+      
+      return [
+        { text: `[Image converted from ${fileExtension.toUpperCase()} to PNG: ${attachment.name}]` },
+        createPartFromUri(uploadResult.uri, 'image/png')
+      ];
+      
+    } catch (conversionError) {
+      console.error(`Error converting image ${attachment.name}:`, conversionError);
+      await fs.unlink(filePath).catch(() => {});
       return {
-        text: `\n\n[Failed to read file: ${attachment.name}]`
+        text: `\n\n[❌ Failed to convert image: ${attachment.name}]`
       };
     }
   }
 
-  // File type not supported at all
-  console.warn(`Unsupported file type: ${attachment.name} (${contentType})`);
+  // CONVERTIBLE AUDIO PATH - Convert to MP3
+  const isConvertibleAudio = 
+    convertibleAudio.extensions.includes(fileExtension) ||
+    convertibleAudio.mimeTypes.includes(contentType);
+
+  if (isConvertibleAudio) {
+    try {
+      await downloadFile(attachment.url, filePath);
+      const mp3FilePath = filePath.replace(/\.[^.]+$/, '.mp3');
+      
+      await new Promise((resolve, reject) => {
+        ffmpeg(filePath)
+          .toFormat('mp3')
+          .audioCodec('libmp3lame')
+          .audioBitrate('192k')
+          .output(mp3FilePath)
+          .on('end', resolve)
+          .on('error', reject)
+          .run();
+      });
+      
+      const uploadResult = await genAI.files.upload({
+        file: mp3FilePath,
+        config: {
+          mimeType: 'audio/mpeg',
+          displayName: sanitizedFileName.replace(/\.[^.]+$/, '.mp3'),
+        }
+      });
+
+      await fs.unlink(filePath).catch(() => {});
+      await fs.unlink(mp3FilePath).catch(() => {});
+      
+      return [
+        { text: `[Audio converted from ${fileExtension.toUpperCase()} to MP3: ${attachment.name}]` },
+        createPartFromUri(uploadResult.uri, 'audio/mpeg')
+      ];
+      
+    } catch (conversionError) {
+      console.error(`Error converting audio ${attachment.name}:`, conversionError);
+      await fs.unlink(filePath).catch(() => {});
+      return {
+        text: `\n\n[❌ Failed to convert audio: ${attachment.name}]`
+      };
+    }
+  }
+
+  // CONVERTIBLE VIDEO PATH - Convert to MP4
+  const isConvertibleVideo = 
+    convertibleVideo.extensions.includes(fileExtension) ||
+    convertibleVideo.mimeTypes.includes(contentType);
+
+  if (isConvertibleVideo) {
+    try {
+      await downloadFile(attachment.url, filePath);
+      const mp4FilePath = filePath.replace(/\.[^.]+$/, '.mp4');
+      
+      await new Promise((resolve, reject) => {
+        ffmpeg(filePath)
+          .outputOptions([
+            '-movflags', 'faststart',
+            '-pix_fmt', 'yuv420p',
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+          ])
+          .videoCodec('libx264')
+          .audioCodec('aac')
+          .output(mp4FilePath)
+          .on('end', resolve)
+          .on('error', reject)
+          .run();
+      });
+      
+      const uploadResult = await genAI.files.upload({
+        file: mp4FilePath,
+        config: {
+          mimeType: 'video/mp4',
+          displayName: sanitizedFileName.replace(/\.[^.]+$/, '.mp4'),
+        }
+      });
+
+      const name = uploadResult.name;
+      let file = await genAI.files.get({ name: name });
+      let attempts = 0;
+      while (file.state === 'PROCESSING' && attempts < 60) {
+        await delay(10000);
+        file = await genAI.files.get({ name: name });
+        attempts++;
+      }
+      
+      if (file.state === 'FAILED') {
+        throw new Error(`Video processing failed.`);
+      }
+
+      await fs.unlink(filePath).catch(() => {});
+      await fs.unlink(mp4FilePath).catch(() => {});
+      
+      return [
+        { text: `[Video converted from ${fileExtension.toUpperCase()} to MP4: ${attachment.name}]` },
+        createPartFromUri(uploadResult.uri, 'video/mp4')
+      ];
+      
+    } catch (conversionError) {
+      console.error(`Error converting video ${attachment.name}:`, conversionError);
+      await fs.unlink(filePath).catch(() => {});
+      return {
+        text: `\n\n[❌ Failed to convert video: ${attachment.name}]`
+      };
+    }
+  }
+
+  // TEXT EXTRACTION PATH - Extract text and upload as TXT file
+  const needsTextExtraction = 
+    textExtractionTypes.extensions.includes(fileExtension) ||
+    textExtractionTypes.mimeTypes.includes(contentType);
+
+  if (needsTextExtraction) {
+    try {
+      let fileContent = await downloadAndReadFile(attachment.url, fileExtension);
+      
+      // Always upload as TXT file with metadata (regardless of size)
+      const txtFileName = sanitizedFileName.replace(/\.[^.]+$/, '.txt');
+      const txtFilePath = path.join(TEMP_DIR, `extracted-${uniqueTempFilename}.txt`);
+      
+      await fs.writeFile(txtFilePath, fileContent, 'utf8');
+      
+      const uploadResult = await genAI.files.upload({
+        file: txtFilePath,
+        config: {
+          mimeType: 'text/plain',
+          displayName: txtFileName,
+        }
+      });
+
+      await fs.unlink(txtFilePath).catch(() => {});
+      
+      // Determine original file type for metadata
+      let originalType = 'Document';
+      if (['.doc', '.docx', '.rtf'].includes(fileExtension)) {
+        originalType = 'Word Document';
+      } else if (['.xls', '.xlsx', '.csv', '.tsv'].includes(fileExtension)) {
+        originalType = 'Spreadsheet';
+      } else if (fileExtension === '.pptx') {
+        originalType = 'PowerPoint Presentation';
+      } else if (['.html', '.xml'].includes(fileExtension)) {
+        originalType = 'Markup Document';
+      } else if (['.py', '.java', '.js', '.css', '.json', '.sql', '.c', '.cpp', '.cs', '.php', '.rb', '.go'].includes(fileExtension)) {
+        originalType = 'Code File';
+      } else if (['.md', '.log', '.yml', '.yaml', '.ini', '.cfg', '.conf'].includes(fileExtension)) {
+        originalType = 'Text Configuration File';
+      }
+      
+      return [
+        { text: `[${originalType} extracted to text: ${attachment.name}]` },
+        createPartFromUri(uploadResult.uri, 'text/plain')
+      ];
+      
+    } catch (extractionError) {
+      console.error(`Error extracting text from ${attachment.name}:`, extractionError);
+      return {
+        text: `\n\n[❌ Failed to extract text from: ${attachment.name}]`
+      };
+    }
+  }
+
+  // Final fallback - should rarely reach here
+  console.warn(`Unhandled file type: ${attachment.name} (${contentType})`);
   return {
-    text: `\n\n[Unsupported file type: ${attachment.name}]`
-  };      
-}
+    text: `\n\n[⚠️ Unknown file format: ${attachment.name}]`
+  };
+            }
+
 
 async function handleButtonInteraction(interaction) {
 if (!interaction.isButton()) return;
@@ -4575,6 +4727,7 @@ try {
 
 
 client.login(token);
+
 
 
 
