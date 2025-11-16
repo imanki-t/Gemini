@@ -3653,146 +3653,43 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Extract GIF links from Tenor/Giphy BEFORE extracting forwarded content
-const gifLinks = [];
-const processedGifUrls = new Set(); // Track processed URLs to avoid duplicates
-
-// Check for GIFs in embeds FIRST (Discord's /gif and /tenor commands)
+  // Extract GIF links from embeds and add them to message content as plain URLs
 if (message.embeds && message.embeds.length > 0) {
-  console.log(`\n=== DEBUG: Found ${message.embeds.length} embed(s) ===`);
-  
-  for (let i = 0; i < message.embeds.length; i++) {
-    const embed = message.embeds[i];
-    console.log(`\nEmbed ${i}:`);
-    console.log('- Type:', embed.type);
-    console.log('- Provider:', embed.provider);
-    console.log('- URL:', embed.url);
-    console.log('- Title:', embed.title);
-    console.log('- Description:', embed.description);
-    console.log('- Video:', embed.video ? {
-      url: embed.video.url,
-      proxyURL: embed.video.proxyURL,
-      height: embed.video.height,
-      width: embed.video.width
-    } : 'None');
-    console.log('- Image:', embed.image ? {
-      url: embed.image.url,
-      proxyURL: embed.image.proxyURL
-    } : 'None');
-    console.log('- Thumbnail:', embed.thumbnail ? {
-      url: embed.thumbnail.url,
-      proxyURL: embed.thumbnail.proxyURL
-    } : 'None');
-    
-    // CRITICAL FIX: Check multiple indicators for GIF embeds
+  for (const embed of message.embeds) {
+    // Check if this is a Tenor/Giphy embed
     const isTenor = embed.provider?.name?.toLowerCase() === 'tenor' || 
-                    embed.url?.includes('tenor.com') ||
-                    embed.video?.url?.includes('tenor.co') ||
-                    embed.video?.proxyURL?.includes('tenor.co');
-    
+                    embed.url?.includes('tenor.com');
     const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy' || 
-                    embed.url?.includes('giphy.com') ||
-                    embed.video?.url?.includes('giphy.com') ||
-                    embed.video?.proxyURL?.includes('giphy.com');
+                    embed.url?.includes('giphy.com');
+    const isGifEmbed = embed.type === 'gifv';
     
-    // CRITICAL: Check for Discord's native /tenor and /gif commands
-    const isNativeGifCommand = embed.type === 'gifv' || 
-                               (embed.video && !embed.description && 
-                                !embed.title && message.content.trim() === '');
-    
-    console.log('- isTenor:', isTenor);
-    console.log('- isGiphy:', isGiphy);
-    console.log('- isNativeGifCommand:', isNativeGifCommand);
-    
-    if (isTenor || isGiphy || isNativeGifCommand) {
-      console.log('✅ This embed matches GIF criteria!');
-      
+    if (isTenor || isGiphy || isGifEmbed) {
+      // Extract the actual media URL
       let mediaUrl = null;
-      let isVideo = false;
-      let providerName = 'GIF';
       
-      // Determine provider name
-      if (isTenor) providerName = 'Tenor';
-      else if (isGiphy) providerName = 'Giphy';
-      
-      // CRITICAL FIX: Check ALL possible locations
+      // Try all possible locations
       if (embed.video?.proxyURL) {
         mediaUrl = embed.video.proxyURL;
-        isVideo = true;
-        console.log('📍 Found media in: embed.video.proxyURL');
       } else if (embed.video?.url) {
         mediaUrl = embed.video.url;
-        isVideo = true;
-        console.log('📍 Found media in: embed.video.url');
       } else if (embed.image?.proxyURL) {
         mediaUrl = embed.image.proxyURL;
-        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-        console.log('📍 Found media in: embed.image.proxyURL');
       } else if (embed.image?.url) {
         mediaUrl = embed.image.url;
-        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-        console.log('📍 Found media in: embed.image.url');
       } else if (embed.thumbnail?.proxyURL) {
         mediaUrl = embed.thumbnail.proxyURL;
-        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-        console.log('📍 Found media in: embed.thumbnail.proxyURL');
       } else if (embed.thumbnail?.url) {
         mediaUrl = embed.thumbnail.url;
-        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm');
-        console.log('📍 Found media in: embed.thumbnail.url');
       } else if (embed.url) {
-        // Fallback: use embed.url itself if it's a direct media link
         mediaUrl = embed.url;
-        isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm') || mediaUrl.includes('.gif');
-        console.log('📍 Found media in: embed.url (fallback)');
       }
       
-      if (mediaUrl && !processedGifUrls.has(mediaUrl)) {
-        processedGifUrls.add(mediaUrl);
-        
-        gifLinks.push({
-          url: mediaUrl,
-          isVideo: isVideo,
-          provider: providerName,
-          description: embed.description || '',
-          title: embed.title || embed.url || '',
-          thumbnailUrl: embed.thumbnail?.url || embed.thumbnail?.proxyURL
-        });
-        
-        console.log(`✅ Successfully extracted ${isVideo ? 'video' : 'GIF'} from ${providerName}: ${mediaUrl}`);
-      } else if (mediaUrl) {
-        console.log('⚠️ URL already processed (duplicate)');
-      } else {
-        console.log('❌ No media URL found in this embed!');
+      // If we found a media URL, add it to message content
+      if (mediaUrl && !messageContent.includes(mediaUrl)) {
+        messageContent += `\n${mediaUrl}`;
+        console.log(`✅ Extracted GIF link from embed: ${mediaUrl}`);
       }
-    } else {
-      console.log('❌ This embed does NOT match GIF criteria');
     }
-  }
-  
-  console.log(`\n=== Total GIFs extracted: ${gifLinks.length} ===\n`);
-}
-
-// Then check for text links (secondary - for manual Tenor/Giphy links)
-const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.(?:gif|mp4|webm)|media\d*\.giphy\.com\/media\/[^\s]+\/giphy\.(?:gif|mp4|webm))/gi;
-let gifMatch;
-
-while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
-  if (!processedGifUrls.has(gifMatch[0])) {
-    processedGifUrls.add(gifMatch[0]);
-    
-    let isVideo = gifMatch[0].includes('.mp4') || gifMatch[0].includes('.webm');
-    
-    gifLinks.push({
-      url: gifMatch[0],
-      isVideo: isVideo,
-      provider: gifMatch[0].includes('tenor') ? 'Tenor' : 'Giphy',
-      description: '',
-      title: '',
-      thumbnailUrl: null
-    });
-    
-    console.log(`✅ Extracted ${isVideo ? 'video' : 'GIF'} from text link: ${gifMatch[0]}`);
   }
 }
 
@@ -3826,49 +3723,7 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
   }
 
 
-  // Process GIF links from Tenor/Giphy (including from embeds)
-const gifLinkAttachments = [];
-for (const gifData of gifLinks) {
-  try {
-    const gifUrl = gifData.url;
-    
-    // Extract a meaningful name from the URL or embed data
-    let gifName = 'gif_content';
-    let extension = gifData.isVideo ? '.mp4' : '.gif';
-    
-    // Use embed title/description for better naming
-    if (gifData.title) {
-      gifName = sanitizeFileName(gifData.title) + extension;
-    } else if (gifUrl.includes('tenor.com') || gifUrl.includes('media.tenor.co')) {
-      const nameMatch = gifUrl.match(/\/([^\/\-?]+)(?:[?.]|$)/);
-      gifName = nameMatch ? `tenor_${sanitizeFileName(nameMatch[1])}${extension}` : `tenor_gif${extension}`;
-    } else if (gifUrl.includes('giphy.com') || gifUrl.includes('media.giphy.com')) {
-      const nameMatch = gifUrl.match(/\/([^\/\-?]+)(?:[?.]|$)/);
-      gifName = nameMatch ? `giphy_${sanitizeFileName(nameMatch[1])}${extension}` : `giphy_gif${extension}`;
-    } else {
-      gifName = `gif_content${extension}`;
-    }
-    
-    // Determine correct content type based on URL
-    let contentType = 'video/mp4';
-    if (gifUrl.includes('.webm')) {
-      contentType = 'video/webm';
-      extension = '.webm';
-    } else if (gifUrl.includes('.gif') && !gifData.isVideo) {
-      contentType = 'image/gif';
-      extension = '.gif';
-    }
-    
-    // Create attachment object with the actual URL
-    gifLinkAttachments.push({
-      id: `gif-link-${Date.now()}-${Math.random()}`,
-      name: gifName,
-      url: gifUrl,
-      contentType: contentType,
-      size: 0,
-      isGifLink: true,
-      isFromEmbed: true
-    });
+  
     
     // Add context to message content
     let contextText = `[User sent a ${gifData.provider} GIF`;
@@ -3921,8 +3776,7 @@ const allAttachments = [
   ...regularAttachments, 
   ...forwardedAttachments, 
   ...stickerAttachments, 
-  ...emojiAttachments,
-  ...gifLinkAttachments  // This should now have proper GIFs from embeds
+  ...emojiAttachments
 ];
   
   // ========== ADD THIS SECTION ==========
@@ -4788,6 +4642,7 @@ try {
 
 
 client.login(token);
+
 
 
 
