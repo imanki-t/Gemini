@@ -3725,28 +3725,7 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
 
   
     
-    // Add context to message content
-    let contextText = `[User sent a ${gifData.provider} GIF`;
-    if (gifData.title) {
-      contextText += `: "${gifData.title}"`;
-    } else if (gifData.description) {
-      contextText += `: ${gifData.description}`;
-    }
-    contextText += ']';
     
-    if (!messageContent.includes(contextText) && !messageContent.includes(gifUrl)) {
-      messageContent += `\n${contextText}`;
-    }
-    
-    // Remove the embed URL from message content if it exists as plain text
-    messageContent = messageContent.replace(gifUrl, '').trim();
-    
-    console.log(`✅ Successfully queued GIF for processing: ${gifName} (${contentType})`);
-  } catch (error) {
-    console.error('Error processing GIF link:', error);
-    messageContent += `\n[Error: Could not process GIF from ${gifData.provider}]`;
-  }
-}
   // Process custom emojis (with rate limiting to max 5)
   const customEmojis = extractCustomEmojis(messageContent);
   const limitedEmojis = customEmojis.slice(0, 5);
@@ -4642,6 +4621,7 @@ try {
 
 
 client.login(token);
+
 
 
 
