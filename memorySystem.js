@@ -15,10 +15,8 @@ class MemorySystem {
     this.lastIndexedCount = new Map(); // Track last indexed message count per history
   }
 
-  // startQueueCleanup() method has been removed.
-
-  async generateEmbedding(text) {
-    const cacheKey = text.slice(0, 100);
+  async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
+    const cacheKey = text.slice(0, 100) + taskType;
     if (this.embeddingCache.has(cacheKey)) {
       return this.embeddingCache.get(cacheKey);
     }
@@ -26,13 +24,16 @@ class MemorySystem {
     try {
       const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
-        contents: text,
+        content: text,
+        config: {
+          taskType: taskType
+        }
       });
       
-      const embedding = result.embeddings?.[0]?.values;
+      const embedding = result.embedding?.values;
       
-      if (!embedding) {
-        console.error('No embedding returned from API');
+      if (!embedding || !Array.isArray(embedding)) {
+        console.error('Invalid embedding response:', result);
         return null;
       }
 
@@ -67,10 +68,15 @@ class MemorySystem {
   }
 
   extractTextFromMessage(message) {
+    if (!message || !message.content) {
+      console.warn('Invalid message structure:', message);
+      return '';
+    }
+    
     let text = '';
-    if (message.content && Array.isArray(message.content)) {
+    if (Array.isArray(message.content)) {
       for (const part of message.content) {
-        if (part.text) {
+        if (part && part.text) {
           text += part.text + ' ';
         }
       }
@@ -137,22 +143,32 @@ class MemorySystem {
 
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
-      const queryEmbedding = await this.generateEmbedding(currentQuery);
-      if (!queryEmbedding) return [];
+      const queryEmbedding = await this.generateEmbedding(currentQuery, 'RETRIEVAL_QUERY');
+      if (!queryEmbedding) {
+        console.warn('Failed to generate query embedding, skipping context retrieval');
+        return [];
+      }
 
       const memoryEntries = await db.getMemoryEntries(historyId);
-      if (!memoryEntries || memoryEntries.length === 0) return [];
+      if (!memoryEntries || memoryEntries.length === 0) {
+        console.log(`No memory entries found for ${historyId}`);
+        return [];
+      }
 
-      const scoredEntries = memoryEntries.map(entry => ({
-        ...entry,
-        similarity: this.cosineSimilarity(queryEmbedding, entry.embedding)
-      }));
+      const scoredEntries = memoryEntries
+        .filter(entry => entry.embedding && Array.isArray(entry.embedding))
+        .map(entry => ({
+          ...entry,
+          similarity: this.cosineSimilarity(queryEmbedding, entry.embedding)
+        }));
 
       scoredEntries.sort((a, b) => b.similarity - a.similarity);
 
       const relevant = scoredEntries
         .filter(entry => entry.similarity > 0.7)
         .slice(0, maxRelevant);
+
+      console.log(`Found ${relevant.length} relevant context entries (threshold: 0.7)`);
 
       return relevant.map(entry => entry.messages).flat();
     } catch (error) {
@@ -163,14 +179,21 @@ class MemorySystem {
 
   async storeMemoryWithEmbedding(historyId, messages) {
     try {
-      const conversationText = messages.map(msg => 
-        this.extractTextFromMessage(msg)
-      ).join(' ');
+      const conversationText = messages
+        .map(msg => this.extractTextFromMessage(msg))
+        .filter(text => text.length > 0)
+        .join(' ');
 
-      if (conversationText.length < 10) return;
+      if (conversationText.length < 10) {
+        console.log(`Skipping indexing: text too short (${conversationText.length} chars)`);
+        return;
+      }
 
-      const embedding = await this.generateEmbedding(conversationText);
-      if (!embedding) return;
+      const embedding = await this.generateEmbedding(conversationText, 'RETRIEVAL_DOCUMENT');
+      if (!embedding) {
+        console.error('Failed to generate embedding for', historyId);
+        return;
+      }
 
       await db.saveMemoryEntry(historyId, {
         messages,
@@ -182,6 +205,7 @@ class MemorySystem {
       console.log(`✅ Indexed ${messages.length} messages for ${historyId}`);
     } catch (error) {
       console.error('Memory storage failed:', error);
+      throw error;
     }
   }
 
@@ -214,7 +238,9 @@ class MemorySystem {
 
           // Index all batches (don't await - run in background)
           for (const batch of batches) {
-            this.storeMemoryWithEmbedding(historyId, batch).catch(console.error);
+            this.storeMemoryWithEmbedding(historyId, batch).catch(err => {
+              console.error('Background indexing error:', err);
+            });
           }
           
           // Update the last indexed count
@@ -229,7 +255,10 @@ class MemorySystem {
   async getOptimizedHistory(historyId, currentQuery, model) {
     try {
       const allHistory = await db.getChatHistory(historyId);
-      if (!allHistory) return [];
+      if (!allHistory) {
+        console.log(`No history found for ${historyId}`);
+        return [];
+      }
 
       const historyArray = [];
       for (const messagesId in allHistory) {
@@ -241,7 +270,9 @@ class MemorySystem {
       if (historyArray.length === 0) return [];
 
       // Trigger instant indexing check (non-blocking)
-      this.checkAndIndexMessages(historyId, allHistory).catch(console.error);
+      this.checkAndIndexMessages(historyId, allHistory).catch(err => {
+        console.error('Index check error:', err);
+      });
 
       // If history is short enough, return it with time context and attribution
       if (historyArray.length <= MAX_FULL_MESSAGES) {
@@ -328,8 +359,6 @@ class MemorySystem {
     }).filter(entry => entry.parts.length > 0);
   }
 
-  // cleanupOldMemories() method has been removed.
-
   getQueueStatus() {
     return {
       indexingQueueSize: this.indexingQueue.size,
@@ -388,4 +417,3 @@ class MemorySystem {
 }
 
 export const memorySystem = new MemorySystem();
-      
