@@ -151,32 +151,6 @@ class MemorySystem {
   }
   }
 
-      const conversationText = messages.map((msg, idx) => {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        const text = this.extractTextFromMessage(msg);
-        return `${role}: ${text}`;
-      }).join('\n\n');
-
-      const result = await chat.sendMessage({
-        message: [{
-          text: `Summarize this conversation:\n\n${conversationText}`
-        }]
-      });
-
-      const summary = result.text || conversationText.slice(0, 500);
-
-      return [{
-        role: 'user',
-        content: [{
-          text: `[Previous conversation summary: ${summary}]`
-        }],
-        timestamp: Date.now()
-      }];
-    } catch (error) {
-      console.error('Compression failed:', error);
-      return messages.slice(-3);
-    }
-  }
 
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
