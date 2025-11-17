@@ -236,7 +236,9 @@ class MemorySystem {
       const messagesSinceLastIndex = currentCount - lastIndexed;
 
       if (messagesSinceLastIndex >= INDEX_BATCH_SIZE) {
-        console.log(`🔄 Auto-indexing ${messagesSinceLastIndex} new messages for ${historyId}`);
+        // --- LOG LINE REMOVED HERE ---
+        // console.log(`🔄 Auto-indexing ${messagesSinceLastIndex} new messages for ${historyId}`);
+        // ------------------------------
         
         const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
         
@@ -420,3 +422,4 @@ class MemorySystem {
 }
 
 export const memorySystem = new MemorySystem();
+        
