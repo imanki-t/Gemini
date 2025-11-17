@@ -20,15 +20,15 @@
   "dependencies": {
     "@google/genai": "*",
     "axios": "*",
-    "discord.js": "^14.14.1",
+    "discord.js": "*",
     "dotenv": "*",
-    "express": "^4.18.2",
+    "express": "*",
     "fs": "*",
     "sharp": "*",
-    "fluent-ffmpeg": "^2.1.2",
+    "fluent-ffmpeg": "*",
     "office-text-extractor": "*",
     "node-os-utils": "*",
-    "mongodb": "^6.3.0"
+    "mongodb": "*"
   },
   "engines": {
     "node": ">=18.0.0"
