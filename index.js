@@ -61,6 +61,50 @@ import { memorySystem } from './memorySystem.js';
 
 initialize().catch(console.error);
 
+// Periodic temp file cleanup
+setInterval(async () => {
+  try {
+    const files = await fs.readdir(TEMP_DIR);
+    const now = Date.now();
+    const ONE_HOUR = 60 * 60 * 1000;
+    
+    for (const file of files) {
+      const filePath = path.join(TEMP_DIR, file);
+      try {
+        const stats = await fs.stat(filePath);
+        if (now - stats.mtimeMs > ONE_HOUR) {
+          await fs.unlink(filePath);
+          console.log(`🧹 Cleaned: ${file}`);
+        }
+      } catch (err) {
+        continue;
+      }
+    }
+  } catch (error) {
+    console.error('Cleanup error:', error);
+  }
+}, 60 * 60 * 1000);
+
+// Run once on startup
+(async () => {
+  try {
+    const files = await fs.readdir(TEMP_DIR);
+    const now = Date.now();
+    let cleaned = 0;
+    for (const file of files) {
+      const filePath = path.join(TEMP_DIR, file);
+      try {
+        const stats = await fs.stat(filePath);
+        if (now - stats.mtimeMs > 60 * 60 * 1000) {
+          await fs.unlink(filePath);
+          cleaned++;
+        }
+      } catch (err) {}
+    }
+    if (cleaned > 0) console.log(`🧹 Startup: Cleaned ${cleaned} old temp files`);
+  } catch (error) {}
+})();
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -4670,6 +4714,7 @@ try {
 
 
 client.login(token);
+
 
 
 
