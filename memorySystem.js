@@ -1,20 +1,26 @@
 import { genAI } from './botManager.js';
 import * as db from './database.js';
 
+// ✅ CORRECT: Latest model (GA since July 2025)
 const EMBEDDING_MODEL = 'gemini-embedding-001';
+
 const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
-const MAX_FULL_MESSAGES = 30; // The most recent messages to keep in active context
+const MAX_FULL_MESSAGES = 30;
 const COMPRESSION_THRESHOLD = 60;
-const INDEX_BATCH_SIZE = 20; // Index every 20 messages
+const INDEX_BATCH_SIZE = 20;
 
 class MemorySystem {
   constructor() {
     this.embeddingCache = new Map();
-    this.indexingQueue = new Map(); // Track messages waiting to be indexed (used for diagnostics)
-    this.lastIndexedCount = new Map(); // Track last indexed message count per history
+    this.indexingQueue = new Map();
+    this.lastIndexedCount = new Map();
   }
 
+  /**
+   * ✅ FIXED: Correct API call format for @google/genai SDK
+   * Uses the embedContent method with proper parameters
+   */
   async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
     const cacheKey = text.slice(0, 100) + taskType;
     if (this.embeddingCache.has(cacheKey)) {
@@ -22,15 +28,19 @@ class MemorySystem {
     }
 
     try {
+      // ✅ CORRECT: New SDK format
       const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
-        content: text,
+        contents: text,  // Changed from 'content' to 'contents'
         config: {
-          taskType: taskType
+          taskType: taskType,  // Valid: RETRIEVAL_DOCUMENT, RETRIEVAL_QUERY
+          // Optional: outputDimensionality can be set (up to 3072 for gemini-embedding-001)
         }
       });
       
-      const embedding = result.embedding?.values;
+      // ✅ FIXED: Correct response structure
+      // The response has 'embeddings' array, we take the first one
+      const embedding = result.embeddings?.[0]?.values;
       
       if (!embedding || !Array.isArray(embedding)) {
         console.error('Invalid embedding response:', result);
@@ -39,6 +49,7 @@ class MemorySystem {
 
       this.embeddingCache.set(cacheKey, embedding);
       
+      // Cache management
       if (this.embeddingCache.size > 1000) {
         const firstKey = this.embeddingCache.keys().next().value;
         this.embeddingCache.delete(firstKey);
@@ -47,6 +58,10 @@ class MemorySystem {
       return embedding;
     } catch (error) {
       console.error('Embedding generation failed:', error);
+      // Enhanced error logging
+      if (error.message) {
+        console.error('Error details:', error.message);
+      }
       return null;
     }
   }
@@ -143,6 +158,7 @@ class MemorySystem {
 
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
+      // ✅ Use RETRIEVAL_QUERY for query embeddings
       const queryEmbedding = await this.generateEmbedding(currentQuery, 'RETRIEVAL_QUERY');
       if (!queryEmbedding) {
         console.warn('Failed to generate query embedding, skipping context retrieval');
@@ -189,6 +205,7 @@ class MemorySystem {
         return;
       }
 
+      // ✅ Use RETRIEVAL_DOCUMENT for document embeddings
       const embedding = await this.generateEmbedding(conversationText, 'RETRIEVAL_DOCUMENT');
       if (!embedding) {
         console.error('Failed to generate embedding for', historyId);
@@ -222,28 +239,23 @@ class MemorySystem {
       const lastIndexed = this.lastIndexedCount.get(historyId) || 0;
       const messagesSinceLastIndex = currentCount - lastIndexed;
 
-      // If we have 20+ new messages, index them immediately
       if (messagesSinceLastIndex >= INDEX_BATCH_SIZE) {
         console.log(`🔄 Auto-indexing ${messagesSinceLastIndex} new messages for ${historyId}`);
         
-        // Get the unindexed messages (everything before the recent 30 messages)
         const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
         
         if (oldMessages.length > 0) {
-          // Index in batches of 20
           const batches = [];
           for (let i = lastIndexed; i < oldMessages.length; i += INDEX_BATCH_SIZE) {
             batches.push(oldMessages.slice(i, i + INDEX_BATCH_SIZE));
           }
 
-          // Index all batches (don't await - run in background)
           for (const batch of batches) {
             this.storeMemoryWithEmbedding(historyId, batch).catch(err => {
               console.error('Background indexing error:', err);
             });
           }
           
-          // Update the last indexed count
           this.lastIndexedCount.set(historyId, oldMessages.length);
         }
       }
@@ -274,7 +286,6 @@ class MemorySystem {
         console.error('Index check error:', err);
       });
 
-      // If history is short enough, return it with time context and attribution
       if (historyArray.length <= MAX_FULL_MESSAGES) {
         return this.formatHistoryWithContext(historyArray);
       }
@@ -308,7 +319,6 @@ class MemorySystem {
         ])).values()
       );
 
-      // Sort by timestamp and format
       uniqueMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
       return this.formatHistoryWithContext(uniqueMessages);
       
@@ -320,7 +330,7 @@ class MemorySystem {
 
   formatHistoryWithContext(historyArray) {
     let previousTimestamp = null;
-    const timeThresholdMs = 30 * 60 * 1000; // 30 minutes
+    const timeThresholdMs = 30 * 60 * 1000;
 
     return historyArray.map(entry => {
       const apiEntry = {
@@ -333,7 +343,6 @@ class MemorySystem {
         .map(part => part.text)
         .join('\n');
 
-      // Add time elapsed context if gap > 30 minutes
       let timePassed = "";
       if (previousTimestamp && entry.timestamp) {
         const timeDiffMs = entry.timestamp - previousTimestamp;
@@ -344,7 +353,6 @@ class MemorySystem {
       }
       previousTimestamp = entry.timestamp;
 
-      // Add user attribution if this is a user message with user info
       if (entry.role === 'user' && entry.username && entry.displayName) {
         textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
       } else {
@@ -389,7 +397,6 @@ class MemorySystem {
         return { success: false, message: 'No old messages to index' };
       }
 
-      // Index in batches
       const batches = [];
       for (let i = 0; i < oldMessages.length; i += INDEX_BATCH_SIZE) {
         batches.push(oldMessages.slice(i, i + INDEX_BATCH_SIZE));
