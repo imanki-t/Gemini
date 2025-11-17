@@ -112,22 +112,44 @@ class MemorySystem {
   }
 
   async compressOldMessages(messages, model) {
-    if (messages.length <= 5) return messages;
+  if (messages.length <= 5) return messages;
 
-    try {
-      const chat = genAI.chats.create({
-        model: model,
-        config: {
-          systemInstruction: {
-            role: "system",
-            parts: [{
-              text: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive."
-            }]
-          },
-          temperature: 0.3,
-          topP: 0.95
-        }
-      });
+  try {
+    // ✅ FIXED: systemInstruction is now a string
+    const chat = genAI.chats.create({
+      model: model,
+      config: {
+        systemInstruction: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive.",
+        temperature: 0.3,
+        topP: 0.95
+      }
+    });
+
+    const conversationText = messages.map((msg, idx) => {
+      const role = msg.role === 'user' ? 'User' : 'Assistant';
+      const text = this.extractTextFromMessage(msg);
+      return `${role}: ${text}`;
+    }).join('\n\n');
+
+    // ✅ FIXED: Send message directly as string (or object with message property)
+    const result = await chat.sendMessage(
+      `Summarize this conversation:\n\n${conversationText}`
+    );
+
+    const summary = result.text || conversationText.slice(0, 500);
+
+    return [{
+      role: 'user',
+      content: [{
+        text: `[Previous conversation summary: ${summary}]`
+      }],
+      timestamp: Date.now()
+    }];
+  } catch (error) {
+    console.error('Compression failed:', error);
+    return messages.slice(-3);
+  }
+  }
 
       const conversationText = messages.map((msg, idx) => {
         const role = msg.role === 'user' ? 'User' : 'Assistant';
