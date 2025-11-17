@@ -686,7 +686,7 @@ try {
 const chat = genAI.chats.create({
   model: modelName,
   config: {
-    systemInstruction: { /*...*/ },
+    systemInstruction: finalInstructions,
     ...generationConfig,
     safetySettings,
     tools
@@ -695,8 +695,9 @@ const chat = genAI.chats.create({
     historyId, 
     prompt || 'search query', 
     modelName
-  )  // ✅ Now uses RAG!
+  )
 });
+  
 
   let botMessage = await interaction.editReply({
     content: 'Lumin is thinking...'
@@ -3998,18 +3999,16 @@ const optimizedHistory = await memorySystem.getOptimizedHistory(
 const chat = genAI.chats.create({ 
   model: modelName, 
   config: { 
-    systemInstruction: { 
-      role: "system", 
-      parts: [{ text: finalInstructions }] 
-    }, 
+    systemInstruction: finalInstructions, 
     ...generationConfig, 
     safetySettings,
     tools,
     temperature: effectiveSettings.temperature || generationConfig.temperature,
     topP: effectiveSettings.topP || generationConfig.topP,
   }, 
-  history: optimizedHistory  // ✅ NOW USING RAG!
+  history: optimizedHistory
 });
+  
   
   
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
@@ -4714,6 +4713,7 @@ try {
 
 
 client.login(token);
+
 
 
 
