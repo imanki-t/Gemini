@@ -2352,7 +2352,7 @@ try {
   const embedColor = serverSettings.embedColor || hexColour;
 
   const overrideUserSettings = serverSettings.overrideUserSettings || false;
-  const continuousReply = serverSettings.continuousReply || true;
+  const continuousReply = serverSettings.continuousReply || false;
   const serverChatHistory = serverSettings.serverChatHistory || false;
 
   const overrideSelect = new StringSelectMenuBuilder()
@@ -4758,6 +4758,7 @@ try {
 
 
 client.login(token);
+
 
 
 
