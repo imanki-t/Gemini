@@ -280,6 +280,46 @@ function removeFileData(histories) {
   }
 }
 
+// Add this NEW function after removeFileData function (around line 320)
+function preserveAttachmentContext(histories) {
+  try {
+    Object.values(histories).forEach(subIdEntries => {
+      if (typeof subIdEntries === 'object' && subIdEntries !== null) {
+        Object.values(subIdEntries).forEach(messages => {
+          if (Array.isArray(messages)) {
+            messages.forEach(message => {
+              if (message.content) {
+                message.content = message.content.map(contentItem => {
+                  // If this is a fileData/fileUri, replace it with text description
+                  if (contentItem.fileData || contentItem.fileUri) {
+                    const mimeType = contentItem.mimeType || contentItem.fileData?.mimeType || 'unknown';
+                    const fileName = contentItem.fileName || 'attachment';
+                    
+                    // Determine file type
+                    let fileType = 'File';
+                    if (mimeType.startsWith('image/')) fileType = 'Image';
+                    else if (mimeType.startsWith('video/')) fileType = 'Video';
+                    else if (mimeType.startsWith('audio/')) fileType = 'Audio';
+                    else if (mimeType.includes('pdf')) fileType = 'PDF';
+                    
+                    return {
+                      text: `[${fileType} was attached: ${fileName} (${mimeType})]`
+                    };
+                  }
+                  return contentItem;
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+    console.log('File URIs replaced with descriptive text in chat histories.');
+  } catch (error) {
+    console.error('An error occurred while preserving attachment context:', error);
+  }
+}
+
 // --- HELPER FUNCTION FOR TIME FORMATTING ---
 function formatDuration(milliseconds) {
   const seconds = Math.floor(milliseconds / 1000);
