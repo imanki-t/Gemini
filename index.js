@@ -1404,7 +1404,17 @@ async function processAttachment(attachment, userId, interactionId) {
     } catch (extractionError) {
       console.error(`Error extracting text from ${attachment.name}:`, extractionError);
       return {
-        text: `\n\n[❌ Failed to extract text from: ${attachment.n
+        text: `\n\n[❌ Failed to extract text from: ${attachment.name}]`
+      };
+    }
+  }
+
+  // Final fallback - should rarely reach here
+  console.warn(`Unhandled file type: ${attachment.name} (${contentType})`);
+  return {
+    text: `\n\n[⚠️ Unknown file format: ${attachment.name}]`
+  };
+}
 
 
 async function handleButtonInteraction(interaction) {
@@ -4726,6 +4736,7 @@ try {
 
 
 client.login(token);
+
 
 
 
