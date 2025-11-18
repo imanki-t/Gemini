@@ -500,7 +500,7 @@ export function initializeBlacklistForGuild(guildId) {
   selectedModel: 'gemini-2.5-flash',
   responseFormat: 'Normal',
   showActionButtons: false,      // ✅ CHANGED: Default to false
-  continuousReply: true,          // ✅ CHANGED: Default to true
+  continuousReply: false,          // ✅ CHANGED: Default to true
   customPersonality: null,
   embedColor: config.hexColour,
   overrideUserSettings: false,
