@@ -39,7 +39,7 @@ defaultPersonality: "Have short, precise responses unless mentioned to be long. 
     selectedModel: "gemini-2.5-flash",
     responseFormat: "Normal",
     showActionButtons: false,
-    continuousReply: true,
+    continuousReply: false,
     customPersonality: null,
     embedColor: "#5865F2",
     overrideUserSettings: false,
