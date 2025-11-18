@@ -4018,8 +4018,7 @@ if (guildId) {
 
 // ✅ Append user context to final instructions
 finalInstructions += infoStr;
-// ALWAYS include user info in instructions
-const finalInstructions = (instructions || defaultPersonality) + infoStr;
+
 
 const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
 const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
@@ -4759,6 +4758,7 @@ try {
 
 
 client.login(token);
+
 
 
 
