@@ -455,17 +455,18 @@ export function initializeBlacklistForGuild(guildId) {
       state.blacklistedUsers[guildId] = [];
     }
     if (!state.serverSettings[guildId]) {
+      
       state.serverSettings[guildId] = {
-        selectedModel: 'gemini-2.5-flash',
-        responseFormat: 'Normal',
-        showActionButtons: false,  // CHANGED: Default to false
-        continuousReply: true,     // CHANGED: Default to true
-        customPersonality: null,
-        embedColor: config.hexColour,
-        overrideUserSettings: false,
-        serverChatHistory: false,
-        allowedChannels: []
-      };
+  selectedModel: 'gemini-2.5-flash',
+  responseFormat: 'Normal',
+  showActionButtons: false,      // ✅ CHANGED: Default to false
+  continuousReply: true,          // ✅ CHANGED: Default to true
+  customPersonality: null,
+  embedColor: config.hexColour,
+  overrideUserSettings: false,
+  serverChatHistory: false,
+  allowedChannels: []
+};
     } else if (!state.serverSettings[guildId].allowedChannels) {
       state.serverSettings[guildId].allowedChannels = [];
     }
