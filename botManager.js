@@ -345,14 +345,14 @@ function scheduleDailyReset() {
     const timeUntilNextReset = nextReset - now;
 
     setTimeout(async () => {
-      console.log('Running daily cleanup task...');
-      await chatHistoryLock.runExclusive(async () => {
-        removeFileData(chatHistories);
-        await saveStateToFile();
-      });
-      console.log('Daily cleanup task finished.');
-      scheduleDailyReset();
-    }, timeUntilNextReset);
+  console.log('Running daily cleanup task...');
+  await chatHistoryLock.runExclusive(async () => {
+    preserveAttachmentContext(chatHistories);  // ✅ CHANGED: Use new function
+    await saveStateToFile();
+  });
+  console.log('Daily cleanup task finished.');
+  scheduleDailyReset();
+}, timeUntilNextReset);
 
   } catch (error) {
     console.error('An error occurred while scheduling the daily reset:', error);
