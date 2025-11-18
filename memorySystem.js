@@ -326,44 +326,55 @@ class MemorySystem {
     }
   }
 
-  formatHistoryWithContext(historyArray) {
-    let previousTimestamp = null;
-    const timeThresholdMs = 30 * 60 * 1000;
+  // Around line 230, modify the formatHistoryWithContext function:
+formatHistoryWithContext(historyArray) {
+  let previousTimestamp = null;
+  const timeThresholdMs = 30 * 60 * 1000;
 
-    return historyArray.map(entry => {
-      const apiEntry = {
-        role: entry.role === 'assistant' ? 'model' : entry.role,
-        parts: []
-      };
+  return historyArray.map(entry => {
+    const apiEntry = {
+      role: entry.role === 'assistant' ? 'model' : entry.role,
+      parts: []
+    };
 
-      let textContent = entry.content
-        .filter(part => part.text !== undefined)
-        .map(part => part.text)
-        .join('\n');
-
-      let timePassed = "";
-      if (previousTimestamp && entry.timestamp) {
-        const timeDiffMs = entry.timestamp - previousTimestamp;
-        if (timeDiffMs > timeThresholdMs) {
-          const durationString = this.formatDuration(timeDiffMs);
-          timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
-        }
+    // ✅ ENHANCED: Include ALL content parts, not just text
+    let textContent = '';
+    let hasAttachments = false;
+    
+    for (const part of entry.content) {
+      if (part.text !== undefined) {
+        textContent += part.text + '\n';
+      } else if (part.fileUri || part.fileData) {
+        // This shouldn't normally happen after cleanup, but handle it
+        hasAttachments = true;
       }
-      previousTimestamp = entry.timestamp;
+    }
+    
+    textContent = textContent.trim();
 
-      if (entry.role === 'user' && entry.username && entry.displayName) {
-        textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
-      } else {
-        textContent = timePassed + textContent;
+    let timePassed = "";
+    if (previousTimestamp && entry.timestamp) {
+      const timeDiffMs = entry.timestamp - previousTimestamp;
+      if (timeDiffMs > timeThresholdMs) {
+        const durationString = this.formatDuration(timeDiffMs);
+        timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
       }
+    }
+    previousTimestamp = entry.timestamp;
 
-      if (textContent.trim()) {
-        apiEntry.parts.push({ text: textContent });
-      }
+    if (entry.role === 'user' && entry.username && entry.displayName) {
+      textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+    } else {
+      textContent = timePassed + textContent;
+    }
 
-      return apiEntry;
-    }).filter(entry => entry.parts.length > 0);
-  }
+    if (textContent.trim()) {
+      apiEntry.parts.push({ text: textContent });
+    }
+
+    return apiEntry;
+  }).filter(entry => entry.parts.length > 0);
+}
 
   getQueueStatus() {
     return {
