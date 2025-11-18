@@ -2050,7 +2050,7 @@ try {
   const userId = interaction.user.id;
   const userSettings = state.userSettings[userId] || {};
 
-  const continuousReply = userSettings.continuousReply || false;
+  const continuousReply = userSettings.continuousReply || true;
   const embedColor = userSettings.embedColor || hexColour;
   const hasPersonality = !!userSettings.customPersonality;
 
@@ -2341,7 +2341,7 @@ try {
   const embedColor = serverSettings.embedColor || hexColour;
 
   const overrideUserSettings = serverSettings.overrideUserSettings || false;
-  const continuousReply = serverSettings.continuousReply || false;
+  const continuousReply = serverSettings.continuousReply || true;
   const serverChatHistory = serverSettings.serverChatHistory || false;
 
   const overrideSelect = new StringSelectMenuBuilder()
@@ -4736,6 +4736,7 @@ try {
 
 
 client.login(token);
+
 
 
 
