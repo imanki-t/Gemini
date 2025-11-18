@@ -446,6 +446,9 @@ export function getUserResponsePreference(userId) {
   return state.userResponsePreference[userId] || config.defaultResponseFormat;
 }
 
+// FIND this function in botManager.js (around line 440-460)
+// REPLACE IT COMPLETELY with this version:
+
 export function initializeBlacklistForGuild(guildId) {
   try {
     if (!state.blacklistedUsers[guildId]) {
@@ -455,8 +458,8 @@ export function initializeBlacklistForGuild(guildId) {
       state.serverSettings[guildId] = {
         selectedModel: 'gemini-2.5-flash',
         responseFormat: 'Normal',
-        showActionButtons: true,
-        continuousReply: false,
+        showActionButtons: false,  // CHANGED: Default to false
+        continuousReply: true,     // CHANGED: Default to true
         customPersonality: null,
         embedColor: config.hexColour,
         overrideUserSettings: false,
@@ -465,6 +468,14 @@ export function initializeBlacklistForGuild(guildId) {
       };
     } else if (!state.serverSettings[guildId].allowedChannels) {
       state.serverSettings[guildId].allowedChannels = [];
+    }
+    
+    // ADDED: Ensure defaults for existing settings without these properties
+    if (state.serverSettings[guildId].showActionButtons === undefined) {
+      state.serverSettings[guildId].showActionButtons = false;
+    }
+    if (state.serverSettings[guildId].continuousReply === undefined) {
+      state.serverSettings[guildId].continuousReply = true;
     }
   } catch (error) {
     console.error('Error initializing blacklist for guild:', error);
