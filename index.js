@@ -655,21 +655,32 @@ try {
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
 
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
-  const modelName = MODELS[selectedModel];
-  const instructions = effectiveSettings.customPersonality || state.customInstructions[userId] || defaultPersonality;
+const modelName = MODELS[selectedModel];
 
-  let infoStr = '';
-  if (guildId) {
-    const userInfo = {
-      username: interaction.user.username,
-      displayName: interaction.user.displayName
-    };
-    infoStr = `\nYou are currently engaging with users in the ${interaction.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
-  }
+// ✅ FIXED: Use core rules + custom personality
+let finalInstructions = config.coreSystemRules;
 
-  const isServerChatHistoryEnabled = guildId ? state.serverSettings[guildId]?.serverChatHistory : false;
-  const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
-  const finalInstructions = isServerChatHistoryEnabled ? instructions + infoStr : instructions;
+const customPersonality = effectiveSettings.customPersonality || state.customInstructions[userId];
+if (customPersonality) {
+  finalInstructions += `\n\nADDITIONAL PERSONALITY:\n${customPersonality}`;
+} else {
+  finalInstructions += `\n\n${config.defaultPersonality}`;
+}
+
+// Add server/user context
+let infoStr = '';
+if (guildId) {
+  const userInfo = {
+    username: interaction.user.username,
+    displayName: interaction.user.displayName
+  };
+  infoStr = `\nYou are currently engaging with users in the ${interaction.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
+}
+
+finalInstructions += infoStr;
+
+const isServerChatHistoryEnabled = guildId ? state.serverSettings[guildId]?.serverChatHistory : false;
+const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
   const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
   // FIXED: Always include search tools - let the AI decide when to use them
@@ -3962,32 +3973,42 @@ const allAttachments = [
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
 
-  let instructions;
-  if (guildId) {
-    if (state.channelWideChatHistory[channelId]) {
-      instructions = state.customInstructions[channelId];
-    } else if (serverSettings.customPersonality) {
-      instructions = serverSettings.customPersonality;
-    } else if (effectiveSettings.customPersonality) {
-      instructions = effectiveSettings.customPersonality;
-    } else {
-      instructions = state.customInstructions[userId];
-    }
-  } else {
-    instructions = effectiveSettings.customPersonality || state.customInstructions[userId];
-  }
+  // ✅ NEW: Build instructions with MANDATORY core rules
+let finalInstructions = config.coreSystemRules; // Always start with core rules
 
-  // Build user/server context info
+// Add custom personality if it exists (this extends, not replaces)
+let customInstructions;
+if (guildId) {
+  if (state.channelWideChatHistory[channelId]) {
+    customInstructions = state.customInstructions[channelId];
+  } else if (serverSettings.customPersonality) {
+    customInstructions = serverSettings.customPersonality;
+  } else if (effectiveSettings.customPersonality) {
+    customInstructions = effectiveSettings.customPersonality;
+  } else {
+    customInstructions = state.customInstructions[userId];
+  }
+} else {
+  customInstructions = effectiveSettings.customPersonality || state.customInstructions[userId];
+}
+
+// ✅ Append custom personality to core rules (not replace)
+if (customInstructions) {
+  finalInstructions += `\n\nADDITIONAL PERSONALITY:\n${customInstructions}`;
+} else {
+  // Add default personality if no custom one exists
+  finalInstructions += `\n\n${config.defaultPersonality}`;
+}
+
+// Build user/server context info
 let infoStr = '';
 if (guildId) {
-  // In a server - include both server name and user info
   const userInfo = {
     username: message.author.username,
     displayName: message.author.displayName
   };
   infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
 } else {
-  // In DMs - just include user info
   const userInfo = {
     username: message.author.username,
     displayName: message.author.displayName
@@ -3995,11 +4016,13 @@ if (guildId) {
   infoStr = `\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
 }
 
-const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
-const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
-
+// ✅ Append user context to final instructions
+finalInstructions += infoStr;
 // ALWAYS include user info in instructions
 const finalInstructions = (instructions || defaultPersonality) + infoStr;
+
+const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
+const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
     
   const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
@@ -4736,6 +4759,7 @@ try {
 
 
 client.login(token);
+
 
 
 
