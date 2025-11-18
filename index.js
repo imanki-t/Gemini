@@ -893,7 +893,7 @@ try {
 }
 }
 
-// Replace the processAttachment function in index.js with this updated version
+// Replace the entire processAttachment function in index.js with this version
 
 async function processAttachment(attachment, userId, interactionId) {
   const contentType = (attachment.contentType || "").toLowerCase();
@@ -1007,7 +1007,7 @@ async function processAttachment(attachment, userId, interactionId) {
     apiUploadableTypes.plainText.extensions.includes(fileExtension) ||
     apiUploadableTypes.plainText.mimeTypes.includes(contentType);
 
-  // DIRECT UPLOAD PATH - For files supported by Gemini API
+  // ==================== DIRECT UPLOAD PATH ====================
   if (canUploadToAPI) {
     try {
       await downloadFile(attachment.url, filePath);
@@ -1064,11 +1064,11 @@ async function processAttachment(attachment, userId, interactionId) {
           
           let metadata = '';
           if (isAnimatedSticker) {
-            metadata = `[Animated Sticker converted to video: ${attachment.name}]`;
+            metadata = `[Animated Sticker converted to video: ${attachment.name} (video/mp4)]`;
           } else if (isAnimatedEmoji) {
-            metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video]`;
+            metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video (video/mp4)]`;
           } else {
-            metadata = `[Animated GIF converted to video: ${sanitizedFileName}]`;
+            metadata = `[Animated GIF converted to video: ${sanitizedFileName} (video/mp4)]`;
           }
           
           return [
@@ -1099,11 +1099,11 @@ async function processAttachment(attachment, userId, interactionId) {
             
             let fallbackMetadata = '';
             if (isAnimatedSticker) {
-              fallbackMetadata = `[Static frame from Animated Sticker: ${attachment.name}]`;
+              fallbackMetadata = `[Static frame from Animated Sticker: ${attachment.name} (image/png)]`;
             } else if (isAnimatedEmoji) {
-              fallbackMetadata = `[Static frame from Animated Emoji: :${attachment.emojiName}:]`;
+              fallbackMetadata = `[Static frame from Animated Emoji: :${attachment.emojiName}: (image/png)]`;
             } else {
-              fallbackMetadata = `[Static frame from GIF: ${sanitizedFileName}]`;
+              fallbackMetadata = `[Static frame from GIF: ${sanitizedFileName} (image/png)]`;
             }
             
             return [
@@ -1174,7 +1174,30 @@ async function processAttachment(attachment, userId, interactionId) {
       }
 
       await fs.unlink(filePath).catch(() => {});
-      return createPartFromUri(uploadResult.uri, uploadResult.mimeType);
+      
+      // ✅ ENHANCED: Add descriptive metadata based on file type
+      let fileTypeDescription = 'File';
+      if (apiUploadableTypes.images.extensions.includes(fileExtension) || 
+          apiUploadableTypes.images.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Image';
+      } else if (apiUploadableTypes.video.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.video.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Video';
+      } else if (apiUploadableTypes.audio.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.audio.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Audio';
+      } else if (apiUploadableTypes.uploadableDocs.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.uploadableDocs.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'PDF Document';
+      } else if (apiUploadableTypes.plainText.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.plainText.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Text File';
+      }
+      
+      return [
+        { text: `[${fileTypeDescription} uploaded: ${sanitizedFileName} (${mimeType})]` },
+        createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+      ];
       
     } catch (uploadError) {
       console.error(`Error uploading ${attachment.name} to API:`, uploadError);
@@ -1183,7 +1206,7 @@ async function processAttachment(attachment, userId, interactionId) {
     }
   }
 
-  // CONVERTIBLE IMAGE PATH - Convert to PNG
+  // ==================== CONVERTIBLE IMAGE PATH ====================
   const isConvertibleImage = 
     convertibleImages.extensions.includes(fileExtension) ||
     convertibleImages.mimeTypes.includes(contentType);
@@ -1210,7 +1233,7 @@ async function processAttachment(attachment, userId, interactionId) {
       await fs.unlink(pngFilePath).catch(() => {});
       
       return [
-        { text: `[Image converted from ${fileExtension.toUpperCase()} to PNG: ${attachment.name}]` },
+        { text: `[Image converted from ${fileExtension.toUpperCase()} to PNG: ${attachment.name} (image/png)]` },
         createPartFromUri(uploadResult.uri, 'image/png')
       ];
       
@@ -1223,7 +1246,7 @@ async function processAttachment(attachment, userId, interactionId) {
     }
   }
 
-  // CONVERTIBLE AUDIO PATH - Convert to MP3
+  // ==================== CONVERTIBLE AUDIO PATH ====================
   const isConvertibleAudio = 
     convertibleAudio.extensions.includes(fileExtension) ||
     convertibleAudio.mimeTypes.includes(contentType);
@@ -1256,7 +1279,7 @@ async function processAttachment(attachment, userId, interactionId) {
       await fs.unlink(mp3FilePath).catch(() => {});
       
       return [
-        { text: `[Audio converted from ${fileExtension.toUpperCase()} to MP3: ${attachment.name}]` },
+        { text: `[Audio converted from ${fileExtension.toUpperCase()} to MP3: ${attachment.name} (audio/mpeg)]` },
         createPartFromUri(uploadResult.uri, 'audio/mpeg')
       ];
       
@@ -1269,7 +1292,7 @@ async function processAttachment(attachment, userId, interactionId) {
     }
   }
 
-  // CONVERTIBLE VIDEO PATH - Convert to MP4
+  // ==================== CONVERTIBLE VIDEO PATH ====================
   const isConvertibleVideo = 
     convertibleVideo.extensions.includes(fileExtension) ||
     convertibleVideo.mimeTypes.includes(contentType);
@@ -1319,7 +1342,7 @@ async function processAttachment(attachment, userId, interactionId) {
       await fs.unlink(mp4FilePath).catch(() => {});
       
       return [
-        { text: `[Video converted from ${fileExtension.toUpperCase()} to MP4: ${attachment.name}]` },
+        { text: `[Video converted from ${fileExtension.toUpperCase()} to MP4: ${attachment.name} (video/mp4)]` },
         createPartFromUri(uploadResult.uri, 'video/mp4')
       ];
       
@@ -1332,7 +1355,7 @@ async function processAttachment(attachment, userId, interactionId) {
     }
   }
 
-  // TEXT EXTRACTION PATH - Extract text and upload as TXT file
+  // ==================== TEXT EXTRACTION PATH ====================
   const needsTextExtraction = 
     textExtractionTypes.extensions.includes(fileExtension) ||
     textExtractionTypes.mimeTypes.includes(contentType);
@@ -1341,7 +1364,7 @@ async function processAttachment(attachment, userId, interactionId) {
     try {
       let fileContent = await downloadAndReadFile(attachment.url, fileExtension);
       
-      // Always upload as TXT file with metadata (regardless of size)
+      // Always upload as TXT file with metadata
       const txtFileName = sanitizedFileName.replace(/\.[^.]+$/, '.txt');
       const txtFilePath = path.join(TEMP_DIR, `extracted-${uniqueTempFilename}.txt`);
       
@@ -1374,24 +1397,14 @@ async function processAttachment(attachment, userId, interactionId) {
       }
       
       return [
-        { text: `[${originalType} extracted to text: ${attachment.name}]` },
+        { text: `[${originalType} extracted to text: ${attachment.name} (converted to text/plain)]` },
         createPartFromUri(uploadResult.uri, 'text/plain')
       ];
       
     } catch (extractionError) {
       console.error(`Error extracting text from ${attachment.name}:`, extractionError);
       return {
-        text: `\n\n[❌ Failed to extract text from: ${attachment.name}]`
-      };
-    }
-  }
-
-  // Final fallback - should rarely reach here
-  console.warn(`Unhandled file type: ${attachment.name} (${contentType})`);
-  return {
-    text: `\n\n[⚠️ Unknown file format: ${attachment.name}]`
-  };
-            }
+        text: `\n\n[❌ Failed to extract text from: ${attachment.n
 
 
 async function handleButtonInteraction(interaction) {
@@ -4713,6 +4726,7 @@ try {
 
 
 client.login(token);
+
 
 
 
