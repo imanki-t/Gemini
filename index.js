@@ -4493,24 +4493,15 @@ while (attempts > 0 && !stopGeneration) {
       finalResponse = tempResponse;
     }
 
-    if (!isLargeResponse && responseFormat === 'Embedded') {
-  updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-} else if (!isLargeResponse) {
-  // Delete the "thinking" message and send new message with final response
-  await botMessage.delete().catch(() => {});
-  
-  if (continuousReply) {
-    botMessage = await originalMessage.channel.send({
-      content: finalResponse.slice(0, 2000),
-      embeds: []
-    });
-  } else {
-    botMessage = await originalMessage.reply({
-      content: finalResponse.slice(0, 2000),
-      embeds: []
-    });
-  }
-    }
+        if (!isLargeResponse && responseFormat === 'Embedded') {
+      updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
+    } else if (!isLargeResponse) {
+      botMessage = await botMessage.edit({
+        content: finalResponse.slice(0, 2000),
+        embeds: []
+      });
+        }
+    
 
     // Add buttons *after* final content is set
     let finalMessage = botMessage;
@@ -4758,6 +4749,7 @@ try {
 
 
 client.login(token);
+
 
 
 
