@@ -112,43 +112,44 @@ class MemorySystem {
   }
 
   async compressOldMessages(messages, model) {
-  if (messages.length <= 5) return messages;
+    if (messages.length <= 5) return messages;
 
-  try {
-    // ✅ FIXED: systemInstruction is now a string
-    const chat = genAI.chats.create({
-      model: model,
-      config: {
-        systemInstruction: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive.",
-        temperature: 0.3,
-        topP: 0.95
-      }
-    });
+    try {
+      // ✅ FIXED: systemInstruction is now a string
+      const chat = genAI.chats.create({
+        model: model,
+        config: {
+          systemInstruction: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive.",
+          temperature: 0.3,
+          topP: 0.95
+        }
+      });
 
-    const conversationText = messages.map((msg, idx) => {
-      const role = msg.role === 'user' ? 'User' : 'Assistant';
-      const text = this.extractTextFromMessage(msg);
-      return `${role}: ${text}`;
-    }).join('\n\n');
+      const conversationText = messages.map((msg, idx) => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const text = this.extractTextFromMessage(msg);
+        return `${role}: ${text}`;
+      }).join('\n\n');
 
-    // ✅ FIXED: Send message directly as string (or object with message property)
-    const result = await chat.sendMessage(
-      `Summarize this conversation:\n\n${conversationText}`
-    );
+      // ✅ FIXED: Send message as an object with 'message' property to satisfy ContentUnion requirement
+      const result = await chat.sendMessage({
+        message: `Summarize this conversation:\n\n${conversationText}`
+      });
 
-    const summary = result.text || conversationText.slice(0, 500);
+      const summary = result.text || conversationText.slice(0, 500);
 
-    return [{
-      role: 'user',
-      content: [{
-        text: `[Previous conversation summary: ${summary}]`
-      }],
-      timestamp: Date.now()
-    }];
-  } catch (error) {
-    console.error('Compression failed:', error);
-    return messages.slice(-3);
-  }
+      return [{
+        role: 'user',
+        content: [{
+          text: `[Previous conversation summary: ${summary}]`
+        }],
+        timestamp: Date.now()
+      }];
+    } catch (error) {
+      console.error('Compression failed:', error);
+      // Fallback: return the last few messages if compression fails
+      return messages.slice(-3);
+    }
   }
 
 
@@ -236,10 +237,6 @@ class MemorySystem {
       const messagesSinceLastIndex = currentCount - lastIndexed;
 
       if (messagesSinceLastIndex >= INDEX_BATCH_SIZE) {
-        // --- LOG LINE REMOVED HERE ---
-        // console.log(`🔄 Auto-indexing ${messagesSinceLastIndex} new messages for ${historyId}`);
-        // ------------------------------
-        
         const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
         
         if (oldMessages.length > 0) {
@@ -326,55 +323,54 @@ class MemorySystem {
     }
   }
 
-  // Around line 230, modify the formatHistoryWithContext function:
-formatHistoryWithContext(historyArray) {
-  let previousTimestamp = null;
-  const timeThresholdMs = 30 * 60 * 1000;
+  formatHistoryWithContext(historyArray) {
+    let previousTimestamp = null;
+    const timeThresholdMs = 30 * 60 * 1000;
 
-  return historyArray.map(entry => {
-    const apiEntry = {
-      role: entry.role === 'assistant' ? 'model' : entry.role,
-      parts: []
-    };
+    return historyArray.map(entry => {
+      const apiEntry = {
+        role: entry.role === 'assistant' ? 'model' : entry.role,
+        parts: []
+      };
 
-    // ✅ ENHANCED: Include ALL content parts, not just text
-    let textContent = '';
-    let hasAttachments = false;
-    
-    for (const part of entry.content) {
-      if (part.text !== undefined) {
-        textContent += part.text + '\n';
-      } else if (part.fileUri || part.fileData) {
-        // This shouldn't normally happen after cleanup, but handle it
-        hasAttachments = true;
+      // ✅ ENHANCED: Include ALL content parts, not just text
+      let textContent = '';
+      let hasAttachments = false;
+      
+      for (const part of entry.content) {
+        if (part.text !== undefined) {
+          textContent += part.text + '\n';
+        } else if (part.fileUri || part.fileData) {
+          // This shouldn't normally happen after cleanup, but handle it
+          hasAttachments = true;
+        }
       }
-    }
-    
-    textContent = textContent.trim();
+      
+      textContent = textContent.trim();
 
-    let timePassed = "";
-    if (previousTimestamp && entry.timestamp) {
-      const timeDiffMs = entry.timestamp - previousTimestamp;
-      if (timeDiffMs > timeThresholdMs) {
-        const durationString = this.formatDuration(timeDiffMs);
-        timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+      let timePassed = "";
+      if (previousTimestamp && entry.timestamp) {
+        const timeDiffMs = entry.timestamp - previousTimestamp;
+        if (timeDiffMs > timeThresholdMs) {
+          const durationString = this.formatDuration(timeDiffMs);
+          timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+        }
       }
-    }
-    previousTimestamp = entry.timestamp;
+      previousTimestamp = entry.timestamp;
 
-    if (entry.role === 'user' && entry.username && entry.displayName) {
-      textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
-    } else {
-      textContent = timePassed + textContent;
-    }
+      if (entry.role === 'user' && entry.username && entry.displayName) {
+        textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+      } else {
+        textContent = timePassed + textContent;
+      }
 
-    if (textContent.trim()) {
-      apiEntry.parts.push({ text: textContent });
-    }
+      if (textContent.trim()) {
+        apiEntry.parts.push({ text: textContent });
+      }
 
-    return apiEntry;
-  }).filter(entry => entry.parts.length > 0);
-}
+      return apiEntry;
+    }).filter(entry => entry.parts.length > 0);
+  }
 
   getQueueStatus() {
     return {
@@ -433,4 +429,3 @@ formatHistoryWithContext(historyArray) {
 }
 
 export const memorySystem = new MemorySystem();
-        
