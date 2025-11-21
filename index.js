@@ -710,11 +710,11 @@ const chat = genAI.chats.create({
 });
   
 
-  let botMessage = await interaction.editReply({
-    content: 'Lumin is thinking...'
-  });
+    // Fetch the deferred reply object to use for updates
+  let botMessage = await interaction.fetchReply();
 
   const responseFormat = effectiveSettings.responseFormat || 'Normal';
+  
   const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
   let attempts = 3;
 
@@ -3926,7 +3926,7 @@ const allAttachments = [
 
   // Rest of the function continues exactly as before...
 
-  message.channel.sendTyping();
+    message.channel.sendTyping();
   const typingInterval = setInterval(() => {
     message.channel.sendTyping();
   }, 4000);
@@ -3934,27 +3934,12 @@ const allAttachments = [
     clearInterval(typingInterval);
   }, 120000);
 
-  let botMessage;
+  let botMessage = null; // Set to null initially
   let parts;
   let hasMedia = false;
 
   try {
-    clearInterval(typingInterval);
-
-    const userSettings = state.userSettings[userId] || {};
-    const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
-    const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
-    const continuousReply = effectiveSettings.continuousReply || false;
-
-    if (continuousReply) {
-      botMessage = await message.channel.send({
-        content: 'Lumin is thinking...'
-      });
-    } else {
-      botMessage = await message.reply({
-        content: 'Lumin is thinking...'
-      });
-    }
+    // clearInterval(typingInterval); // Don't clear yet, keep typing until response starts
 
     messageContent = await extractFileText(message, messageContent);
     parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
@@ -4057,7 +4042,9 @@ const chat = genAI.chats.create({
   
   
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
-      } 
+  
+  
+  
 
 function hasSupportedAttachments(message) {
 const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
@@ -4351,102 +4338,107 @@ try {
 }
 
 async function handleModelResponse(initialBotMessage, chat, parts, originalMessage, typingInterval, historyId, effectiveSettings) {
-const userId = originalMessage.author.id;
-const guildId = originalMessage.guild?.id;
-const responseFormat = effectiveSettings.responseFormat || 'Normal';
-const showActionButtons = effectiveSettings.showActionButtons !== false;
-const continuousReply = effectiveSettings.continuousReply || false;
-const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
-let attempts = 3;
+  const userId = originalMessage.author.id;
+  const guildId = originalMessage.guild?.id;
+  const responseFormat = effectiveSettings.responseFormat || 'Normal';
+  const showActionButtons = effectiveSettings.showActionButtons !== false;
+  const continuousReply = effectiveSettings.continuousReply || false;
+  const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
+  let attempts = 3;
 
-let updateTimeout;
-let tempResponse = '';
-let groundingMetadata = null;
-let urlContextMetadata = null;
+  let updateTimeout;
+  let tempResponse = '';
+  let groundingMetadata = null;
+  let urlContextMetadata = null;
+  
+  // Initialize with whatever was passed (likely null based on previous steps)
+  let botMessage = initialBotMessage;
 
-const stopGeneratingButton = new ActionRowBuilder()
-  .addComponents(
-    new ButtonBuilder()
-    .setCustomId('stopGenerating')
-    .setLabel('Stop Generating')
-    .setEmoji('⏹️')
-    .setStyle(ButtonStyle.Danger)
-  );
+  // Update helper function
+  const updateMessage = async () => {
+    if (!botMessage) return; // Cannot update a message that hasn't been created yet
 
-let botMessage = initialBotMessage;
-try {
-  await botMessage.edit({
-    components: [stopGeneratingButton]
-  });
-} catch (e) {}
-
-let stopGeneration = false;
-const filter = (interaction) => interaction.customId === 'stopGenerating' && interaction.user.id === originalMessage.author.id;
-try {
-  const collector = await botMessage.createMessageComponentCollector({
-    filter,
-    time: 120000
-  });
-  collector.on('collect', (interaction) => {
     try {
-      const embed = new EmbedBuilder()
-        .setColor(0xFFAA00)
-        .setTitle('⏹️ Generation Stopped')
-        .setDescription('Response generation has been stopped.');
-      interaction.reply({
-        embeds: [embed],
-        flags: MessageFlags.Ephemeral
-      });
-    } catch (error) {
-      console.error('Error sending stop reply:', error);
+      if (tempResponse.trim() === "") {
+        // Do nothing if empty
+      } else if (responseFormat === 'Embedded') {
+        updateEmbed(botMessage, tempResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
+      } else {
+        // For normal format, update content
+        await botMessage.edit({
+          content: tempResponse,
+          embeds: []
+        }).catch(() => {});
+      }
+    } catch (e) {
+      // Ignore minor edit errors during streaming
     }
-    stopGeneration = true;
-    collector.stop();
-  });
-} catch (error) {
-  console.error('Error creating collector:', error);
-}
+    clearTimeout(updateTimeout);
+    updateTimeout = null;
+  };
 
-const updateMessage = () => {
-  if (stopGeneration) {
-    return;
-  }
-  if (tempResponse.trim() === "") {} else if (responseFormat === 'Embedded') {
-    updateEmbed(botMessage, tempResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-  } else {
-    // For normal format, still edit during streaming for real-time updates
-    botMessage.edit({
-      content: tempResponse,
-      embeds: []
-    }).catch(() => {});
-  }
-  clearTimeout(updateTimeout);
-  updateTimeout = null;
-};
+  while (attempts > 0) {
+    try {
+      let finalResponse = '';
+      let isLargeResponse = false;
+      const newHistory = [];
+      newHistory.push({
+        role: 'user',
+        content: parts
+      });
 
-while (attempts > 0 && !stopGeneration) {
-  try {
-    let finalResponse = '';
-    let isLargeResponse = false;
-    const newHistory = [];
-    newHistory.push({
-      role: 'user',
-      content: parts
-    });
-
-    async function getResponse(parts) {
-      let newResponse = '';
+      // Start the stream
       const messageResult = await chat.sendMessageStream({
         message: parts
       });
-      for await (const chunk of messageResult) {
-        if (stopGeneration) break;
 
+      // Stop the Discord "Typing..." indicator as soon as we get the stream connection
+      clearInterval(typingInterval);
+
+      for await (const chunk of messageResult) {
         const chunkText = (chunk.text || (chunk.codeExecutionResult?.output ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` : "") || (chunk.executableCode ? `\n\`\`\`\n${chunk.executableCode}\n\`\`\`\n` : ""));
+        
         if (chunkText && chunkText !== '') {
           finalResponse += chunkText;
           tempResponse += chunkText;
-          newResponse += chunkText;
+
+          // IF the message doesn't exist yet (first chunk), create it now
+          if (!botMessage) {
+            try {
+              if (continuousReply) {
+                botMessage = await originalMessage.channel.send({
+                  content: tempResponse
+                });
+              } else {
+                botMessage = await originalMessage.reply({
+                  content: tempResponse
+                });
+              }
+            } catch (createErr) {
+              console.error("Error creating initial message:", createErr);
+              throw createErr; // Throw to trigger retry logic
+            }
+          } else {
+            // Message exists, so we just edit it (throttled)
+            if (finalResponse.length > maxCharacterLimit) {
+              if (!isLargeResponse) {
+                isLargeResponse = true;
+                const embed = new EmbedBuilder()
+                  .setColor(0xFFAA00)
+                  .setTitle('📄 Large Response')
+                  .setDescription('The response is too large. It will be sent as a text file once completed.');
+                
+                botMessage.edit({
+                  content: ' ',
+                  embeds: [embed],
+                  components: []
+                }).catch(() => {});
+              }
+            } else if (!updateTimeout) {
+              // Update every 800ms to prevent rate limits
+              updateTimeout = setTimeout(updateMessage, 800); 
+            }
+          }
         }
 
         if (chunk.candidates && chunk.candidates[0]?.groundingMetadata) {
@@ -4456,142 +4448,102 @@ while (attempts > 0 && !stopGeneration) {
         if (chunk.candidates && chunk.candidates[0]?.url_context_metadata) {
           urlContextMetadata = chunk.candidates[0].url_context_metadata;
         }
+      }
 
-        if (finalResponse.length > maxCharacterLimit) {
-          if (!isLargeResponse) {
-            isLargeResponse = true;
-            const embed = new EmbedBuilder()
-              .setColor(0xFFAA00)
-              .setTitle('📄 Large Response')
-              .setDescription('The response is too large. It will be sent as a text file once completed.');
-            botMessage.edit({
-              content: ' ',
-              embeds: [embed],
-              components: []
-            }).catch(() => {});
-          }
-        } else if (!updateTimeout) {
-          updateTimeout = setTimeout(updateMessage, 500);
+      // Stream finished
+      clearTimeout(updateTimeout);
+
+      // Fallback: If stream finished but no message was created (rare case of empty stream), create one now
+      if (!botMessage && finalResponse) {
+         if (continuousReply) {
+            botMessage = await originalMessage.channel.send({ content: finalResponse });
+         } else {
+            botMessage = await originalMessage.reply({ content: finalResponse });
+         }
+      }
+
+      newHistory.push({
+        role: 'assistant',
+        content: [{
+          text: finalResponse
+        }]
+      });
+
+      // Final update to ensure formatting is correct
+      if (botMessage) {
+        if (!isLargeResponse && responseFormat === 'Embedded') {
+          updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
+        } else if (!isLargeResponse) {
+          await botMessage.edit({
+            content: finalResponse.slice(0, 2000),
+            embeds: []
+          }).catch(() => {});
         }
       }
-      if (!stopGeneration) {
-        newHistory.push({
-          role: 'assistant',
-          content: [{
-            text: newResponse
-          }]
+
+      // Handle Large Responses (File conversion)
+      let finalMessage = botMessage;
+      if (isLargeResponse && finalMessage) {
+        finalMessage = await sendAsTextFile(finalResponse, originalMessage, botMessage.id, continuousReply);
+      }
+
+      // Add Action Buttons (Save/Delete)
+      if (showActionButtons && finalMessage && !isLargeResponse) {
+        finalMessage = await addDownloadButton(finalMessage);
+        finalMessage = await addDeleteButton(finalMessage, finalMessage.id);
+      } 
+
+      // Save Chat History
+      if (newHistory.length > 1 && finalMessage) {
+        await chatHistoryLock.runExclusive(async () => {
+          const username = originalMessage.author.username;
+          const displayName = originalMessage.author.displayName;
+          updateChatHistory(historyId, newHistory, finalMessage.id, username, displayName);
+          await saveStateToFile();
         });
       }
-    }
+      
+      // Success - exit loop
+      break;
 
-    await getResponse(parts);
+    } catch (error) {
+      // Error Handling
+      console.error('Generation attempt failed:', error);
+      attempts--;
+      clearInterval(typingInterval);
+      clearTimeout(updateTimeout);
 
-    clearInterval(typingInterval);
-    clearTimeout(updateTimeout);
-
-    if (stopGeneration) {
-      finalResponse = tempResponse;
-    }
-
-        if (!isLargeResponse && responseFormat === 'Embedded') {
-      updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-    } else if (!isLargeResponse) {
-      botMessage = await botMessage.edit({
-        content: finalResponse.slice(0, 2000),
-        embeds: []
-      });
-        }
-    
-
-    // Add buttons *after* final content is set
-    let finalMessage = botMessage;
-    if (isLargeResponse) {
-      // sendAsTextFile will now *edit* the botMessage
-      finalMessage = await sendAsTextFile(finalResponse, originalMessage, botMessage.id, continuousReply);
-    }
-
-    // Add action buttons if enabled
-    if (showActionButtons) {
-      finalMessage = await addDownloadButton(finalMessage);
-      finalMessage = await addDeleteButton(finalMessage, finalMessage.id);
-    } else {
-      // Ensure no buttons (like 'Stop') are left
-      finalMessage.edit({
-        components: []
-      }).catch(() => {});
-    }
-
-    if (newHistory.length > 1) {
-  await chatHistoryLock.runExclusive(async () => {
-    const username = originalMessage.author.username;
-    const displayName = originalMessage.author.displayName;
-    updateChatHistory(historyId, newHistory, finalMessage.id, username, displayName);
-    await saveStateToFile();
-  });
-    }
-    break;
-  } catch (error) {
-    if (activeRequests.has(userId)) {
-      activeRequests.delete(userId);
-    }
-    console.error('Generation attempt failed:', error);
-    attempts--;
-    clearInterval(typingInterval);
-    clearTimeout(updateTimeout);
-
-    if (attempts === 0 || stopGeneration) {
-      try {
-        await botMessage.delete();
-      } catch (deleteError) {
-        console.error('Error deleting thinking message:', deleteError);
+      if (activeRequests.has(userId)) {
+        activeRequests.delete(userId);
       }
 
-      if (!stopGeneration) {
+      if (attempts === 0) {
         const embed = new EmbedBuilder()
           .setColor(0xFF0000)
           .setTitle('❌ Generation Failed')
           .setDescription('All generation attempts failed. Please try again later.');
 
-        if (continuousReply) {
-          await originalMessage.channel.send({
-            embeds: [embed]
-          });
-        } else {
-          await originalMessage.reply({
-            embeds: [embed]
-          });
-        }
-      }
-      break;
-    } else {
-      let errorMsg;
-      if (continuousReply) {
-        errorMsg = await originalMessage.channel.send({
-          embeds: [new EmbedBuilder()
-            .setColor(0xFFAA00)
-            .setTitle('⚠️ Retrying')
-            .setDescription('Generation failed. Retrying...')
-          ]
-        });
+        try {
+          // Since botMessage might not exist, we reply to the original message
+          if (continuousReply) {
+            await originalMessage.channel.send({ embeds: [embed] });
+          } else {
+            await originalMessage.reply({ embeds: [embed] });
+          }
+        } catch (e) { console.error("Failed to send error message", e); }
+        break;
       } else {
-        errorMsg = await originalMessage.reply({
-          embeds: [new EmbedBuilder()
-            .setColor(0xFFAA00)
-            .setTitle('⚠️ Retrying')
-            .setDescription('Generation failed. Retrying...')
-          ]
-        });
+        // Retry logic
+        await delay(1500);
       }
-      setTimeout(() => errorMsg.delete().catch(console.error), 5000);
-      await delay(500);
     }
   }
-}
 
-if (activeRequests.has(userId)) {
-  activeRequests.delete(userId);
-}
-}
+  // Cleanup active request
+  if (activeRequests.has(userId)) {
+    activeRequests.delete(userId);
+  }
+        }     
 
 function updateEmbed(botMessage, finalResponse, message, groundingMetadata = null, urlContextMetadata = null, effectiveSettings) {
 try {
@@ -4749,6 +4701,7 @@ try {
 
 
 client.login(token);
+
 
 
 
