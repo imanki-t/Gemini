@@ -1429,91 +1429,98 @@ async function processAttachment(attachment, userId, interactionId) {
 
 
 async function handleButtonInteraction(interaction) {
-if (!interaction.isButton()) return;
+  if (!interaction.isButton()) return;
 
-const guildId = interaction.guild?.id;
-const userId = interaction.user.id;
+  const guildId = interaction.guild?.id;
+  const userId = interaction.user.id;
 
-if (guildId) {
-  initializeBlacklistForGuild(guildId);
-  if (state.blacklistedUsers[guildId]?.includes(userId)) {
-    const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🚫 Blacklisted')
-      .setDescription('You are blacklisted and cannot use this interaction.');
-    return interaction.reply({
-      embeds: [embed],
-      flags: MessageFlags.Ephemeral
-    });
-  }
-}
-
-const buttonHandlers = {
-  'user_settings_page2': showUserSettingsPage2,
-  'user_settings_p1': showUserSettings,
-  'user_settings': showUserSettings,
-  'server_settings_page4': showServerSettingsPage4,
-  'server_settings_page3': showServerSettingsPage3,
-  'server_settings_page2': showServerSettingsPage2,
-  'server_settings_p1': showServerSettings, // Alias for page 1
-  'server_settings': showServerSettings, // Page 1
-  'back_to_main': showMainSettings,
-  'back_to_user': showUserSettings,
-  'back_to_server_p3': showServerSettingsPage3,
-  'back_to_server_p2': showServerSettingsPage2,
-  'back_to_server': showServerSettings, // Back to page 1
-  'clear_user_memory': clearUserMemory,
-  'download_user_conversation': downloadUserConversation,
-  'clear_server_memory': clearServerMemory,
-  'download_server_conversation': downloadServerConversation,
-  'user_custom_personality': showUserPersonalityModal,
-  'user_remove_personality': removeUserPersonality,
-  'server_custom_personality': showServerPersonalityModal,
-  'server_remove_personality': removeServerPersonality,
-  'user_embed_color': showUserEmbedColorModal,
-  'server_embed_color': showServerEmbedColorModal,
-  'toggle_continuous_reply': toggleContinuousReplyChannel,
-  'manage_allowed_channels': showChannelManagementMenu,
-  'set_all_channels': handleSetAllChannels,
-  'download_message': downloadMessage,
-  'settings_btn': showMainSettings,
-  'stopGenerating': stopGeneration,
-};
-
-const updateableMenus = [
-  'user_settings',
-  'user_settings_page2',
-  'user_settings_p1',
-  'server_settings',
-  'server_settings_p1',
-  'server_settings_page2',
-  'server_settings_page3',
-  'server_settings_page4',
-  'back_to_main',
-  'back_to_user',
-  'back_to_server',
-  'back_to_server_p2',
-  'back_to_server_p3',
-  'manage_allowed_channels',
-  'set_all_channels'
-];
-
-for (const [key, handler] of Object.entries(buttonHandlers)) {
-  if (interaction.customId.startsWith(key)) {
-    if (updateableMenus.includes(key)) {
-      await handler(interaction, true);
-    } else {
-      await handler(interaction);
+  if (guildId) {
+    initializeBlacklistForGuild(guildId);
+    if (state.blacklistedUsers[guildId]?.includes(userId)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('🚫 Blacklisted')
+        .setDescription('You are blacklisted and cannot use this interaction.');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
     }
-    return;
+  }
+
+  const buttonHandlers = {
+    // User Settings Navigation
+    'user_settings_page3': showUserSettingsPage3, // NEW
+    'user_settings_page2': showUserSettingsPage2,
+    'user_settings_p1': showUserSettings,
+    'user_settings': showUserSettings,
+    'back_to_user_p2': showUserSettingsPage2, // NEW
+    'back_to_user': showUserSettings,
+
+    // Server Settings Navigation
+    'server_settings_page5': showServerSettingsPage5, // NEW
+    'server_settings_page4': showServerSettingsPage4,
+    'server_settings_page3': showServerSettingsPage3,
+    'server_settings_page2': showServerSettingsPage2,
+    'server_settings_p1': showServerSettings,
+    'server_settings': showServerSettings,
+    
+    // Server Back Buttons
+    'back_to_server_p4': showServerSettingsPage4, // NEW
+    'back_to_server_p3': showServerSettingsPage3,
+    'back_to_server_p2': showServerSettingsPage2,
+    'back_to_server': showServerSettings,
+
+    // Main Menu
+    'back_to_main': showMainSettings,
+
+    // Actions
+    'clear_user_memory': clearUserMemory,
+    'download_user_conversation': downloadUserConversation,
+    'clear_server_memory': clearServerMemory,
+    'download_server_conversation': downloadServerConversation,
+    'user_custom_personality': showUserPersonalityModal,
+    'user_remove_personality': removeUserPersonality,
+    'server_custom_personality': showServerPersonalityModal,
+    'server_remove_personality': removeServerPersonality,
+    'user_embed_color': showUserEmbedColorModal,
+    'server_embed_color': showServerEmbedColorModal,
+    'toggle_continuous_reply': toggleContinuousReplyChannel,
+    'manage_allowed_channels': showChannelManagementMenu,
+    'set_all_channels': handleSetAllChannels,
+    'download_message': downloadMessage,
+    'settings_btn': showMainSettings,
+    'stopGenerating': stopGeneration,
+  };
+
+  const updateableMenus = [
+    'user_settings', 'user_settings_page2', 'user_settings_page3', 'user_settings_p1',
+    'server_settings', 'server_settings_p1', 'server_settings_page2', 
+    'server_settings_page3', 'server_settings_page4', 'server_settings_page5',
+    'back_to_main', 'back_to_user', 'back_to_user_p2',
+    'back_to_server', 'back_to_server_p2', 'back_to_server_p3', 'back_to_server_p4',
+    'manage_allowed_channels', 'set_all_channels'
+  ];
+
+  for (const [key, handler] of Object.entries(buttonHandlers)) {
+    if (interaction.customId.startsWith(key)) {
+      if (updateableMenus.includes(key)) {
+        await handler(interaction, true);
+      } else {
+        await handler(interaction);
+      }
+      return;
+    }
+  }
+
+  if (interaction.customId.startsWith('delete_message-')) {
+    const msgId = interaction.customId.replace('delete_message-', '');
+    await handleDeleteMessageInteraction(interaction, msgId);
   }
 }
 
-if (interaction.customId.startsWith('delete_message-')) {
-  const msgId = interaction.customId.replace('delete_message-', '');
-  await handleDeleteMessageInteraction(interaction, msgId);
-}
-}
+
+  
 
 async function handleSelectMenuInteraction(interaction) {
 if (!interaction.isStringSelectMenu() && !interaction.isChannelSelectMenu()) return;
@@ -1889,726 +1896,696 @@ try {
 }
 
 async function showUserSettings(interaction, isUpdate = false) {
-try {
-  const userId = interaction.user.id;
-  const userSettings = state.userSettings[userId] || {};
-  const guildId = interaction.guild?.id;
+  try {
+    const userId = interaction.user.id;
+    const userSettings = state.userSettings[userId] || {};
+    const guildId = interaction.guild?.id;
 
-  if (guildId) {
-    const serverSettings = state.serverSettings[guildId] || {};
-    if (serverSettings.overrideUserSettings && !isUpdate) {
+    if (guildId) {
+      const serverSettings = state.serverSettings[guildId] || {};
+      if (serverSettings.overrideUserSettings && !isUpdate) {
+        try {
+          const embed = new EmbedBuilder()
+            .setColor(0xFFAA00)
+            .setTitle('🔒 Server Override Active')
+            .setDescription(`The settings on this server, **${interaction.guild.name}**, are being overridden by server administrators.\n\n` +
+              'Your personal user settings will not apply here. However, you can still edit them, and they will apply in your DMs and other servers that do not have override enabled.');
+          await interaction.user.send({
+            embeds: [embed]
+          });
+        } catch (dmError) {
+          console.error("Failed to send override DM:", dmError);
+          // Fallback if DMs are closed is handled silently or by ephemeral reply below
+        }
+      }
+    }
+
+    const selectedModel = userSettings.selectedModel || 'gemini-2.5-flash';
+    const responseFormat = userSettings.responseFormat || 'Normal';
+    const showActionButtons = userSettings.showActionButtons !== false;
+    const embedColor = userSettings.embedColor || hexColour;
+
+    const modelSelect = new StringSelectMenuBuilder()
+      .setCustomId('user_model_select')
+      .setPlaceholder('Select AI Model')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash').setDescription('Balanced and efficient model').setValue('gemini-2.5-flash').setEmoji('⚡').setDefault(selectedModel === 'gemini-2.5-flash'),
+        new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash Lite').setDescription('Lightweight and quick').setValue('gemini-2.5-flash-lite').setEmoji('💨').setDefault(selectedModel === 'gemini-2.5-flash-lite'),
+      );
+
+    const responseFormatSelect = new StringSelectMenuBuilder()
+      .setCustomId('user_response_format')
+      .setPlaceholder('Response Format')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Normal').setDescription('Plain text responses').setValue('Normal').setEmoji('📝').setDefault(responseFormat === 'Normal'),
+        new StringSelectMenuOptionBuilder().setLabel('Embedded').setDescription('Rich embed responses').setValue('Embedded').setEmoji('📊').setDefault(responseFormat === 'Embedded')
+      );
+
+    const actionButtonsSelect = new StringSelectMenuBuilder()
+      .setCustomId('user_action_buttons')
+      .setPlaceholder('Action Buttons')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Show Buttons').setDescription('Display Stop/Save/Delete buttons').setValue('show').setEmoji('✅').setDefault(showActionButtons),
+        new StringSelectMenuOptionBuilder().setLabel('Hide Buttons').setDescription('Hide action buttons').setValue('hide').setEmoji('❌').setDefault(!showActionButtons)
+      );
+
+    const buttons = [
+      new ButtonBuilder().setCustomId('user_settings_page2').setLabel('Next Page').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('back_to_main').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(modelSelect),
+      new ActionRowBuilder().addComponents(responseFormatSelect),
+      new ActionRowBuilder().addComponents(actionButtonsSelect),
+      new ActionRowBuilder().addComponents(...buttons)
+    ];
+
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTitle('👤 User Settings (Page 1/3)')
+      .setDescription('Configure your personal bot preferences')
+      .addFields({
+        name: '🤖 Current Model',
+        value: `\`${selectedModel}\``,
+        inline: true
+      }, {
+        name: '📋 Response Format',
+        value: `\`${responseFormat}\``,
+        inline: true
+      }, {
+        name: '🔘 Action Buttons',
+        value: `\`${showActionButtons ? 'Visible' : 'Hidden'}\``,
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 1: Core Preferences'
+      })
+      .setTimestamp();
+
+    const payload = {
+      embeds: [embed],
+      components: components,
+      flags: MessageFlags.Ephemeral
+    };
+
+    let reply;
+    if (isUpdate) {
+      reply = await interaction.update(payload);
+    } else {
+      reply = await interaction.reply({ ...payload,
+        fetchReply: true
+      });
+    }
+
+    setTimeout(async () => {
       try {
-        const embed = new EmbedBuilder()
-          .setColor(0xFFAA00)
-          .setTitle('🔒 Server Override Active')
-          .setDescription(`The settings on this server, **${interaction.guild.name}**, are being overridden by server administrators.\n\n` +
-            'Your personal user settings will not apply here. However, you can still edit them, and they will apply in your DMs and other servers that do not have override enabled.');
-        await interaction.user.send({
-          embeds: [embed]
-        });
-      } catch (dmError) {
-        console.error("Failed to send override DM:", dmError);
-        const embed = new EmbedBuilder()
-          .setColor(0xFFAA00)
-          .setTitle('🔒 Server Override Active')
-          .setDescription('Your user settings will not apply in this server. (I tried to DM you this, but your DMs might be closed.)');
-
-        await interaction.reply({
-          embeds: [embed],
-          flags: MessageFlags.Ephemeral
-        });
-
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        const currentReply = await interaction.fetchReply().catch(() => null);
+        if (currentReply) {
+          await interaction.deleteReply();
+        }
+      } catch (error) {
+        if (error.code !== 10008) console.error('Error deleting expired settings message:', error);
       }
-    }
+    }, 300000);
+  } catch (error) {
+    console.error('Error showing user settings:', error);
   }
-
-  const selectedModel = userSettings.selectedModel || 'gemini-2.5-flash';
-  const responseFormat = userSettings.responseFormat || 'Normal';
-  const showActionButtons = userSettings.showActionButtons !== false;
-  const embedColor = userSettings.embedColor || hexColour;
-
-  const modelSelect = new StringSelectMenuBuilder()
-    .setCustomId('user_model_select')
-    .setPlaceholder('Select AI Model')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash')
-      .setDescription('Balanced and efficient model')
-      .setValue('gemini-2.5-flash')
-      .setEmoji('⚡')
-      .setDefault(selectedModel === 'gemini-2.5-flash'),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash Lite')
-      .setDescription('Lightweight and quick')
-      .setValue('gemini-2.5-flash-lite')
-      .setEmoji('💨')
-      .setDefault(selectedModel === 'gemini-2.5-flash-lite'),
-    );
-
-  const responseFormatSelect = new StringSelectMenuBuilder()
-    .setCustomId('user_response_format')
-    .setPlaceholder('Response Format')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Normal')
-      .setDescription('Plain text responses')
-      .setValue('Normal')
-      .setEmoji('📝')
-      .setDefault(responseFormat === 'Normal'),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Embedded')
-      .setDescription('Rich embed responses')
-      .setValue('Embedded')
-      .setEmoji('📊')
-      .setDefault(responseFormat === 'Embedded')
-    );
-
-  const actionButtonsSelect = new StringSelectMenuBuilder()
-    .setCustomId('user_action_buttons')
-    .setPlaceholder('Action Buttons')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Show Buttons')
-      .setDescription('Display Stop/Save/Delete buttons')
-      .setValue('show')
-      .setEmoji('✅')
-      .setDefault(showActionButtons),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Hide Buttons')
-      .setDescription('Hide action buttons')
-      .setValue('hide')
-      .setEmoji('❌')
-      .setDefault(!showActionButtons)
-    );
-
-  const buttons = [
-    new ButtonBuilder()
-    .setCustomId('user_settings_page2')
-    .setLabel('Next Page')
-    .setEmoji('➡️')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('back_to_main')
-    .setLabel('Back')
-    .setEmoji('◀️')
-    .setStyle(ButtonStyle.Secondary)
-  ];
-
-  const components = [
-    new ActionRowBuilder().addComponents(modelSelect),
-    new ActionRowBuilder().addComponents(responseFormatSelect),
-    new ActionRowBuilder().addComponents(actionButtonsSelect),
-    new ActionRowBuilder().addComponents(...buttons)
-  ];
-
-  const embed = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTitle('👤 User Settings (Page 1/2)')
-    .setDescription('Configure your personal bot preferences')
-    .addFields({
-      name: '🤖 Current Model',
-      value: `\`${selectedModel}\``,
-      inline: true
-    }, {
-      name: '📋 Response Format',
-      value: `\`${responseFormat}\``,
-      inline: true
-    }, {
-      name: '🔘 Action Buttons',
-      value: `\`${showActionButtons ? 'Visible' : 'Hidden'}\``,
-      inline: true
-    })
-    .setFooter({
-      text: 'Use the dropdowns and buttons to customize your experience'
-    })
-    .setTimestamp();
-
-  const payload = {
-    embeds: [embed],
-    components: components,
-    flags: MessageFlags.Ephemeral
-  };
-
-  let reply;
-  if (isUpdate) {
-    reply = await interaction.update(payload);
-  } else {
-    reply = await interaction.reply({...payload,
-      fetchReply: true
-    });
-  }
-
-  setTimeout(async () => {
-    try {
-      const currentReply = await interaction.fetchReply().catch(() => null);
-      if (currentReply) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      if (error.code !== 10008) {
-        console.error('Error deleting expired settings message:', error);
-      }
-    }
-  }, 300000);
-} catch (error) {
-  console.error('Error showing user settings:', error);
-}
 }
 
 async function showUserSettingsPage2(interaction, isUpdate = false) {
-try {
-  const userId = interaction.user.id;
-  const userSettings = state.userSettings[userId] || {};
+  try {
+    const userId = interaction.user.id;
+    const userSettings = state.userSettings[userId] || {};
+    const continuousReply = userSettings.continuousReply || true;
+    const embedColor = userSettings.embedColor || hexColour;
+    const hasPersonality = !!userSettings.customPersonality;
 
-  const continuousReply = userSettings.continuousReply || true;
-  const embedColor = userSettings.embedColor || hexColour;
-  const hasPersonality = !!userSettings.customPersonality;
+    // 1. Continuous Reply (Select Menu)
+    const continuousReplySelect = new StringSelectMenuBuilder()
+      .setCustomId('user_continuous_reply')
+      .setPlaceholder('Continuous Reply')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Enabled').setDescription('Bot replies without mentions').setValue('enabled').setEmoji('🔄').setDefault(continuousReply),
+        new StringSelectMenuOptionBuilder().setLabel('Disabled').setDescription('Bot requires mentions').setValue('disabled').setEmoji('⏸️').setDefault(!continuousReply)
+      );
 
-  const continuousReplySelect = new StringSelectMenuBuilder()
-    .setCustomId('user_continuous_reply')
-    .setPlaceholder('Continuous Reply')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Enabled')
-      .setDescription('Bot replies without mentions')
-      .setValue('enabled')
-      .setEmoji('🔄')
-      .setDefault(continuousReply),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Disabled')
-      .setDescription('Bot requires mentions')
-      .setValue('disabled')
-      .setEmoji('⏸️')
-      .setDefault(!continuousReply)
-    );
+    // 2. Embed Color (Button Row)
+    const colorButton = new ButtonBuilder()
+      .setCustomId('user_embed_color')
+      .setLabel('Set Embed Color')
+      .setEmoji('🎨')
+      .setStyle(ButtonStyle.Secondary);
 
-  const buttons1 = [
-    new ButtonBuilder()
-    .setCustomId('user_custom_personality')
-    .setLabel('Custom Personality')
-    .setEmoji('🎭')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('user_remove_personality')
-    .setLabel('Remove Personality')
-    .setEmoji('🗑️')
-    .setStyle(ButtonStyle.Danger)
-    .setDisabled(!hasPersonality),
-    new ButtonBuilder()
-    .setCustomId('user_embed_color')
-    .setLabel('Embed Color')
-    .setEmoji('🎨')
-    .setStyle(ButtonStyle.Secondary)
-  ];
+    // 3. Personality (Button Row)
+    const personalityBtn = new ButtonBuilder()
+      .setCustomId('user_custom_personality')
+      .setLabel('Set Personality')
+      .setEmoji('🎭')
+      .setStyle(ButtonStyle.Primary);
 
-  const buttons2 = [
-    new ButtonBuilder()
-    .setCustomId('clear_user_memory')
-    .setLabel('Clear Memory')
-    .setEmoji('🧹')
-    .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-    .setCustomId('download_user_conversation')
-    .setLabel('Download History')
-    .setEmoji('💾')
-    .setStyle(ButtonStyle.Secondary),
-  ];
+    const removePersonalityBtn = new ButtonBuilder()
+      .setCustomId('user_remove_personality')
+      .setLabel('Reset')
+      .setEmoji('🗑️')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!hasPersonality);
 
-  const buttons3 = [
-    new ButtonBuilder()
-    .setCustomId('user_settings_p1')
-    .setLabel('Back')
-    .setEmoji('◀️')
-    .setStyle(ButtonStyle.Secondary)
-  ];
+    // Navigation
+    const navButtons = [
+      new ButtonBuilder().setCustomId('user_settings_page3').setLabel('Next Page').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('user_settings_p1').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
 
-  const components = [
-    new ActionRowBuilder().addComponents(continuousReplySelect),
-    new ActionRowBuilder().addComponents(...buttons1),
-    new ActionRowBuilder().addComponents(...buttons2),
-    new ActionRowBuilder().addComponents(...buttons3)
-  ];
+    const components = [
+      new ActionRowBuilder().addComponents(continuousReplySelect),
+      new ActionRowBuilder().addComponents(colorButton),
+      new ActionRowBuilder().addComponents(personalityBtn, removePersonalityBtn),
+      new ActionRowBuilder().addComponents(...navButtons)
+    ];
 
-  const embed = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTitle('👤 User Settings (Page 2/2)')
-    .setDescription('Configure additional preferences')
-    .addFields({
-      name: '🔄 Continuous Reply',
-      value: `\`${continuousReply ? 'Enabled' : 'Disabled'}\``,
-      inline: true
-    }, {
-      name: '🎨 Embed Color',
-      value: `\`${embedColor}\``,
-      inline: true
-    }, {
-      name: '🎭 Custom Personality',
-      value: `\`${hasPersonality ? 'Active' : 'Not Set'}\``,
-      inline: true
-    })
-    .setFooter({
-      text: 'Use the dropdowns and buttons to customize your experience'
-    })
-    .setTimestamp();
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTitle('👤 User Settings (Page 2/3)')
+      .setDescription('Configure behavior and appearance.')
+      .addFields({
+        name: '🔄 Continuous Reply',
+        value: `\`${continuousReply ? 'Enabled' : 'Disabled'}\``,
+        inline: true
+      }, {
+        name: '🎨 Embed Color',
+        value: `\`${embedColor}\``,
+        inline: true
+      }, {
+        name: '🎭 Personality',
+        value: `\`${hasPersonality ? 'Active' : 'Default'}\``,
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 2: Behavior & Appearance'
+      })
+      .setTimestamp();
 
-  const payload = {
-    embeds: [embed],
-    components: components,
-    flags: MessageFlags.Ephemeral
-  };
+    const payload = {
+      embeds: [embed],
+      components: components,
+      flags: MessageFlags.Ephemeral
+    };
 
-  let reply;
-  if (isUpdate) {
-    reply = await interaction.update(payload);
-  } else {
-    reply = await interaction.reply({...payload,
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
       fetchReply: true
     });
+
+  } catch (error) {
+    console.error('Error showing user settings page 2:', error);
   }
-
-  setTimeout(async () => {
-    try {
-      const currentReply = await interaction.fetchReply().catch(() => null);
-      if (currentReply) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      if (error.code !== 10008) {
-        console.error('Error deleting expired settings message:', error);
-      }
-    }
-  }, 300000);
-
-} catch (error) {
-  console.error('Error showing user settings page 2:', error);
-}
 }
 
+async function showUserSettingsPage3(interaction, isUpdate = false) {
+  try {
+    const userId = interaction.user.id;
+    const userSettings = state.userSettings[userId] || {};
+    const embedColor = userSettings.embedColor || hexColour;
+
+    // 1. Memory Management
+    const clearMemBtn = new ButtonBuilder()
+      .setCustomId('clear_user_memory')
+      .setLabel('Clear Conversation Memory')
+      .setEmoji('🧹')
+      .setStyle(ButtonStyle.Danger);
+
+    // 2. Data Export
+    const downloadBtn = new ButtonBuilder()
+      .setCustomId('download_user_conversation')
+      .setLabel('Download History')
+      .setEmoji('💾')
+      .setStyle(ButtonStyle.Secondary);
+
+    // Navigation
+    const navButtons = [
+      new ButtonBuilder().setCustomId('back_to_user_p2').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(clearMemBtn),
+      new ActionRowBuilder().addComponents(downloadBtn),
+      new ActionRowBuilder().addComponents(...navButtons)
+    ];
+
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTitle('👤 User Settings (Page 3/3)')
+      .setDescription('Manage your conversation data.')
+      .addFields({
+        name: '🧹 Memory',
+        value: 'Clear current conversation context',
+        inline: true
+      }, {
+        name: '💾 History',
+        value: 'Download chat log as text file',
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 3: Data Management'
+      })
+      .setTimestamp();
+
+    const payload = {
+      embeds: [embed],
+      components: components,
+      flags: MessageFlags.Ephemeral
+    };
+
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
+      fetchReply: true
+    });
+
+  } catch (error) {
+    console.error('Error showing user settings page 3:', error);
+  }
+}
 
 async function showServerSettings(interaction, isUpdate = false) {
-try {
-  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+  try {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return sendPermError(interaction);
+
+    const guildId = interaction.guild.id;
+    const serverSettings = state.serverSettings[guildId] || {};
+    const selectedModel = serverSettings.selectedModel || 'gemini-2.5-flash';
+    const responseFormat = serverSettings.responseFormat || 'Normal';
+    const showActionButtons = serverSettings.showActionButtons !== false;
+    const embedColor = serverSettings.embedColor || hexColour;
+
+    const modelSelect = new StringSelectMenuBuilder()
+      .setCustomId('server_model_select')
+      .setPlaceholder('Select AI Model')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash').setDescription('Balanced and efficient model').setValue('gemini-2.5-flash').setEmoji('⚡').setDefault(selectedModel === 'gemini-2.5-flash'),
+        new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash Lite').setDescription('Lightweight and quick').setValue('gemini-2.5-flash-lite').setEmoji('💨').setDefault(selectedModel === 'gemini-2.5-flash-lite'),
+      );
+
+    const responseFormatSelect = new StringSelectMenuBuilder()
+      .setCustomId('server_response_format')
+      .setPlaceholder('Response Format')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Normal').setDescription('Plain text responses').setValue('Normal').setEmoji('📝').setDefault(responseFormat === 'Normal'),
+        new StringSelectMenuOptionBuilder().setLabel('Embedded').setDescription('Rich embed responses').setValue('Embedded').setEmoji('📊').setDefault(responseFormat === 'Embedded')
+      );
+
+    const actionButtonsSelect = new StringSelectMenuBuilder()
+      .setCustomId('server_action_buttons')
+      .setPlaceholder('Action Buttons')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Show Buttons').setDescription('Display Stop/Save/Delete buttons').setValue('show').setEmoji('✅').setDefault(showActionButtons),
+        new StringSelectMenuOptionBuilder().setLabel('Hide Buttons').setDescription('Hide action buttons').setValue('hide').setEmoji('❌').setDefault(!showActionButtons)
+      );
+
+    const buttons = [
+      new ButtonBuilder().setCustomId('server_settings_page2').setLabel('Next Page').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('back_to_main').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(modelSelect),
+      new ActionRowBuilder().addComponents(responseFormatSelect),
+      new ActionRowBuilder().addComponents(actionButtonsSelect),
+      new ActionRowBuilder().addComponents(...buttons)
+    ];
+
     const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🚫 Permission Denied')
-      .setDescription('You need "Manage Server" permission to access server settings.');
-    return interaction.reply({
+      .setColor(embedColor)
+      .setTitle('🏰 Server Settings (Page 1/5)')
+      .setDescription('Configure server-wide bot preferences')
+      .addFields({
+        name: '🤖 Current Model',
+        value: `\`${selectedModel}\``,
+        inline: true
+      }, {
+        name: '📋 Response Format',
+        value: `\`${responseFormat}\``,
+        inline: true
+      }, {
+        name: '🔘 Action Buttons',
+        value: `\`${showActionButtons ? 'Visible' : 'Hidden'}\``,
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 1: Core Preferences'
+      })
+      .setTimestamp();
+
+    const payload = {
       embeds: [embed],
+      components: components,
       flags: MessageFlags.Ephemeral
-    });
-  }
+    };
 
-  const guildId = interaction.guild.id;
-  const serverSettings = state.serverSettings[guildId] || {};
-
-  const selectedModel = serverSettings.selectedModel || 'gemini-2.5-flash';
-  const responseFormat = serverSettings.responseFormat || 'Normal';
-  const showActionButtons = serverSettings.showActionButtons !== false;
-  const embedColor = serverSettings.embedColor || hexColour;
-
-  const modelSelect = new StringSelectMenuBuilder()
-    .setCustomId('server_model_select')
-    .setPlaceholder('Select AI Model')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash')
-      .setDescription('Balanced and efficient model')
-      .setValue('gemini-2.5-flash')
-      .setEmoji('⚡')
-      .setDefault(selectedModel === 'gemini-2.5-flash'),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Gemini 2.5 Flash Lite')
-      .setDescription('Lightweight and quick')
-      .setValue('gemini-2.5-flash-lite')
-      .setEmoji('💨')
-      .setDefault(selectedModel === 'gemini-2.5-flash-lite'),
-    );
-  const responseFormatSelect = new StringSelectMenuBuilder()
-    .setCustomId('server_response_format')
-    .setPlaceholder('Response Format')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Normal')
-      .setDescription('Plain text responses')
-      .setValue('Normal')
-      .setEmoji('📝')
-      .setDefault(responseFormat === 'Normal'),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Embedded')
-      .setDescription('Rich embed responses')
-      .setValue('Embedded')
-      .setEmoji('📊')
-      .setDefault(responseFormat === 'Embedded')
-    );
-
-  const actionButtonsSelect = new StringSelectMenuBuilder()
-    .setCustomId('server_action_buttons')
-    .setPlaceholder('Action Buttons')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Show Buttons')
-      .setDescription('Display Stop/Save/Delete buttons')
-      .setValue('show')
-      .setEmoji('✅')
-      .setDefault(showActionButtons),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Hide Buttons')
-      .setDescription('Hide action buttons')
-      .setValue('hide')
-      .setEmoji('❌')
-      .setDefault(!showActionButtons)
-    );
-
-  const buttons1 = [
-    new ButtonBuilder()
-    .setCustomId('server_settings_page2')
-    .setLabel('Next Page')
-    .setEmoji('➡️')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('back_to_main')
-    .setLabel('Back')
-    .setEmoji('◀️')
-    .setStyle(ButtonStyle.Secondary)
-  ];
-
-  const components = [
-    new ActionRowBuilder().addComponents(modelSelect),
-    new ActionRowBuilder().addComponents(responseFormatSelect),
-    new ActionRowBuilder().addComponents(actionButtonsSelect),
-    new ActionRowBuilder().addComponents(...buttons1)
-  ];
-
-  const embed = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTitle('🏰 Server Settings (Page 1/4)')
-    .setDescription('Configure server-wide bot preferences')
-    .addFields({
-      name: '🤖 Current Model',
-      value: `\`${selectedModel}\``,
-      inline: true
-    }, {
-      name: '📋 Response Format',
-      value: `\`${responseFormat}\``,
-      inline: true
-    }, {
-      name: '🔘 Action Buttons',
-      value: `\`${showActionButtons ? 'Visible' : 'Hidden'}\``,
-      inline: true
-    })
-    .setFooter({
-      text: 'Click "Next Page" for more options'
-    })
-    .setTimestamp();
-
-  const payload = {
-    embeds: [embed],
-    components: components,
-    flags: MessageFlags.Ephemeral
-  };
-
-  let reply;
-  if (isUpdate) {
-    reply = await interaction.update(payload);
-  } else {
-    reply = await interaction.reply({...payload,
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
       fetchReply: true
     });
-  }
 
-  setTimeout(async () => {
-    try {
-      const currentReply = await interaction.fetchReply().catch(() => null);
-      if (currentReply) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      if (error.code !== 10008) {
-        console.error('Error deleting expired settings message:', error);
-      }
-    }
-  }, 300000);
-} catch (error) {
-  console.error('Error showing server settings:', error);
-}
+  } catch (error) {
+    console.error('Error showing server settings:', error);
+  }
 }
 
 async function showServerSettingsPage2(interaction, isUpdate = false) {
-try {
-  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+  try {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return sendPermError(interaction);
+    const guildId = interaction.guild.id;
+    const serverSettings = state.serverSettings[guildId] || {};
+    const embedColor = serverSettings.embedColor || hexColour;
+    const overrideUserSettings = serverSettings.overrideUserSettings || false;
+    const continuousReply = serverSettings.continuousReply || false;
+    const serverChatHistory = serverSettings.serverChatHistory || false;
+
+    const overrideSelect = new StringSelectMenuBuilder()
+      .setCustomId('server_override')
+      .setPlaceholder('Override User Settings')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Enabled').setDescription('Server settings override user settings').setValue('enabled').setEmoji('🔒').setDefault(overrideUserSettings),
+        new StringSelectMenuOptionBuilder().setLabel('Disabled').setDescription('Users can use their own settings').setValue('disabled').setEmoji('🔓').setDefault(!overrideUserSettings)
+      );
+
+    const continuousReplySelect = new StringSelectMenuBuilder()
+      .setCustomId('server_continuous_reply')
+      .setPlaceholder('Continuous Reply (Server-Wide)')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Enabled').setDescription('Bot replies without mentions in all channels').setValue('enabled').setEmoji('🔄').setDefault(continuousReply),
+        new StringSelectMenuOptionBuilder().setLabel('Disabled').setDescription('Bot requires mentions (default)').setValue('disabled').setEmoji('⏸️').setDefault(!continuousReply)
+      );
+
+    const chatHistorySelect = new StringSelectMenuBuilder()
+      .setCustomId('server_chat_history')
+      .setPlaceholder('Server-Wide Chat History')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Enabled').setDescription('Share chat history across server').setValue('enabled').setEmoji('📚').setDefault(serverChatHistory),
+        new StringSelectMenuOptionBuilder().setLabel('Disabled').setDescription('Individual user histories').setValue('disabled').setEmoji('📖').setDefault(!serverChatHistory)
+      );
+
+    const buttons = [
+      new ButtonBuilder().setCustomId('server_settings_page3').setLabel('Next Page').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('back_to_server').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(overrideSelect),
+      new ActionRowBuilder().addComponents(continuousReplySelect),
+      new ActionRowBuilder().addComponents(chatHistorySelect),
+      new ActionRowBuilder().addComponents(...buttons)
+    ];
+
     const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🚫 Permission Denied')
-      .setDescription('You need "Manage Server" permission to access server settings.');
-    return interaction.reply({
+      .setColor(embedColor)
+      .setTitle('🏰 Server Settings (Page 2/5)')
+      .setDescription('Configure logic and overrides')
+      .addFields({
+        name: '🔒 Override',
+        value: `\`${overrideUserSettings ? 'Yes' : 'No'}\``,
+        inline: true
+      }, {
+        name: '🔄 Continuous',
+        value: `\`${continuousReply ? 'Yes' : 'No'}\``,
+        inline: true
+      }, {
+        name: '📚 History',
+        value: `\`${serverChatHistory ? 'Yes' : 'No'}\``,
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 2: Logic & Overrides'
+      })
+      .setTimestamp();
+
+    const payload = {
       embeds: [embed],
+      components: components,
       flags: MessageFlags.Ephemeral
-    });
-  }
+    };
 
-  const guildId = interaction.guild.id;
-  const serverSettings = state.serverSettings[guildId] || {};
-  const embedColor = serverSettings.embedColor || hexColour;
-
-  const overrideUserSettings = serverSettings.overrideUserSettings || false;
-  const continuousReply = serverSettings.continuousReply || false;
-  const serverChatHistory = serverSettings.serverChatHistory || false;
-
-  const overrideSelect = new StringSelectMenuBuilder()
-    .setCustomId('server_override')
-    .setPlaceholder('Override User Settings')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Enabled')
-      .setDescription('Server settings override user settings')
-      .setValue('enabled')
-      .setEmoji('🔒')
-      .setDefault(overrideUserSettings),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Disabled')
-      .setDescription('Users can use their own settings')
-      .setValue('disabled')
-      .setEmoji('🔓')
-      .setDefault(!overrideUserSettings)
-    );
-
-  const continuousReplySelect = new StringSelectMenuBuilder()
-    .setCustomId('server_continuous_reply')
-    .setPlaceholder('Continuous Reply (Server-Wide)')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Enabled')
-      .setDescription('Bot replies without mentions in all channels')
-      .setValue('enabled')
-      .setEmoji('🔄')
-      .setDefault(continuousReply),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Disabled')
-      .setDescription('Bot requires mentions (default)')
-      .setValue('disabled')
-      .setEmoji('⏸️')
-      .setDefault(!continuousReply)
-    );
-
-  const chatHistorySelect = new StringSelectMenuBuilder()
-    .setCustomId('server_chat_history')
-    .setPlaceholder('Server-Wide Chat History')
-    .addOptions(
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Enabled')
-      .setDescription('Share chat history across server')
-      .setValue('enabled')
-      .setEmoji('📚')
-      .setDefault(serverChatHistory),
-      new StringSelectMenuOptionBuilder()
-      .setLabel('Disabled')
-      .setDescription('Individual user histories')
-      .setValue('disabled')
-      .setEmoji('📖')
-      .setDefault(!serverChatHistory)
-    );
-
-  const buttons = [
-    new ButtonBuilder()
-    .setCustomId('server_settings_page3')
-    .setLabel('Next Page')
-    .setEmoji('➡️')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('back_to_server') // Goes to page 1
-    .setLabel('Back')
-    .setEmoji('◀️')
-    .setStyle(ButtonStyle.Secondary)
-  ];
-
-  const components = [
-    new ActionRowBuilder().addComponents(overrideSelect),
-    new ActionRowBuilder().addComponents(continuousReplySelect),
-    new ActionRowBuilder().addComponents(chatHistorySelect),
-    new ActionRowBuilder().addComponents(...buttons)
-  ];
-
-  const embed = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTitle('🏰 Server Settings (Page 2/4)')
-    .setDescription('Configure override and history settings')
-    .addFields({
-      name: '🔒 Override User Settings',
-      value: `\`${overrideUserSettings ? 'Enabled' : 'Disabled'}\``,
-      inline: true
-    }, {
-      name: '🔄 Server Continuous Reply',
-      value: `\`${continuousReply ? 'Enabled' : 'Disabled'}\``,
-      inline: true
-    }, {
-      name: '📚 Server Chat History',
-      value: `\`${serverChatHistory ? 'Enabled' : 'Disabled'}\``,
-      inline: true
-    })
-    .setFooter({
-      text: 'Use the dropdowns to configure settings'
-    })
-    .setTimestamp();
-
-  const payload = {
-    embeds: [embed],
-    components: components,
-    flags: MessageFlags.Ephemeral
-  };
-
-  let reply;
-  if (isUpdate) {
-    reply = await interaction.update(payload);
-  } else {
-    reply = await interaction.reply({...payload,
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
       fetchReply: true
     });
-  }
 
-  setTimeout(async () => {
-    try {
-      const currentReply = await interaction.fetchReply().catch(() => null);
-      if (currentReply) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      if (error.code !== 10008) {
-        console.error('Error deleting expired settings message:', error);
-      }
-    }
-  }, 300000);
-} catch (error) {
-  console.error('Error showing server settings page 2:', error);
-}
+  } catch (error) {
+    console.error('Error showing server settings page 2:', error);
+  }
 }
 
 async function showServerSettingsPage3(interaction, isUpdate = false) {
-try {
-  if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+  try {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return sendPermError(interaction);
+    const guildId = interaction.guild.id;
+    const serverSettings = state.serverSettings[guildId] || {};
+    const embedColor = serverSettings.embedColor || hexColour;
+    const hasPersonality = !!serverSettings.customPersonality;
+
+    // 1. Embed Color
+    const colorBtn = new ButtonBuilder()
+      .setCustomId('server_embed_color')
+      .setLabel('Set Server Embed Color')
+      .setEmoji('🎨')
+      .setStyle(ButtonStyle.Secondary);
+
+    // 2. Personality
+    const personalityBtn = new ButtonBuilder()
+      .setCustomId('server_custom_personality')
+      .setLabel('Set Server Personality')
+      .setEmoji('🎭')
+      .setStyle(ButtonStyle.Primary);
+
+    const removePersonalityBtn = new ButtonBuilder()
+      .setCustomId('server_remove_personality')
+      .setLabel('Reset Personality')
+      .setEmoji('🗑️')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!hasPersonality);
+
+    // Navigation
+    const navButtons = [
+      new ButtonBuilder().setCustomId('server_settings_page4').setLabel('Next Page').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('back_to_server_p2').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(colorBtn),
+      new ActionRowBuilder().addComponents(personalityBtn, removePersonalityBtn),
+      new ActionRowBuilder().addComponents(...navButtons)
+    ];
+
     const embed = new EmbedBuilder()
-      .setColor(0xFF0000)
-      .setTitle('🚫 Permission Denied')
-      .setDescription('You need "Manage Server" permission to access server settings.');
-    return interaction.reply({
+      .setColor(embedColor)
+      .setTitle('🏰 Server Settings (Page 3/5)')
+      .setDescription('Configure server appearance and personality.')
+      .addFields({
+        name: '🎨 Embed Color',
+        value: `\`${embedColor}\``,
+        inline: true
+      }, {
+        name: '🎭 Custom Personality',
+        value: `\`${hasPersonality ? 'Active' : 'Default'}\``,
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 3: Appearance & Personality'
+      })
+      .setTimestamp();
+
+    const payload = {
       embeds: [embed],
+      components: components,
       flags: MessageFlags.Ephemeral
-    });
-  }
+    };
 
-  const guildId = interaction.guild.id;
-  const serverSettings = state.serverSettings[guildId] || {};
-  const embedColor = serverSettings.embedColor || hexColour;
-  const hasPersonality = !!serverSettings.customPersonality;
-
-  const buttons1 = [
-    new ButtonBuilder()
-    .setCustomId('server_custom_personality')
-    .setLabel('Custom Personality')
-    .setEmoji('🎭')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('server_remove_personality')
-    .setLabel('Remove Personality')
-    .setEmoji('🗑️')
-    .setStyle(ButtonStyle.Danger)
-    .setDisabled(!hasPersonality),
-    new ButtonBuilder()
-    .setCustomId('server_embed_color')
-    .setLabel('Embed Color')
-    .setEmoji('🎨')
-    .setStyle(ButtonStyle.Secondary)
-  ];
-
-  const buttons2 = [
-    new ButtonBuilder()
-    .setCustomId('clear_server_memory')
-    .setLabel('Clear Memory')
-    .setEmoji('🧹')
-    .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-    .setCustomId('download_server_conversation')
-    .setLabel('Download History')
-    .setEmoji('💾')
-    .setStyle(ButtonStyle.Secondary),
-  ];
-
-  const buttons3 = [
-    new ButtonBuilder()
-    .setCustomId('server_settings_page4')
-    .setLabel('Next Page')
-    .setEmoji('➡️')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('back_to_server_p2') // Goes to page 2
-    .setLabel('Back')
-    .setEmoji('◀️')
-    .setStyle(ButtonStyle.Secondary)
-  ];
-
-  const components = [
-    new ActionRowBuilder().addComponents(...buttons1),
-    new ActionRowBuilder().addComponents(...buttons2),
-    new ActionRowBuilder().addComponents(...buttons3)
-  ];
-
-  const embed = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTitle('🏰 Server Settings (Page 3/4)')
-    .setDescription('Configure personality and memory settings')
-    .addFields({
-      name: '🎨 Embed Color',
-      value: `\`${embedColor}\``,
-      inline: true
-    }, {
-      name: '🎭 Custom Personality',
-      value: `\`${hasPersonality ? 'Active' : 'Not Set'}\``,
-      inline: true
-    })
-    .setFooter({
-      text: 'Use the buttons to manage server settings'
-    })
-    .setTimestamp();
-
-  const payload = {
-    embeds: [embed],
-    components: components,
-    flags: MessageFlags.Ephemeral
-  };
-
-  let reply;
-  if (isUpdate) {
-    reply = await interaction.update(payload);
-  } else {
-    reply = await interaction.reply({...payload,
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
       fetchReply: true
     });
-  }
 
-  setTimeout(async () => {
-    try {
-      const currentReply = await interaction.fetchReply().catch(() => null);
-      if (currentReply) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      if (error.code !== 10008) {
-        console.error('Error deleting expired settings message:', error);
-      }
-    }
-  }, 300000);
-} catch (error) {
-  console.error('Error showing server settings page 3:', error);
+  } catch (error) {
+    console.error('Error showing server settings page 3:', error);
+  }
 }
-}
+
+function sendPermError(interaction) {
+  const embed = new EmbedBuilder()
+    .setColor(0xFF0000)
+    .setTitle('🚫 Permission Denied')
+    .setDescription('You need "Manage Server" permission to access server settings.');
+  return interaction.reply({
+    embeds: [embed],
+    flags: MessageFlags.Ephemeral
+  });
+      }
 
 async function showServerSettingsPage4(interaction, isUpdate = false) {
-try {
+  try {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('🚫 Permission Denied')
+        .setDescription('You need "Manage Server" permission to access server settings.');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    const guildId = interaction.guild.id;
+    const serverSettings = state.serverSettings[guildId] || {};
+    const embedColor = serverSettings.embedColor || hexColour;
+    const allowedChannels = serverSettings.allowedChannels || [];
+
+    // 1. Manage Channels Button
+    const manageChannelsBtn = new ButtonBuilder()
+      .setCustomId('manage_allowed_channels')
+      .setLabel('Manage Allowed Channels')
+      .setEmoji('📢')
+      .setStyle(ButtonStyle.Primary);
+
+    // 2. Toggle Current Channel Continuous
+    const toggleContinuousBtn = new ButtonBuilder()
+      .setCustomId('toggle_continuous_reply')
+      .setLabel('Toggle Channel Continuous')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Secondary);
+
+    // Navigation
+    const navButtons = [
+      new ButtonBuilder().setCustomId('server_settings_page5').setLabel('Next Page').setEmoji('➡️').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('back_to_server_p3').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(manageChannelsBtn),
+      new ActionRowBuilder().addComponents(toggleContinuousBtn),
+      new ActionRowBuilder().addComponents(...navButtons)
+    ];
+
+    const channelList = allowedChannels.length > 0 ?
+      allowedChannels.map(id => `<#${id}>`).slice(0, 5).join(', ') + (allowedChannels.length > 5 ? '...' : '') :
+      'All channels';
+
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTitle('🏰 Server Settings (Page 4/5)')
+      .setDescription('Configure channel restrictions.')
+      .addFields({
+        name: '📢 Allowed Channels',
+        value: channelList,
+        inline: false
+      }, {
+        name: '🔄 Channel Continuous',
+        value: 'Enable/Disable continuous mode for *this* channel specifically.',
+        inline: false
+      })
+      .setFooter({
+        text: 'Page 4: Channel Management'
+      })
+      .setTimestamp();
+
+    const payload = {
+      embeds: [embed],
+      components: components,
+      flags: MessageFlags.Ephemeral
+    };
+
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
+      fetchReply: true
+    });
+
+  } catch (error) {
+    console.error('Error showing server settings page 4:', error);
+  }
+}
+
+async function showServerSettingsPage5(interaction, isUpdate = false) {
+  try {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF0000)
+        .setTitle('🚫 Permission Denied')
+        .setDescription('You need "Manage Server" permission to access server settings.');
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    const guildId = interaction.guild.id;
+    const serverSettings = state.serverSettings[guildId] || {};
+    const embedColor = serverSettings.embedColor || hexColour;
+
+    // 1. Clear Memory
+    const clearMemBtn = new ButtonBuilder()
+      .setCustomId('clear_server_memory')
+      .setLabel('Clear Server Memory')
+      .setEmoji('🧹')
+      .setStyle(ButtonStyle.Danger);
+
+    // 2. Download History
+    const downloadBtn = new ButtonBuilder()
+      .setCustomId('download_server_conversation')
+      .setLabel('Download Server History')
+      .setEmoji('💾')
+      .setStyle(ButtonStyle.Secondary);
+
+    // Navigation
+    const navButtons = [
+      new ButtonBuilder().setCustomId('back_to_server_p4').setLabel('Back').setEmoji('◀️').setStyle(ButtonStyle.Secondary)
+    ];
+
+    const components = [
+      new ActionRowBuilder().addComponents(clearMemBtn),
+      new ActionRowBuilder().addComponents(downloadBtn),
+      new ActionRowBuilder().addComponents(...navButtons)
+    ];
+
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTitle('🏰 Server Settings (Page 5/5)')
+      .setDescription('Manage server-wide data.')
+      .addFields({
+        name: '🧹 Clear Memory',
+        value: 'Reset context for the whole server',
+        inline: true
+      }, {
+        name: '💾 Download History',
+        value: 'Export server chat log',
+        inline: true
+      })
+      .setFooter({
+        text: 'Page 5: Data Management'
+      })
+      .setTimestamp();
+
+    const payload = {
+      embeds: [embed],
+      components: components,
+      flags: MessageFlags.Ephemeral
+    };
+
+    if (isUpdate) await interaction.update(payload);
+    else await interaction.reply({ ...payload,
+      fetchReply: true
+    });
+
+  } catch (error) {
+    console.error('Error showing server settings page 5:', error);
+  }
+}
+
+async function showChannelManagementMenu(interaction, isUpdate = false) {
   if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     const embed = new EmbedBuilder()
       .setColor(0xFF0000)
       .setTitle('🚫 Permission Denied')
-      .setDescription('You need "Manage Server" permission to access server settings.');
+      .setDescription('You need "Manage Server" permission to manage channels.');
     return interaction.reply({
       embeds: [embed],
       flags: MessageFlags.Ephemeral
@@ -2617,60 +2594,68 @@ try {
 
   const guildId = interaction.guild.id;
   const serverSettings = state.serverSettings[guildId] || {};
-  const embedColor = serverSettings.embedColor || hexColour;
   const allowedChannels = serverSettings.allowedChannels || [];
 
-  const buttons1 = [
-    new ButtonBuilder()
-    .setCustomId('manage_allowed_channels')
-    .setLabel('Manage Allowed Channels')
-    .setEmoji('📢')
-    .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-    .setCustomId('toggle_continuous_reply')
-    .setLabel('Toggle Channel Continuous')
-    .setEmoji('🔄')
-    .setStyle(ButtonStyle.Secondary)
-  ];
+  const channelSelect = new ChannelSelectMenuBuilder()
+    .setCustomId('channel_manage_select')
+    .setPlaceholder('Select channels the bot can be used in')
+    .setMinValues(0)
+    .setMaxValues(25)
+    .setChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildForum]);
 
-  const buttons2 = [
-    new ButtonBuilder()
-    .setCustomId('back_to_server_p3') // Goes to page 3
-    .setLabel('Back')
-    .setEmoji('◀️')
-    .setStyle(ButtonStyle.Secondary)
-  ];
+  if (allowedChannels.length > 0) {
+    const validDefaultChannels = [];
+    for (const channelId of allowedChannels) {
+      if (interaction.guild.channels.cache.has(channelId)) {
+        validDefaultChannels.push(channelId);
+      }
+    }
+    if (validDefaultChannels.length > 0) {
+      channelSelect.setDefaultChannels(validDefaultChannels.slice(0, 25));
+    }
+  }
 
-  const components = [
-    new ActionRowBuilder().addComponents(...buttons1),
-    new ActionRowBuilder().addComponents(...buttons2)
-  ];
+  const row = new ActionRowBuilder().addComponents(channelSelect);
 
-  const channelList = allowedChannels.length > 0 ?
-    allowedChannels.map(id => `<#${id}>`).slice(0, 10).join(', ') + (allowedChannels.length > 10 ? '...' : '') :
-    'All channels';
+  const buttons = new ActionRowBuilder()
+    .addComponents(
+      new ButtonBuilder()
+      .setCustomId('set_all_channels')
+      .setLabel('Allow in All Channels')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('🌍'),
+      new ButtonBuilder()
+      .setCustomId('back_to_server_p4') // Go back to page 4
+      .setLabel('Back to Server Settings')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('◀️')
+    );
 
   const embed = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTitle('🏰 Server Settings (Page 4/4)')
-    .setDescription('Configure channel-specific settings')
-    .addFields({
-      name: '📢 Allowed Channels',
-      value: channelList,
-      inline: false
-    }, {
-      name: '🔄 Toggle Channel Continuous',
-      value: 'Enable/disable continuous reply *for the current channel*.\n(Different from the server-wide setting)',
-      inline: false
-    })
+    .setColor(0x5865F2)
+    .setTitle('📢 Manage Allowed Channels')
+    .setDescription('Select the channels where the bot should be allowed to respond. \n\n' +
+      'If **no channels** are selected, the bot will respond in **all** channels that it can see.\n\n' +
+      'Use the "Allow in All Channels" button to quickly clear the list.')
     .setFooter({
-      text: 'Use the buttons to manage channel settings'
-    })
-    .setTimestamp();
+      text: 'Changes are saved automatically when you select.'
+    });
+
+  if (allowedChannels.length > 0) {
+    embed.addFields({
+      name: 'Currently Allowed',
+      value: allowedChannels.map(id => `<#${id}>`).join(', ') || 'None'
+    });
+  } else {
+    embed.addFields({
+      name: 'Currently Allowed',
+      value: 'All Channels'
+    });
+  }
 
   const payload = {
     embeds: [embed],
-    components: components,
+    components: [row, buttons],
     flags: MessageFlags.Ephemeral
   };
 
@@ -2678,7 +2663,7 @@ try {
   if (isUpdate) {
     reply = await interaction.update(payload);
   } else {
-    reply = await interaction.reply({...payload,
+    reply = await interaction.reply({ ...payload,
       fetchReply: true
     });
   }
@@ -2695,10 +2680,10 @@ try {
       }
     }
   }, 300000);
-} catch (error) {
-  console.error('Error showing server settings page 4:', error);
 }
-}
+
+
+      
 
 async function clearUserMemory(interaction) {
 try {
@@ -4722,6 +4707,7 @@ try {
 
 
 client.login(token);
+
 
 
 
