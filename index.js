@@ -4041,10 +4041,8 @@ const chat = genAI.chats.create({
   
   
   
-  await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
-  
-  
-  
+    await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
+  } 
 
 function hasSupportedAttachments(message) {
 const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
@@ -4701,64 +4699,3 @@ try {
 
 
 client.login(token);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
