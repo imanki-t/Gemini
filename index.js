@@ -3176,107 +3176,7 @@ async function showServerEmbedColorModal(interaction) {
   await interaction.showModal(modal);
 }
 
-async function showChannelManagementMenu(interaction, isUpdate = false) {
-if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-  const embed = new EmbedBuilder()
-    .setColor(0xFF0000)
-    .setTitle('🚫 Permission Denied')
-    .setDescription('You need "Manage Server" permission to manage channels.');
-  return interaction.reply({
-    embeds: [embed],
-    flags: MessageFlags.Ephemeral
-  });
-}
 
-const guildId = interaction.guild.id;
-const serverSettings = state.serverSettings[guildId] || {};
-const allowedChannels = serverSettings.allowedChannels || [];
-
-const channelSelect = new ChannelSelectMenuBuilder()
-  .setCustomId('channel_manage_select')
-  .setPlaceholder('Select channels the bot can be used in')
-  .setMinValues(0)
-  .setMaxValues(25)
-  .setChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildForum]);
-
-if (allowedChannels.length > 0) {
-  const validDefaultChannels = [];
-  for (const channelId of allowedChannels) {
-    if (interaction.guild.channels.cache.has(channelId)) {
-      validDefaultChannels.push(channelId);
-    }
-  }
-  if (validDefaultChannels.length > 0) {
-    channelSelect.setDefaultChannels(validDefaultChannels.slice(0, 25));
-  }
-}
-
-const row = new ActionRowBuilder().addComponents(channelSelect);
-
-const buttons = new ActionRowBuilder()
-  .addComponents(
-    new ButtonBuilder()
-    .setCustomId('set_all_channels')
-    .setLabel('Allow in All Channels')
-    .setStyle(ButtonStyle.Success)
-    .setEmoji('🌍'),
-    new ButtonBuilder()
-    .setCustomId('back_to_server_p4') // Go back to page 4
-    .setLabel('Back to Server Settings')
-    .setStyle(ButtonStyle.Secondary)
-    .setEmoji('◀️')
-  );
-
-const embed = new EmbedBuilder()
-  .setColor(0x5865F2)
-  .setTitle('📢 Manage Allowed Channels')
-  .setDescription('Select the channels where the bot should be allowed to respond. \n\n' +
-    'If **no channels** are selected, the bot will respond in **all** channels that it can see.\n\n' +
-    'Use the "Allow in All Channels" button to quickly clear the list.')
-  .setFooter({
-    text: 'Changes are saved automatically when you select.'
-  });
-
-if (allowedChannels.length > 0) {
-  embed.addFields({
-    name: 'Currently Allowed',
-    value: allowedChannels.map(id => `<#${id}>`).join(', ') || 'None'
-  });
-} else {
-  embed.addFields({
-    name: 'Currently Allowed',
-    value: 'All Channels'
-  });
-}
-
-const payload = {
-  embeds: [embed],
-  components: [row, buttons],
-  flags: MessageFlags.Ephemeral
-};
-
-let reply;
-if (isUpdate) {
-  reply = await interaction.update(payload);
-} else {
-  reply = await interaction.reply({...payload,
-    fetchReply: true
-  });
-}
-
-setTimeout(async () => {
-  try {
-    const currentReply = await interaction.fetchReply().catch(() => null);
-    if (currentReply) {
-      await interaction.deleteReply();
-    }
-  } catch (error) {
-    if (error.code !== 10008) {
-      console.error('Error deleting expired settings message:', error);
-    }
-  }
-}, 300000);
-}
 
 async function handleChannelManageSelect(interaction) {
 if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
@@ -4707,6 +4607,7 @@ try {
 
 
 client.login(token);
+
 
 
 
