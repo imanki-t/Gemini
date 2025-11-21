@@ -4355,25 +4355,33 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
   // Initialize with whatever was passed (likely null)
   let botMessage = initialBotMessage;
 
+  // Helper to determine if we should Reply (tag) or Send (no tag)
+  const shouldForceReply = () => {
+    if (!continuousReply) return true;
+    if (guildId) {
+      // Force reply if the chat has moved on (someone else messaged)
+      if (originalMessage.channel.lastMessageId !== originalMessage.id) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Update helper function
   const updateMessage = async () => {
-    if (!botMessage) return; // Cannot update a message that hasn't been created yet
+    if (!botMessage) return; 
 
     try {
       if (tempResponse.trim() === "") {
-        // Do nothing if empty
       } else if (responseFormat === 'Embedded') {
         updateEmbed(botMessage, tempResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
       } else {
-        // For normal format, update content
         await botMessage.edit({
           content: tempResponse,
           embeds: []
         }).catch(() => {});
       }
-    } catch (e) {
-      // Ignore minor edit errors during streaming
-    }
+    } catch (e) {}
     clearTimeout(updateTimeout);
     updateTimeout = null;
   };
@@ -4388,12 +4396,10 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
         content: parts
       });
 
-      // Start the stream
       const messageResult = await chat.sendMessageStream({
         message: parts
       });
 
-      // Stop the Discord "Typing..." indicator as soon as we get the stream connection
       clearInterval(typingInterval);
 
       for await (const chunk of messageResult) {
@@ -4403,31 +4409,23 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
           finalResponse += chunkText;
           tempResponse += chunkText;
 
-          // Calculate current word count
           const currentWordCount = tempResponse.trim().split(/\s+/).length;
 
-          // Logic: Only create/update the message effectively if we cross the threshold
-          // or if the message already exists.
-          
-          // 1. IF message doesn't exist yet AND we passed the word limit, create it now.
+          // 1. Live Typing Logic
           if (!botMessage && currentWordCount > WORD_THRESHOLD) {
             try {
-              if (continuousReply) {
-                botMessage = await originalMessage.channel.send({
-                  content: tempResponse
-                });
+              if (shouldForceReply()) {
+                botMessage = await originalMessage.reply({ content: tempResponse });
               } else {
-                botMessage = await originalMessage.reply({
-                  content: tempResponse
-                });
+                botMessage = await originalMessage.channel.send({ content: tempResponse });
               }
             } catch (createErr) {
               console.error("Error creating initial message:", createErr);
               throw createErr;
             }
-          } 
-          
-          // 2. IF message exists, we proceed with standard live updates
+          }
+
+          // 2. Update existing message
           if (botMessage) {
             if (finalResponse.length > maxCharacterLimit) {
               if (!isLargeResponse) {
@@ -4437,14 +4435,9 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
                   .setTitle('📄 Large Response')
                   .setDescription('The response is too large. It will be sent as a text file once completed.');
 
-                botMessage.edit({
-                  content: ' ',
-                  embeds: [embed],
-                  components: []
-                }).catch(() => {});
+                botMessage.edit({ content: ' ', embeds: [embed], components: [] }).catch(() => {});
               }
             } else if (!updateTimeout) {
-              // Update every 800ms to prevent rate limits
               updateTimeout = setTimeout(updateMessage, 800);
             }
           }
@@ -4453,41 +4446,39 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
         if (chunk.candidates && chunk.candidates[0]?.groundingMetadata) {
           groundingMetadata = chunk.candidates[0].groundingMetadata;
         }
-
         if (chunk.candidates && chunk.candidates[0]?.url_context_metadata) {
           urlContextMetadata = chunk.candidates[0].url_context_metadata;
         }
       }
 
-      // Stream finished
       clearTimeout(updateTimeout);
 
-      // 3. Fallback: If stream finished but NO message was created yet 
-      // (This means the response was UNDER the word threshold), create it now.
+      // 3. Fallback for Short Messages
+      // We track this with a flag to prevent redundant edits later
+      let wasShortResponse = false;
+      
       if (!botMessage && finalResponse) {
-        if (continuousReply) {
-          botMessage = await originalMessage.channel.send({
-            content: finalResponse
-          });
+        wasShortResponse = true; // Mark that we just sent the full message here
+        if (shouldForceReply()) {
+          botMessage = await originalMessage.reply({ content: finalResponse });
         } else {
-          botMessage = await originalMessage.reply({
-            content: finalResponse
-          });
+          botMessage = await originalMessage.channel.send({ content: finalResponse });
         }
       }
 
       newHistory.push({
         role: 'assistant',
-        content: [{
-          text: finalResponse
-        }]
+        content: [{ text: finalResponse }]
       });
 
-      // Final update to ensure formatting is correct (Only if we aren't doing a large file dump)
+      // Final update
       if (botMessage) {
         if (!isLargeResponse && responseFormat === 'Embedded') {
+          // For Embeds, we always update because we might need to add metadata/convert text to embed
           updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
-        } else if (!isLargeResponse) {
+        } else if (!isLargeResponse && !wasShortResponse) { 
+          // ✅ FIX: Only edit Normal messages if they were streaming (long).
+          // If wasShortResponse is true, we JUST sent the exact text above, so we skip this edit.
           await botMessage.edit({
             content: finalResponse.slice(0, 2000),
             embeds: []
@@ -4495,77 +4486,51 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
         }
       }
 
-      // Handle Large Responses (File conversion)
-      let finalMessage = botMessage;
-      if (isLargeResponse && finalMessage) {
-        finalMessage = await sendAsTextFile(finalResponse, originalMessage, botMessage.id, continuousReply);
+      if (isLargeResponse && botMessage) {
+        botMessage = await sendAsTextFile(finalResponse, originalMessage, botMessage.id, continuousReply);
       }
 
-      // Add Action Buttons (Save/Delete)
-      if (showActionButtons && finalMessage && !isLargeResponse) {
-        finalMessage = await addDownloadButton(finalMessage);
-        finalMessage = await addDeleteButton(finalMessage, finalMessage.id);
+      if (showActionButtons && botMessage && !isLargeResponse) {
+        botMessage = await addDownloadButton(botMessage);
+        botMessage = await addDeleteButton(botMessage, botMessage.id);
       }
 
-      // Save Chat History
-      if (newHistory.length > 1 && finalMessage) {
+      if (newHistory.length > 1 && botMessage) {
         await chatHistoryLock.runExclusive(async () => {
           const username = originalMessage.author.username;
           const displayName = originalMessage.author.displayName;
-          updateChatHistory(historyId, newHistory, finalMessage.id, username, displayName);
+          updateChatHistory(historyId, newHistory, botMessage.id, username, displayName);
           await saveStateToFile();
         });
       }
-
-      // Success - exit loop
       break;
 
     } catch (error) {
-      // Error Handling
       console.error('Generation attempt failed:', error);
       attempts--;
       clearInterval(typingInterval);
       clearTimeout(updateTimeout);
 
-      if (activeRequests.has(userId)) {
-        activeRequests.delete(userId);
-      }
+      if (activeRequests.has(userId)) activeRequests.delete(userId);
 
       if (attempts === 0) {
         const embed = new EmbedBuilder()
           .setColor(0xFF0000)
           .setTitle('❌ Generation Failed')
           .setDescription('All generation attempts failed. Please try again later.');
-
         try {
-          if (continuousReply) {
-            await originalMessage.channel.send({
-              embeds: [embed]
-            });
-          } else {
-            await originalMessage.reply({
-              embeds: [embed]
-            });
-          }
-        } catch (e) {
-          console.error("Failed to send error message", e);
-        }
+          if (shouldForceReply()) await originalMessage.reply({ embeds: [embed] });
+          else await originalMessage.channel.send({ embeds: [embed] });
+        } catch (e) {}
         break;
       } else {
-        // Retry logic
         await delay(1500);
       }
     }
   }
 
-  // Cleanup active request
-  if (activeRequests.has(userId)) {
-    activeRequests.delete(userId);
-  }
-        }
-
-  
-      
+  if (activeRequests.has(userId)) activeRequests.delete(userId);
+}   
 
 function updateEmbed(botMessage, finalResponse, message, groundingMetadata = null, urlContextMetadata = null, effectiveSettings) {
 try {
@@ -4723,4 +4688,5 @@ try {
 
 
 client.login(token);
+
 
