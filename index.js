@@ -3690,128 +3690,182 @@ async function handleTextMessage(message) {
   const channelId = message.channel.id;
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Extract GIF links from Tenor/Giphy BEFORE extracting forwarded content
-const gifLinks = [];
-const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.gif|media\.giphy\.com\/media\/[^\s]+\/giphy\.gif)/gi;
-let gifMatch;
-
-while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
-  gifLinks.push(gifMatch[0]);
-}
-
-// Also check for GIFs in embeds (Discord's /gif and /tenor commands)
-if (message.embeds && message.embeds.length > 0) {
-  for (const embed of message.embeds) {
-    const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
-    const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
-    
-    if (isTenor || isGiphy) {
-      // Discord /gif embeds have the actual media in video.url (for MP4) or image.url (for GIF)
-      const mediaUrl = embed.video?.url || embed.video?.proxyURL || 
-                       embed.image?.url || embed.image?.proxyURL || 
-                       embed.thumbnail?.url || embed.thumbnail?.proxyURL;
-      
-      if (mediaUrl) {
-        gifLinks.push(mediaUrl);
-        
-        // Add context about the GIF to message content
-        const gifDescription = embed.description || embed.title || embed.url || 'GIF';
-        const contextText = `[User sent a ${embed.provider?.name || 'GIF'}${gifDescription !== 'GIF' ? ': ' + gifDescription : ''}]`;
-        if (!messageContent.includes(contextText)) {
-          messageContent += `\n${contextText}`;
-        }
-      }
+  // ==========================================================================================
+  // 1. GIF EMBED FIX: Wait for Discord to unfurl Tenor/Giphy embeds if they are missing
+  // This fixes the "First Request" issue where the embed hasn't arrived yet.
+  // ==========================================================================================
+  const gifRegex = /https?:\/\/(?:www\.)?(tenor\.com|giphy\.com)/i;
+  if (gifRegex.test(messageContent) && (!message.embeds || message.embeds.length === 0)) {
+    // Wait 1.5 seconds for Discord to populate the embed
+    await delay(1500);
+    try {
+      message = await message.channel.messages.fetch(message.id);
+      // Refresh content in case it changed (unlikely but safe)
+      messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
+    } catch (e) {
+      // Ignore fetch error, proceed with original message
     }
   }
-}
 
-// Process GIF links from Tenor/Giphy
-const gifLinkAttachments = [];
-for (const gifUrl of gifLinks) {
-  try {
-    // Extract a meaningful name from the URL
-    let gifName = 'tenor_gif.gif';
-    if (gifUrl.includes('tenor.com')) {
-      const nameMatch = gifUrl.match(/\/view\/([^\/\-]+)/);
-      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'tenor_gif.gif';
-    } else if (gifUrl.includes('giphy.com')) {
-      const nameMatch = gifUrl.match(/\/gifs\/([^\/\-]+)/);
-      gifName = nameMatch ? `${nameMatch[1]}.gif` : 'giphy_gif.gif';
-    }
-    
-    // Convert Tenor/Giphy page URLs to direct GIF/MP4 URLs if needed
-    let directGifUrl = gifUrl;
-    
-    // Handle media.tenor.com or media.giphy.com direct links (already direct)
-    if (gifUrl.includes('media.tenor.com') || gifUrl.includes('media.giphy.com')) {
-      directGifUrl = gifUrl;
-    }
-    // Handle Tenor view links
-    else if (gifUrl.includes('tenor.com/view/')) {
-      try {
-        // Try adding .gif first (simpler approach)
-        if (!gifUrl.endsWith('.gif')) {
-          directGifUrl = gifUrl + '.gif';
+  // ==========================================================================================
+  // 2. REPLY FEATURE: Extract content and attachments from the message being replied to
+  // ==========================================================================================
+  let repliedMessageText = '';
+  let repliedAttachments = [];
+
+  if (message.reference && message.reference.messageId) {
+    try {
+      const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+      
+      if (repliedMsg) {
+        // Extract text
+        if (repliedMsg.content) {
+          repliedMessageText = `[Replying to message from ${repliedMsg.author.username}]:\n${repliedMsg.content}\n\n`;
+        } else {
+          repliedMessageText = `[Replying to message from ${repliedMsg.author.username} (Media/No Text)]\n\n`;
         }
-        
-        // Verify the URL works by attempting to fetch it
-        const testResponse = await axios.head(directGifUrl, { timeout: 3000 }).catch(() => null);
-        if (!testResponse || testResponse.status !== 200) {
-          // Fallback: scrape the page for the actual media URL
-          const response = await axios.get(gifUrl, { timeout: 5000 });
-          const htmlContent = response.data;
-          
-          // Try to find MP4 or GIF URLs in the page
-          const mp4Match = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.mp4)"/);
-          const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.gif)"/);
-          
-          if (mp4Match) {
-            directGifUrl = mp4Match[1].replace(/\\u002F/g, '/');
-          } else if (gifMatch) {
-            directGifUrl = gifMatch[1].replace(/\\u002F/g, '/');
+
+        // Extract attachments from the replied message
+        if (repliedMsg.attachments.size > 0) {
+          repliedAttachments = Array.from(repliedMsg.attachments.values());
+        }
+
+        // Extract stickers from the replied message
+        if (repliedMsg.stickers.size > 0) {
+          // We process these later with the main loop
+          const repliedStickers = Array.from(repliedMsg.stickers.values());
+          // We can't easily add them to message.stickers, so we'll handle them in the content extraction
+          for (const sticker of repliedStickers) {
+             repliedMessageText += `[Reply contains Sticker: ${sticker.name}]\n`;
           }
         }
-      } catch (error) {
-        console.error('Error processing Tenor URL:', error);
-        continue;
       }
+    } catch (error) {
+      console.error("Error processing reply context:", error);
     }
-    // Handle Giphy page links
-    else if (gifUrl.includes('giphy.com/gifs/')) {
-      try {
-        const response = await axios.get(gifUrl, { timeout: 5000 });
-        const htmlContent = response.data;
-        const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
-        if (gifMatch) {
-          directGifUrl = gifMatch[1];
-        } else {
-          // Try adding .gif to the URL
-          directGifUrl = gifUrl + (gifUrl.endsWith('.gif') ? '' : '.gif');
+  }
+
+  // Prepend the reply context to the current message content
+  if (repliedMessageText) {
+    messageContent = repliedMessageText + `[Current Message]:\n${messageContent}`;
+  }
+
+  // ==========================================================================================
+  // GIF LINK PROCESSING (Existing Logic)
+  // ==========================================================================================
+  const gifLinks = [];
+  const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.gif|media\.giphy\.com\/media\/[^\s]+\/giphy\.gif)/gi;
+  let gifMatch;
+
+  while ((gifMatch = tenorGiphyRegex.exec(messageContent)) !== null) {
+    gifLinks.push(gifMatch[0]);
+  }
+
+  // Check for GIFs in embeds (Discord's /gif and /tenor commands)
+  if (message.embeds && message.embeds.length > 0) {
+    for (const embed of message.embeds) {
+      const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
+      const isGiphy = embed.provider?.name?.toLowerCase() === 'giphy';
+
+      if (isTenor || isGiphy) {
+        const mediaUrl = embed.video?.url || embed.video?.proxyURL ||
+          embed.image?.url || embed.image?.proxyURL ||
+          embed.thumbnail?.url || embed.thumbnail?.proxyURL;
+
+        if (mediaUrl) {
+          gifLinks.push(mediaUrl);
+          const gifDescription = embed.description || embed.title || embed.url || 'GIF';
+          const contextText = `[User sent a ${embed.provider?.name || 'GIF'}${gifDescription !== 'GIF' ? ': ' + gifDescription : ''}]`;
+          if (!messageContent.includes(contextText)) {
+            messageContent += `\n${contextText}`;
+          }
         }
-      } catch (error) {
-        console.error('Error processing Giphy URL:', error);
-        continue;
       }
     }
-    
-    gifLinkAttachments.push({
-      id: `gif-link-${Date.now()}-${Math.random()}`,
-      name: gifName,
-      url: directGifUrl,
-      contentType: 'image/gif',
-      size: 0,
-      isGifLink: true
-    });
-    
-    // Remove the link from message content
-    messageContent = messageContent.replace(gifUrl, '').trim();
-  } catch (error) {
-    console.error('Error processing GIF link:', error);
   }
+
+  const gifLinkAttachments = [];
+  for (const gifUrl of gifLinks) {
+    try {
+      let gifName = 'tenor_gif.gif';
+      if (gifUrl.includes('tenor.com')) {
+        const nameMatch = gifUrl.match(/\/view\/([^\/\-]+)/);
+        gifName = nameMatch ? `${nameMatch[1]}.gif` : 'tenor_gif.gif';
+      } else if (gifUrl.includes('giphy.com')) {
+        const nameMatch = gifUrl.match(/\/gifs\/([^\/\-]+)/);
+        gifName = nameMatch ? `${nameMatch[1]}.gif` : 'giphy_gif.gif';
+      }
+
+      let directGifUrl = gifUrl;
+
+      if (gifUrl.includes('media.tenor.com') || gifUrl.includes('media.giphy.com')) {
+        directGifUrl = gifUrl;
+      } else if (gifUrl.includes('tenor.com/view/')) {
+        try {
+          if (!gifUrl.endsWith('.gif')) {
+            directGifUrl = gifUrl + '.gif';
+          }
+          const testResponse = await axios.head(directGifUrl, {
+            timeout: 3000
+          }).catch(() => null);
+          if (!testResponse || testResponse.status !== 200) {
+            const response = await axios.get(gifUrl, {
+              timeout: 5000
+            });
+            const htmlContent = response.data;
+            const mp4Match = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.mp4)"/);
+            const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.gif)"/);
+
+            if (mp4Match) {
+              directGifUrl = mp4Match[1].replace(/\\u002F/g, '/');
+            } else if (gifMatch) {
+              directGifUrl = gifMatch[1].replace(/\\u002F/g, '/');
+            }
+          }
+        } catch (error) {
+          console.error('Error processing Tenor URL:', error);
+          continue;
+        }
+      } else if (gifUrl.includes('giphy.com/gifs/')) {
+        try {
+          const response = await axios.get(gifUrl, {
+            timeout: 5000
+          });
+          const htmlContent = response.data;
+          const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
+          if (gifMatch) {
+            directGifUrl = gifMatch[1];
+          } else {
+            directGifUrl = gifUrl + (gifUrl.endsWith('.gif') ? '' : '.gif');
+          }
+        } catch (error) {
+          console.error('Error processing Giphy URL:', error);
+          continue;
+        }
+      }
+
+      gifLinkAttachments.push({
+        id: `gif-link-${Date.now()}-${Math.random()}`,
+        name: gifName,
+        url: directGifUrl,
+        contentType: 'image/gif',
+        size: 0,
+        isGifLink: true
+      });
+
+      messageContent = messageContent.replace(gifUrl, '').trim();
+    } catch (error) {
+      console.error('Error processing GIF link:', error);
+    }
   }
-// Extract forwarded content including stickers
-const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
-  
+
+  // Extract forwarded content
+  const {
+    forwardedText,
+    forwardedAttachments,
+    forwardedStickers
+  } = extractForwardedContent(message);
+
   if (forwardedText) {
     if (messageContent === '') {
       messageContent = `[Forwarded message]:\n${forwardedText}`;
@@ -3819,18 +3873,16 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
       messageContent = `${messageContent}\n\n[Forwarded message]:\n${forwardedText}`;
     }
   }
-  
-  // Process stickers from current message
+
+  // Process stickers
   const currentStickers = message.stickers ? Array.from(message.stickers.values()) : [];
   const allStickers = [...currentStickers, ...forwardedStickers];
-  
-  // Convert stickers to pseudo-attachments
+
   const stickerAttachments = [];
   for (const sticker of allStickers) {
     const stickerAttachment = await processStickerAsAttachment(sticker);
     if (stickerAttachment) {
       stickerAttachments.push(stickerAttachment);
-      // Add note about sticker in message content
       const stickerType = stickerAttachment.isAnimated ? 'Animated Sticker' : 'Sticker';
       if (!messageContent.includes(sticker.name)) {
         messageContent += `\n[${stickerType}: ${sticker.name}]`;
@@ -3838,15 +3890,11 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
     }
   }
 
-
-  
-    
-    
-  // Process custom emojis (with rate limiting to max 5)
+  // Process custom emojis (limit 5)
   const customEmojis = extractCustomEmojis(messageContent);
   const limitedEmojis = customEmojis.slice(0, 5);
   const exceededEmojis = customEmojis.slice(5);
-  
+
   const emojiAttachments = [];
   if (limitedEmojis.length > 0) {
     for (const emoji of limitedEmojis) {
@@ -3856,64 +3904,57 @@ const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwar
       }
     }
   }
-  
-  // For emojis beyond the 5 limit, replace them with their names
+
   if (exceededEmojis.length > 0) {
     for (const emoji of exceededEmojis) {
-      // Replace custom emoji format with just the name
       messageContent = messageContent.replace(emoji.fullMatch, `:${emoji.name}:`);
     }
   }
+
+  // ==========================================================================================
+  // COMBINE ALL ATTACHMENTS (Reply + Current + Forwarded + Stickers + Emojis + GIFs)
+  // ==========================================================================================
+  const regularAttachments = Array.from(message.attachments.values());
   
-// Combine all attachments - include GIFs from embeds
-const regularAttachments = Array.from(message.attachments.values());
-const allAttachments = [
-  ...regularAttachments,
-  ...forwardedAttachments,
-  ...stickerAttachments,
-  ...emojiAttachments,
-  ...gifLinkAttachments   // NEW NAME - matches the working version
-];
-  
-  // Completely ignore all polls - don't process them at all
+  const allAttachments = [
+    ...repliedAttachments, // Added replied attachments first
+    ...regularAttachments,
+    ...forwardedAttachments,
+    ...stickerAttachments,
+    ...emojiAttachments,
+    ...gifLinkAttachments
+  ];
+
+  // Ignore polls
   if (message.poll) {
-    if (activeRequests.has(userId)) {
-      activeRequests.delete(userId);
-    }
-    return; // Exit early, don't respond to poll messages
+    if (activeRequests.has(userId)) activeRequests.delete(userId);
+    return;
   }
-  
-  // Also ignore poll result messages (when a poll ends)
-  if (message.type === 46) { // MessageType.PollResult
-    if (activeRequests.has(userId)) {
-      activeRequests.delete(userId);
-    }
-    return; // Exit early, don't respond to poll result messages
+  if (message.type === 46) {
+    if (activeRequests.has(userId)) activeRequests.delete(userId);
+    return;
   }
-  
-  const hasAnyContent = messageContent !== '' || 
-                        (allAttachments.length > 0 && allAttachments.some(att => {
-                          const contentType = (att.contentType || "").toLowerCase();
-                          const fileExtension = path.extname(att.name).toLowerCase();
-                          const supportedTypes = [
-                            contentType.startsWith('image/'),
-                            contentType.startsWith('audio/'),
-                            contentType.startsWith('video/'),
-                            contentType.startsWith('application/pdf'),
-                            ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'].includes(fileExtension),
-                            ['.mp4', '.mov', '.mpeg', '.mpg', '.webm', '.avi', '.wmv', '.3gpp', '.flv'].includes(fileExtension),
-                            ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.bmp'].includes(fileExtension),
-                            ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'].includes(fileExtension)
-                          ];
-                          return supportedTypes.some(t => t);
-                        }));
+
+  // Check for content
+  const hasAnyContent = messageContent !== '' ||
+    (allAttachments.length > 0 && allAttachments.some(att => {
+      const contentType = (att.contentType || "").toLowerCase();
+      const fileExtension = path.extname(att.name).toLowerCase();
+      const supportedTypes = [
+        contentType.startsWith('image/'),
+        contentType.startsWith('audio/'),
+        contentType.startsWith('video/'),
+        contentType.startsWith('application/pdf'),
+        ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'].includes(fileExtension),
+        ['.mp4', '.mov', '.mpeg', '.mpg', '.webm', '.avi', '.wmv', '.3gpp', '.flv'].includes(fileExtension),
+        ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.bmp'].includes(fileExtension),
+        ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'].includes(fileExtension)
+      ];
+      return supportedTypes.some(t => t);
+    }));
 
   if (!hasAnyContent) {
-    if (activeRequests.has(userId)) {
-      activeRequests.delete(userId);
-    }
-    
-    // No settings button - just simple message
+    if (activeRequests.has(userId)) activeRequests.delete(userId);
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('💬 Empty Message')
@@ -3924,9 +3965,7 @@ const allAttachments = [
     return;
   }
 
-  // Rest of the function continues exactly as before...
-
-    message.channel.sendTyping();
+  message.channel.sendTyping();
   const typingInterval = setInterval(() => {
     message.channel.sendTyping();
   }, 4000);
@@ -3934,22 +3973,21 @@ const allAttachments = [
     clearInterval(typingInterval);
   }, 120000);
 
-  let botMessage = null; // Set to null initially
+  let botMessage = null;
   let parts;
   let hasMedia = false;
 
   try {
-    // clearInterval(typingInterval); // Don't clear yet, keep typing until response starts
-
+    // Process text file extraction (links to other messages)
     messageContent = await extractFileText(message, messageContent);
+    
+    // Process everything (Prompt + Media from all sources)
     parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
     hasMedia = parts.some(part => part.text === undefined);
 
   } catch (error) {
     console.error('Error initializing message:', error);
-    if (activeRequests.has(userId)) {
-      activeRequests.delete(userId);
-    }
+    if (activeRequests.has(userId)) activeRequests.delete(userId);
     clearInterval(typingInterval);
     return;
   }
@@ -3958,92 +3996,88 @@ const allAttachments = [
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
 
-  // ✅ NEW: Build instructions with MANDATORY core rules
-let finalInstructions = config.coreSystemRules; // Always start with core rules
-
-// Add custom personality if it exists (this extends, not replaces)
-let customInstructions;
-if (guildId) {
-  if (state.channelWideChatHistory[channelId]) {
-    customInstructions = state.customInstructions[channelId];
-  } else if (serverSettings.customPersonality) {
-    customInstructions = serverSettings.customPersonality;
-  } else if (effectiveSettings.customPersonality) {
-    customInstructions = effectiveSettings.customPersonality;
+  let finalInstructions = config.coreSystemRules;
+  let customInstructions;
+  if (guildId) {
+    if (state.channelWideChatHistory[channelId]) {
+      customInstructions = state.customInstructions[channelId];
+    } else if (serverSettings.customPersonality) {
+      customInstructions = serverSettings.customPersonality;
+    } else if (effectiveSettings.customPersonality) {
+      customInstructions = effectiveSettings.customPersonality;
+    } else {
+      customInstructions = state.customInstructions[userId];
+    }
   } else {
-    customInstructions = state.customInstructions[userId];
+    customInstructions = effectiveSettings.customPersonality || state.customInstructions[userId];
   }
-} else {
-  customInstructions = effectiveSettings.customPersonality || state.customInstructions[userId];
-}
 
-// ✅ Append custom personality to core rules (not replace)
-if (customInstructions) {
-  finalInstructions += `\n\nADDITIONAL PERSONALITY:\n${customInstructions}`;
-} else {
-  // Add default personality if no custom one exists
-  finalInstructions += `\n\n${config.defaultPersonality}`;
-}
+  if (customInstructions) {
+    finalInstructions += `\n\nADDITIONAL PERSONALITY:\n${customInstructions}`;
+  } else {
+    finalInstructions += `\n\n${config.defaultPersonality}`;
+  }
 
-// Build user/server context info
-let infoStr = '';
-if (guildId) {
-  const userInfo = {
-    username: message.author.username,
-    displayName: message.author.displayName
-  };
-  infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
-} else {
-  const userInfo = {
-    username: message.author.username,
-    displayName: message.author.displayName
-  };
-  infoStr = `\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
-}
+  let infoStr = '';
+  if (guildId) {
+    const userInfo = {
+      username: message.author.username,
+      displayName: message.author.displayName
+    };
+    infoStr = `\nYou are currently engaging with users in the ${message.guild.name} Discord server.\n\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
+  } else {
+    const userInfo = {
+      username: message.author.username,
+      displayName: message.author.displayName
+    };
+    infoStr = `\n## Current User Information\nUsername: \`${userInfo.username}\`\nDisplay Name: \`${userInfo.displayName}\``;
+  }
 
-// ✅ Append user context to final instructions
-finalInstructions += infoStr;
+  finalInstructions += infoStr;
 
+  const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
+  const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
 
-const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
-const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
-    
   const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
 
-  // FIXED: Always include all tools - let the AI decide when to use them
-  const tools = [
-  { googleSearch: {} },
-  { urlContext: {} }
-];
-if (!hasMedia) { tools.push({ codeExecution: {} }); }
-// Use RAG-optimized history with compression and semantic search
-const optimizedHistory = await memorySystem.getOptimizedHistory(
-  historyId, 
-  messageContent, 
-  modelName
-);
+  const tools = [{
+      googleSearch: {}
+    },
+    {
+      urlContext: {}
+    }
+  ];
+  if (!hasMedia) {
+    tools.push({
+      codeExecution: {}
+    });
+  }
 
-const chat = genAI.chats.create({ 
-  model: modelName, 
-  config: { 
-    systemInstruction: finalInstructions, 
-    ...generationConfig, 
-    safetySettings,
-    tools,
-    temperature: effectiveSettings.temperature || generationConfig.temperature,
-    topP: effectiveSettings.topP || generationConfig.topP,
-  }, 
-  history: optimizedHistory
-});
-  
-  
-  
-    await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
-  } 
+  const optimizedHistory = await memorySystem.getOptimizedHistory(
+    historyId,
+    messageContent,
+    modelName
+  );
 
+  const chat = genAI.chats.create({
+    model: modelName,
+    config: {
+      systemInstruction: finalInstructions,
+      ...generationConfig,
+      safetySettings,
+      tools,
+      temperature: effectiveSettings.temperature || generationConfig.temperature,
+      topP: effectiveSettings.topP || generationConfig.topP,
+    },
+    history: optimizedHistory
+  });
+
+  await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
+}
+            
 function hasSupportedAttachments(message) {
 const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
 const documentExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'];
@@ -4688,5 +4722,6 @@ try {
 
 
 client.login(token);
+
 
 
