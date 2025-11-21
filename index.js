@@ -4344,12 +4344,15 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
   const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
   let attempts = 3;
 
+  // CONFIGURATION: Word count threshold for live typing
+  const WORD_THRESHOLD = 150;
+
   let updateTimeout;
   let tempResponse = '';
   let groundingMetadata = null;
   let urlContextMetadata = null;
-  
-  // Initialize with whatever was passed (likely null based on previous steps)
+
+  // Initialize with whatever was passed (likely null)
   let botMessage = initialBotMessage;
 
   // Update helper function
@@ -4395,13 +4398,19 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
 
       for await (const chunk of messageResult) {
         const chunkText = (chunk.text || (chunk.codeExecutionResult?.output ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` : "") || (chunk.executableCode ? `\n\`\`\`\n${chunk.executableCode}\n\`\`\`\n` : ""));
-        
+
         if (chunkText && chunkText !== '') {
           finalResponse += chunkText;
           tempResponse += chunkText;
 
-          // IF the message doesn't exist yet (first chunk), create it now
-          if (!botMessage) {
+          // Calculate current word count
+          const currentWordCount = tempResponse.trim().split(/\s+/).length;
+
+          // Logic: Only create/update the message effectively if we cross the threshold
+          // or if the message already exists.
+          
+          // 1. IF message doesn't exist yet AND we passed the word limit, create it now.
+          if (!botMessage && currentWordCount > WORD_THRESHOLD) {
             try {
               if (continuousReply) {
                 botMessage = await originalMessage.channel.send({
@@ -4414,10 +4423,12 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
               }
             } catch (createErr) {
               console.error("Error creating initial message:", createErr);
-              throw createErr; // Throw to trigger retry logic
+              throw createErr;
             }
-          } else {
-            // Message exists, so we just edit it (throttled)
+          } 
+          
+          // 2. IF message exists, we proceed with standard live updates
+          if (botMessage) {
             if (finalResponse.length > maxCharacterLimit) {
               if (!isLargeResponse) {
                 isLargeResponse = true;
@@ -4425,7 +4436,7 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
                   .setColor(0xFFAA00)
                   .setTitle('📄 Large Response')
                   .setDescription('The response is too large. It will be sent as a text file once completed.');
-                
+
                 botMessage.edit({
                   content: ' ',
                   embeds: [embed],
@@ -4434,7 +4445,7 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
               }
             } else if (!updateTimeout) {
               // Update every 800ms to prevent rate limits
-              updateTimeout = setTimeout(updateMessage, 800); 
+              updateTimeout = setTimeout(updateMessage, 800);
             }
           }
         }
@@ -4451,13 +4462,18 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
       // Stream finished
       clearTimeout(updateTimeout);
 
-      // Fallback: If stream finished but no message was created (rare case of empty stream), create one now
+      // 3. Fallback: If stream finished but NO message was created yet 
+      // (This means the response was UNDER the word threshold), create it now.
       if (!botMessage && finalResponse) {
-         if (continuousReply) {
-            botMessage = await originalMessage.channel.send({ content: finalResponse });
-         } else {
-            botMessage = await originalMessage.reply({ content: finalResponse });
-         }
+        if (continuousReply) {
+          botMessage = await originalMessage.channel.send({
+            content: finalResponse
+          });
+        } else {
+          botMessage = await originalMessage.reply({
+            content: finalResponse
+          });
+        }
       }
 
       newHistory.push({
@@ -4467,7 +4483,7 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
         }]
       });
 
-      // Final update to ensure formatting is correct
+      // Final update to ensure formatting is correct (Only if we aren't doing a large file dump)
       if (botMessage) {
         if (!isLargeResponse && responseFormat === 'Embedded') {
           updateEmbed(botMessage, finalResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
@@ -4489,7 +4505,7 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
       if (showActionButtons && finalMessage && !isLargeResponse) {
         finalMessage = await addDownloadButton(finalMessage);
         finalMessage = await addDeleteButton(finalMessage, finalMessage.id);
-      } 
+      }
 
       // Save Chat History
       if (newHistory.length > 1 && finalMessage) {
@@ -4500,7 +4516,7 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
           await saveStateToFile();
         });
       }
-      
+
       // Success - exit loop
       break;
 
@@ -4522,13 +4538,18 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
           .setDescription('All generation attempts failed. Please try again later.');
 
         try {
-          // Since botMessage might not exist, we reply to the original message
           if (continuousReply) {
-            await originalMessage.channel.send({ embeds: [embed] });
+            await originalMessage.channel.send({
+              embeds: [embed]
+            });
           } else {
-            await originalMessage.reply({ embeds: [embed] });
+            await originalMessage.reply({
+              embeds: [embed]
+            });
           }
-        } catch (e) { console.error("Failed to send error message", e); }
+        } catch (e) {
+          console.error("Failed to send error message", e);
+        }
         break;
       } else {
         // Retry logic
@@ -4541,7 +4562,10 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
   if (activeRequests.has(userId)) {
     activeRequests.delete(userId);
   }
-        }     
+        }
+
+  
+      
 
 function updateEmbed(botMessage, finalResponse, message, groundingMetadata = null, urlContextMetadata = null, effectiveSettings) {
 try {
@@ -4699,3 +4723,4 @@ try {
 
 
 client.login(token);
+
