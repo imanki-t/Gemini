@@ -3573,70 +3573,84 @@ async function handleTextMessage(message) {
   const userId = message.author.id;
   const guildId = message.guild?.id;
   const channelId = message.channel.id;
+  
+  // Clean up the mention from the user's current message
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
   // ==========================================================================================
-  // 1. GIF EMBED FIX: Wait for Discord to unfurl Tenor/Giphy embeds if they are missing
-  // This fixes the "First Request" issue where the embed hasn't arrived yet.
+  // 1. GIF EMBED FIX: Wait for Discord to unfurl Tenor/Giphy embeds
   // ==========================================================================================
   const gifRegex = /https?:\/\/(?:www\.)?(tenor\.com|giphy\.com)/i;
   if (gifRegex.test(messageContent) && (!message.embeds || message.embeds.length === 0)) {
-    // Wait 1.5 seconds for Discord to populate the embed
     await delay(1500);
     try {
       message = await message.channel.messages.fetch(message.id);
-      // Refresh content in case it changed (unlikely but safe)
       messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
-    } catch (e) {
-      // Ignore fetch error, proceed with original message
-    }
+    } catch (e) {}
   }
 
   // ==========================================================================================
-  // 2. REPLY FEATURE: Extract content and attachments from the message being replied to
+  // 2. ENHANCED REPLY FEATURE (Fixes "Empty Message" & Context Issues)
   // ==========================================================================================
   let repliedMessageText = '';
   let repliedAttachments = [];
 
   if (message.reference && message.reference.messageId) {
     try {
+      // Fetch the original message being replied to
       const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
-      
+
       if (repliedMsg) {
-        // Extract text
+        let contextBuffer = `[Context - Replying to ${repliedMsg.author.username}]:\n`;
+
+        // A. Extract Plain Text
         if (repliedMsg.content) {
-          repliedMessageText = `[Replying to message from ${repliedMsg.author.username}]:\n${repliedMsg.content}\n\n`;
-        } else {
-          repliedMessageText = `[Replying to message from ${repliedMsg.author.username} (Media/No Text)]\n\n`;
+          contextBuffer += `${repliedMsg.content}\n`;
         }
 
-        // Extract attachments from the replied message
+        // B. Extract Text from Embeds (Crucial for replying to bots)
+        if (repliedMsg.embeds.length > 0) {
+          repliedMsg.embeds.forEach((embed, index) => {
+            contextBuffer += `[Embed ${index + 1} Content]:\n`;
+            if (embed.title) contextBuffer += `Title: ${embed.title}\n`;
+            if (embed.description) contextBuffer += `Description: ${embed.description}\n`;
+            if (embed.fields && embed.fields.length > 0) {
+              embed.fields.forEach(field => {
+                contextBuffer += `${field.name}: ${field.value}\n`;
+              });
+            }
+          });
+        }
+
+        // C. Extract Attachments (Images/Files) from the parent message
         if (repliedMsg.attachments.size > 0) {
           repliedAttachments = Array.from(repliedMsg.attachments.values());
+          contextBuffer += `[Contains ${repliedMsg.attachments.size} attachment(s)]\n`;
         }
 
-        // Extract stickers from the replied message
+        // D. Extract Stickers from the parent message
         if (repliedMsg.stickers.size > 0) {
-          // We process these later with the main loop
-          const repliedStickers = Array.from(repliedMsg.stickers.values());
-          // We can't easily add them to message.stickers, so we'll handle them in the content extraction
-          for (const sticker of repliedStickers) {
-             repliedMessageText += `[Reply contains Sticker: ${sticker.name}]\n`;
-          }
+           repliedMsg.stickers.forEach(sticker => {
+             contextBuffer += `[Sticker: ${sticker.name}]\n`;
+           });
         }
+
+        repliedMessageText = contextBuffer + "\n" + "-".repeat(20) + "\n";
       }
     } catch (error) {
       console.error("Error processing reply context:", error);
     }
   }
 
-  // Prepend the reply context to the current message content
+  // Combine Reply Context + User's Current Message
   if (repliedMessageText) {
-    messageContent = repliedMessageText + `[Current Message]:\n${messageContent}`;
+    // If messageContent is empty (user just posted an image), label it cleanly
+    const userText = messageContent ? messageContent : "[No text provided in reply, only attachments/interaction]";
+    messageContent = `${repliedMessageText}[User's Response]:\n${userText}`;
   }
 
   // ==========================================================================================
-  // GIF LINK PROCESSING (Existing Logic)
+  // GIF LINK PROCESSING
   // ==========================================================================================
   const gifLinks = [];
   const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.gif|media\.giphy\.com\/media\/[^\s]+\/giphy\.gif)/gi;
@@ -3646,7 +3660,7 @@ async function handleTextMessage(message) {
     gifLinks.push(gifMatch[0]);
   }
 
-  // Check for GIFs in embeds (Discord's /gif and /tenor commands)
+  // Check for GIFs in embeds
   if (message.embeds && message.embeds.length > 0) {
     for (const embed of message.embeds) {
       const isTenor = embed.provider?.name?.toLowerCase() === 'tenor';
@@ -3708,7 +3722,6 @@ async function handleTextMessage(message) {
             }
           }
         } catch (error) {
-          console.error('Error processing Tenor URL:', error);
           continue;
         }
       } else if (gifUrl.includes('giphy.com/gifs/')) {
@@ -3724,7 +3737,6 @@ async function handleTextMessage(message) {
             directGifUrl = gifUrl + (gifUrl.endsWith('.gif') ? '' : '.gif');
           }
         } catch (error) {
-          console.error('Error processing Giphy URL:', error);
           continue;
         }
       }
@@ -3797,12 +3809,12 @@ async function handleTextMessage(message) {
   }
 
   // ==========================================================================================
-  // COMBINE ALL ATTACHMENTS (Reply + Current + Forwarded + Stickers + Emojis + GIFs)
+  // COMBINE ALL ATTACHMENTS
   // ==========================================================================================
   const regularAttachments = Array.from(message.attachments.values());
   
   const allAttachments = [
-    ...repliedAttachments, // Added replied attachments first
+    ...repliedAttachments, // Included from the reply logic above
     ...regularAttachments,
     ...forwardedAttachments,
     ...stickerAttachments,
@@ -3821,7 +3833,8 @@ async function handleTextMessage(message) {
   }
 
   // Check for content
-  const hasAnyContent = messageContent !== '' ||
+  // We check if messageContent has non-whitespace chars OR if there are supported attachments
+  const hasAnyContent = messageContent.trim() !== '' ||
     (allAttachments.length > 0 && allAttachments.some(att => {
       const contentType = (att.contentType || "").toLowerCase();
       const fileExtension = path.extname(att.name).toLowerCase();
@@ -3962,7 +3975,8 @@ async function handleTextMessage(message) {
 
   await handleModelResponse(botMessage, chat, parts, message, typingInterval, historyId, effectiveSettings);
 }
-            
+        
+              
 function hasSupportedAttachments(message) {
 const audioExtensions = ['.mp3', '.wav', '.aiff', '.aac', '.ogg', '.flac', '.m4a'];
 const documentExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.tsv', '.pptx', '.rtf', '.html', '.py', '.java', '.js', '.css', '.json', '.xml', '.sql', '.log', '.md'];
@@ -4607,8 +4621,3 @@ try {
 
 
 client.login(token);
-
-
-
-
-
