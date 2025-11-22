@@ -401,8 +401,6 @@ export function getHistory(id, guildId = null) {
   // If in a guild with user memory, also get recent guild-wide messages
   if (guildId && chatHistories[guildId]) {
     const guildHistory = chatHistories[guildId] || {};
-    
-    // Get all messages from all users in this guild
     for (const messagesId in guildHistory) {
       if (guildHistory.hasOwnProperty(messagesId)) {
         combinedHistory = [...combinedHistory, ...guildHistory[messagesId]];
@@ -417,10 +415,10 @@ export function getHistory(id, guildId = null) {
     }
   }
 
-  // Sort by timestamp to maintain chronological order
+  // Sort by timestamp
   combinedHistory.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-  // Keep only recent messages to avoid context window overflow
+  // Keep only recent messages
   const maxMessages = 100;
   if (combinedHistory.length > maxMessages) {
     combinedHistory = combinedHistory.slice(-maxMessages);
@@ -428,44 +426,52 @@ export function getHistory(id, guildId = null) {
 
   const apiHistory = [];
   let previousTimestamp = null;
-  const timeThresholdMs = 30 * 60 * 1000; // 30 minutes threshold
+  const timeThresholdMs = 30 * 60 * 1000; 
 
   for (const entry of combinedHistory) {
-    let timePassed = "";
+    const apiEntry = {
+      role: entry.role === 'assistant' ? 'model' : entry.role,
+      parts: []
+    };
+
+    // --- FIX: Logic to preserve File URIs ---
     
-    // Only calculate time elapsed if there was a previous message
+    // 1. Add Time Context
     if (previousTimestamp) {
       const timeDiffMs = entry.timestamp - previousTimestamp;
-
-      // Only add a time context note if the gap is greater than the threshold (30 minutes)
       if (timeDiffMs > timeThresholdMs) { 
           const durationString = formatDuration(timeDiffMs);
-          timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+          apiEntry.parts.push({ text: `[TIME ELAPSED: ${durationString} since the previous turn]\n` });
       }
     }
+    previousTimestamp = entry.timestamp;
+
+    // 2. Iterate parts
+    let userInfoAdded = false;
     
-    previousTimestamp = entry.timestamp; // Update for the next iteration
-
-    let textContent = entry.content
-      .filter(part => part.text !== undefined)
-      .map(part => part.text)
-      .join('\n');
-      
-    // Prepend the time passed note to the content
-    textContent = timePassed + textContent;
-
-    // Add user attribution
-    if (entry.role === 'user' && entry.username && entry.displayName) {
-      textContent = `[${entry.displayName} (@${entry.username})]: ${textContent}`;
+    if (Array.isArray(entry.content)) {
+      for (const part of entry.content) {
+        if (part.text !== undefined) {
+          let textVal = part.text;
+          // Add attribution to first text node
+          if (!userInfoAdded && entry.role === 'user' && entry.username && entry.displayName) {
+            textVal = `[${entry.displayName} (@${entry.username})]: ${textVal}`;
+            userInfoAdded = true;
+          }
+          apiEntry.parts.push({ text: textVal });
+        } 
+        else if (part.fileUri) {
+          // Pass the file URI directly to Gemini
+          apiEntry.parts.push({ fileUri: part.fileUri });
+        }
+        else if (part.inlineData) {
+          apiEntry.parts.push({ inlineData: part.inlineData });
+        }
+      }
     }
 
-    if (textContent.trim()) {
-      apiHistory.push({
-        role: entry.role === 'assistant' ? 'model' : entry.role,
-        parts: [{
-          text: textContent
-        }]
-      });
+    if (apiEntry.parts.length > 0) {
+      apiHistory.push(apiEntry);
     }
   }
 
