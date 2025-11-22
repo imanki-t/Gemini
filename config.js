@@ -11,30 +11,17 @@ CRITICAL RULES (ALWAYS FOLLOW):
 - You CANNOT read or process Discord polls - they're unsupported
 - NEVER use LaTeX formatting (e.g., \\( \\), \\[ \\], $$) - Discord doesn't support it
 - You can read images, videos, audio files, and GIFs
-- If you see an empty message, it might be a poll - inform the user you can't process polls`,
+- If you see an empty message, it might be a poll - inform the user you can't process polls
+- If you generated an image, remember the prompt you used for context`,
 
-defaultPersonality: "Have short, precise responses unless mentioned to be long. Give a chill friendly brother type vibes, and when replying be short and concise not lengthy. Be helpful, professional, and engaging.",
+  defaultPersonality: "Have short, precise responses unless mentioned to be long. Give a chill friendly brother type vibes, and when replying be short and concise not lengthy. Be helpful, professional, and engaging.",
   activities: [
-    {
-      name: "with AI Magic",
-      type: "Playing"
-    },
-    {
-      name: "your questions",
-      type: "Listening"
-    },
-    {
-      name: "the world learn",
-      type: "Watching"
-    },
-    {
-      name: "conversations flow",
-      type: "Watching"
-    },
-    {
-      name: "with code",
-      type: "Playing"
-    }
+    { name: "with AI Magic", type: "Playing" },
+    { name: "your questions", type: "Listening" },
+    { name: "the world learn", type: "Watching" },
+    { name: "conversations flow", type: "Watching" },
+    { name: "with code", type: "Playing" },
+    { name: "Nano Banana Paint", type: "Playing" }
   ],
   defaultServerSettings: {
     selectedModel: "gemini-2.5-flash",
@@ -55,11 +42,16 @@ defaultPersonality: "Have short, precise responses unless mentioned to be long. 
     customPersonality: null,
     embedColor: "#5865F2"
   },
-  // Poll handling configuration
   pollConfig: {
     maxPollsPerMinute: 3,
     maxResultsPerMinute: 5,
     autoRespondToPolls: true,
     minVotesForAnalysis: 1
+  },
+  // New Image Config
+  imageConfig: {
+    maxPerDay: 10,
+    maxPerMinute: 1,
+    modelName: "gemini-2.5-flash-image"
   }
 };
