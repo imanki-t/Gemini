@@ -88,6 +88,7 @@ let alwaysRespondChannels = {};
 let channelWideChatHistory = {};
 let blacklistedUsers = {};
 let continuousReplyChannels = {};
+let imageUsage = {}; // New state for image rate limiting
 
 export const state = {
   get chatHistories() {
@@ -150,6 +151,12 @@ export const state = {
   set continuousReplyChannels(v) {
     continuousReplyChannels = v;
   },
+  get imageUsage() {
+    return imageUsage;
+  },
+  set imageUsage(v) {
+    imageUsage = v;
+  }
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -204,6 +211,10 @@ export async function saveStateToFile() {
       savePromises.push(db.saveUserResponsePreference(userId, preference));
     }
 
+    for (const [userId, usage] of Object.entries(imageUsage)) {
+      savePromises.push(db.saveImageUsage(userId, usage));
+    }
+
     savePromises.push(db.saveActiveUsersInChannels(activeUsersInChannels));
 
     await Promise.all(savePromises);
@@ -234,6 +245,7 @@ async function loadStateFromDB() {
       blacklistedUsers,
       userResponsePreference,
       activeUsersInChannels,
+      imageUsage
     ] = await Promise.all([
       db.getAllChatHistories(),
       db.getAllUserSettings(),
@@ -242,6 +254,7 @@ async function loadStateFromDB() {
       db.getAllBlacklistedUsers(),
       db.getAllUserResponsePreferences(),
       db.getActiveUsersInChannels(),
+      db.getAllImageUsages()
     ]);
 
     alwaysRespondChannels = await db.getAllChannelSettings('alwaysRespond');
@@ -280,7 +293,6 @@ function removeFileData(histories) {
   }
 }
 
-// Add this NEW function after removeFileData function (around line 320)
 function preserveAttachmentContext(histories) {
   try {
     Object.values(histories).forEach(subIdEntries => {
@@ -345,14 +357,22 @@ function scheduleDailyReset() {
     const timeUntilNextReset = nextReset - now;
 
     setTimeout(async () => {
-  console.log('Running daily cleanup task...');
-  await chatHistoryLock.runExclusive(async () => {
-    preserveAttachmentContext(chatHistories);  // ✅ CHANGED: Use new function
-    await saveStateToFile();
-  });
-  console.log('Daily cleanup task finished.');
-  scheduleDailyReset();
-}, timeUntilNextReset);
+      console.log('Running daily cleanup task...');
+      await chatHistoryLock.runExclusive(async () => {
+        preserveAttachmentContext(chatHistories);
+        
+        // Reset daily image limits
+        const currentMs = Date.now();
+        for (const userId in imageUsage) {
+            imageUsage[userId].count = 0;
+            imageUsage[userId].lastReset = currentMs;
+        }
+        
+        await saveStateToFile();
+      });
+      console.log('Daily cleanup task finished.');
+      scheduleDailyReset();
+    }, timeUntilNextReset);
 
   } catch (error) {
     console.error('An error occurred while scheduling the daily reset:', error);
@@ -486,32 +506,28 @@ export function getUserResponsePreference(userId) {
   return state.userResponsePreference[userId] || config.defaultResponseFormat;
 }
 
-// FIND this function in botManager.js (around line 440-460)
-// REPLACE IT COMPLETELY with this version:
-
 export function initializeBlacklistForGuild(guildId) {
   try {
     if (!state.blacklistedUsers[guildId]) {
       state.blacklistedUsers[guildId] = [];
     }
     if (!state.serverSettings[guildId]) {
-      
       state.serverSettings[guildId] = {
-  selectedModel: 'gemini-2.5-flash',
-  responseFormat: 'Normal',
-  showActionButtons: false,      // ✅ CHANGED: Default to false
-  continuousReply: false,          // ✅ CHANGED: Default to true
-  customPersonality: null,
-  embedColor: config.hexColour,
-  overrideUserSettings: false,
-  serverChatHistory: false,
-  allowedChannels: []
-};
+        selectedModel: 'gemini-2.5-flash',
+        responseFormat: 'Normal',
+        showActionButtons: false,
+        continuousReply: false,
+        customPersonality: null,
+        embedColor: config.hexColour,
+        overrideUserSettings: false,
+        serverChatHistory: false,
+        allowedChannels: []
+      };
     } else if (!state.serverSettings[guildId].allowedChannels) {
       state.serverSettings[guildId].allowedChannels = [];
     }
     
-    // ADDED: Ensure defaults for existing settings without these properties
+    // Ensure defaults for existing settings without these properties
     if (state.serverSettings[guildId].showActionButtons === undefined) {
       state.serverSettings[guildId].showActionButtons = false;
     }
@@ -521,6 +537,62 @@ export function initializeBlacklistForGuild(guildId) {
   } catch (error) {
     console.error('Error initializing blacklist for guild:', error);
   }
+}
+
+// --- IMAGE RATE LIMITING LOGIC ---
+export function checkImageRateLimit(userId) {
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const ONE_MINUTE = 60 * 1000;
+  
+  if (!imageUsage[userId]) {
+    imageUsage[userId] = { count: 0, lastReset: now, lastRequest: 0 };
+  }
+
+  const usage = imageUsage[userId];
+
+  // Daily Reset
+  if (now - usage.lastReset > ONE_DAY) {
+    usage.count = 0;
+    usage.lastReset = now;
+  }
+
+  // 1. Check Minute Limit (1 per minute)
+  if (now - usage.lastRequest < ONE_MINUTE) {
+    const waitSeconds = Math.ceil((ONE_MINUTE - (now - usage.lastRequest)) / 1000);
+    return { 
+      allowed: false, 
+      message: `⏳ Please wait ${waitSeconds}s before generating another image.` 
+    };
+  }
+
+  // 2. Check Daily Limit (10 per day)
+  const limit = config.imageConfig?.maxPerDay || 10;
+  if (usage.count >= limit) {
+    return { 
+      allowed: false, 
+      message: `🛑 You've reached your daily limit of ${limit} images. Limits reset daily.` 
+    };
+  }
+
+  return { allowed: true };
+}
+
+export function incrementImageUsage(userId) {
+  const now = Date.now();
+  if (!imageUsage[userId]) {
+    imageUsage[userId] = { count: 0, lastReset: now, lastRequest: 0 };
+  }
+  
+  // Handle edge case where day reset happened in checkImageRateLimit but not saved yet
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  if (now - imageUsage[userId].lastReset > ONE_DAY) {
+      imageUsage[userId].count = 0;
+      imageUsage[userId].lastReset = now;
+  }
+
+  imageUsage[userId].count++;
+  imageUsage[userId].lastRequest = now;
 }
 
 process.on('SIGINT', async () => {
@@ -537,5 +609,4 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-
-    
+      
