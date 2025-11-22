@@ -1,11 +1,11 @@
 const commands = [
   {
     name: "settings",
-    description: "Open the bot settings dashboard to configure preferences."
+    description: "Open the bot settings dashboard."
   },
   {
     name: "search",
-    description: "Search with AI using text and/or file attachments.",
+    description: "Search with AI.",
     options: [
       {
         name: "prompt",
@@ -15,9 +15,21 @@ const commands = [
       },
       {
         name: "file",
-        description: "Attach a file (image, audio, video, PDF, GIF, etc.)",
+        description: "Attach a file.",
         type: 11,
         required: false
+      }
+    ]
+  },
+  {
+    name: "imagine",
+    description: "Generate an image.",
+    options: [
+      {
+        name: "prompt",
+        description: "Describe the image you want to generate",
+        type: 3,
+        required: true
       }
     ]
   }
