@@ -41,20 +41,22 @@ import ffmpeg from 'fluent-ffmpeg';
 
 import config from './config.js';
 import {
-client,
-genAI,
-createPartFromUri,
-token,
-activeRequests,
-chatHistoryLock,
-state,
-TEMP_DIR,
-initialize,
-saveStateToFile,
-getHistory,
-updateChatHistory,
-getUserResponsePreference,
-initializeBlacklistForGuild
+  client,
+  genAI,
+  createPartFromUri,
+  token,
+  activeRequests,
+  chatHistoryLock,
+  state,
+  TEMP_DIR,
+  initialize,
+  saveStateToFile,
+  getHistory,
+  updateChatHistory,
+  getUserResponsePreference,
+  initializeBlacklistForGuild,
+  checkImageRateLimit,  
+  incrementImageUsage   
 } from './botManager.js';
 
 import { memorySystem } from './memorySystem.js';
@@ -553,21 +555,25 @@ try {
 }
 });
 
+
 async function handleCommandInteraction(interaction) {
-if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isChatInputCommand()) return;
 
-const commandHandlers = {
-  settings: showMainSettings,
-  search: handleSearchCommand
-};
+  const commandHandlers = {
+    settings: showMainSettings,
+    search: handleSearchCommand,
+    imagine: handleImagineCommand // Connects the /imagine command
+  };
 
-const handler = commandHandlers[interaction.commandName];
-if (handler) {
-  await handler(interaction);
-} else {
-  console.log(`Unknown command: ${interaction.commandName}`);
+  const handler = commandHandlers[interaction.commandName];
+  if (handler) {
+    await handler(interaction);
+  } else {
+    console.log(`Unknown command: ${interaction.commandName}`);
+  }
 }
-}
+
+
 
 async function handleSearchCommand(interaction) {
 try {
@@ -4619,5 +4625,97 @@ try {
 }
 }
 
+async function handleImagineCommand(interaction) {
+  try {
+    const userId = interaction.user.id;
+    const prompt = interaction.options.getString('prompt');
+
+    // 1. Check Rate Limits
+    const limitCheck = checkImageRateLimit(userId);
+    if (!limitCheck.allowed) {
+      return interaction.reply({
+        content: limitCheck.message,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    await interaction.deferReply();
+
+    // 2. Generate Image using gemini-2.5-flash-image
+    // Note: The model name is pulled from config
+    const response = await genAI.models.generateContent({
+      model: config.imageConfig?.modelName || 'gemini-2.5-flash-image',
+      contents: prompt,
+      config: {
+        responseModalities: ['IMAGE']
+      }
+    });
+
+    // 3. Extract Image Data
+    const parts = response.candidates?.[0]?.content?.parts;
+    if (!parts || !parts[0] || !parts[0].inlineData) {
+      throw new Error("No image data received from model.");
+    }
+
+    const imageBuffer = Buffer.from(parts[0].inlineData.data, 'base64');
+    const attachment = new AttachmentBuilder(imageBuffer, { name: `imagine_${interaction.id}.png` });
+
+    // 4. Update Usage
+    incrementImageUsage(userId);
+    await saveStateToFile();
+
+    // 5. Send Response
+    const embed = new EmbedBuilder()
+      .setColor(config.hexColour)
+      .setTitle('🎨 Image Generated')
+      .setDescription(`**Prompt:** ${prompt}`)
+      .setImage(`attachment://imagine_${interaction.id}.png`)
+      .setFooter({ text: `Nano Banana • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10} today` });
+
+    await interaction.editReply({
+      embeds: [embed],
+      files: [attachment]
+    });
+
+    // 6. Update Chat History for Awareness
+    const guildId = interaction.guild?.id;
+    const channelId = interaction.channelId;
+    const isServerHistory = guildId && state.serverSettings[guildId]?.serverChatHistory;
+    const isChannelHistory = state.channelWideChatHistory[channelId];
+    const historyId = isServerHistory ? guildId : (isChannelHistory ? channelId : userId);
+
+    const historyEntry = [
+      {
+        role: 'user',
+        parts: [{ text: `/imagine prompt: ${prompt}` }]
+      },
+      {
+        role: 'model',
+        parts: [{ text: `[System: I successfully generated an image based on the user's prompt: "${prompt}".]` }]
+      }
+    ];
+
+    await chatHistoryLock.runExclusive(async () => {
+      updateChatHistory(historyId, historyEntry, interaction.id, interaction.user.username, interaction.member?.displayName);
+      await saveStateToFile();
+    });
+
+  } catch (error) {
+    console.error('Error in imagine command:', error);
+    const errorEmbed = new EmbedBuilder()
+      .setColor(0xFF0000)
+      .setTitle('❌ Generation Failed')
+      .setDescription('Failed to generate image. The prompt might have violated safety policies or the model is busy.');
+    
+    if (interaction.deferred) {
+      await interaction.editReply({ embeds: [errorEmbed] });
+    } else {
+      await interaction.reply({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
+    }
+  }
+}
+
+
 
 client.login(token);
+
