@@ -10,7 +10,8 @@ const collections = {
   customInstructions: 'customInstructions',
   blacklistedUsers: 'blacklistedUsers',
   channelSettings: 'channelSettings',
-  memoryEntries: 'memoryEntries'
+  memoryEntries: 'memoryEntries',
+  imageUsage: 'imageUsage' // New collection for image rate limiting
 };
 
 export async function connectDB() {
@@ -46,6 +47,7 @@ async function createIndexes() {
     await db.collection(collections.blacklistedUsers).createIndex({ guildId: 1 }, { unique: true });
     await db.collection(collections.channelSettings).createIndex({ channelId: 1 }, { unique: true });
     await db.collection(collections.memoryEntries).createIndex({ historyId: 1, timestamp: -1 });
+    await db.collection(collections.imageUsage).createIndex({ userId: 1 }, { unique: true });
     
     console.log('✅ Database indexes created');
   } catch (error) {
@@ -60,6 +62,7 @@ export async function closeDB() {
   }
 }
 
+// --- User Settings ---
 export async function saveUserSettings(userId, settings) {
   try {
     await db.collection(collections.userSettings).updateOne(
@@ -98,6 +101,7 @@ export async function getAllUserSettings() {
   }
 }
 
+// --- Server Settings ---
 export async function saveServerSettings(guildId, settings) {
   try {
     await db.collection(collections.serverSettings).updateOne(
@@ -136,6 +140,7 @@ export async function getAllServerSettings() {
   }
 }
 
+// --- Chat History ---
 export async function saveChatHistory(id, history) {
   try {
     await db.collection(collections.chatHistories).updateOne(
@@ -182,6 +187,7 @@ export async function deleteChatHistory(id) {
   }
 }
 
+// --- Custom Instructions ---
 export async function saveCustomInstructions(id, instructions) {
   try {
     await db.collection(collections.customInstructions).updateOne(
@@ -219,6 +225,7 @@ export async function getAllCustomInstructions() {
   }
 }
 
+// --- Blacklisted Users ---
 export async function saveBlacklistedUsers(guildId, users) {
   try {
     await db.collection(collections.blacklistedUsers).updateOne(
@@ -256,6 +263,7 @@ export async function getAllBlacklistedUsers() {
   }
 }
 
+// --- Channel Settings ---
 export async function saveChannelSetting(channelId, settingType, value) {
   try {
     await db.collection(collections.channelSettings).updateOne(
@@ -295,6 +303,7 @@ export async function getAllChannelSettings(settingType) {
   }
 }
 
+// --- Active Users ---
 export async function saveActiveUsersInChannels(data) {
   try {
     await db.collection('activeUsersInChannels').updateOne(
@@ -318,6 +327,7 @@ export async function getActiveUsersInChannels() {
   }
 }
 
+// --- Response Preferences ---
 export async function saveUserResponsePreference(userId, preference) {
   try {
     await db.collection('userResponsePreference').updateOne(
@@ -355,6 +365,7 @@ export async function getAllUserResponsePreferences() {
   }
 }
 
+// --- Memory Entries ---
 export async function saveMemoryEntry(historyId, entry) {
   try {
     await db.collection(collections.memoryEntries).insertOne({
@@ -393,6 +404,40 @@ export async function deleteOldMemoryEntries(cutoffTimestamp) {
   }
 }
 
+// --- Image Usage (Rate Limiting) ---
+export async function saveImageUsage(userId, usageData) {
+  try {
+    await db.collection(collections.imageUsage).updateOne(
+      { userId },
+      { $set: { userId, ...usageData, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving image usage:', error);
+    throw error;
+  }
+}
+
+export async function getAllImageUsages() {
+  try {
+    const usages = await db.collection(collections.imageUsage).find({}).toArray();
+    const result = {};
+    usages.forEach(u => {
+      result[u.userId] = {
+        count: u.count,
+        lastReset: u.lastReset,
+        lastRequest: u.lastRequest
+      };
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting all image usages:', error);
+    return {};
+  }
+}
+
 export function getDB() {
   return db;
-  }
+}
+
+    
