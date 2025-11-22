@@ -52,6 +52,6 @@ CRITICAL RULES (ALWAYS FOLLOW):
   imageConfig: {
     maxPerDay: 10,
     maxPerMinute: 1,
-    modelName: "imagen-3.0-generate-001" 
+    modelName: "imagen-3.0-fast-generate-001" 
   }
 };
