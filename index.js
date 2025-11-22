@@ -4629,7 +4629,7 @@ async function handleImagineCommand(interaction) {
   try {
     const userId = interaction.user.id;
     const prompt = interaction.options.getString('prompt');
-    const modelName = config.imageConfig?.modelName || 'imagen-3.0-generate-001';
+    const modelName = config.imageConfig?.modelName || 'gemini-2.0-flash-exp';
 
     // 1. Check Rate Limits
     const limitCheck = checkImageRateLimit(userId);
@@ -4642,59 +4642,47 @@ async function handleImagineCommand(interaction) {
 
     await interaction.deferReply();
 
-    let imageBuffer;
-    let footerText = "";
-
-    // 2. Generate Image (Handle different model types)
-    if (modelName.includes('imagen')) {
-      // === IMAGEN MODEL PATH ===
-      // Imagen uses a different method: generateImages
-      try {
-        const response = await genAI.models.generateImages({
-          model: modelName,
-          prompt: prompt,
-          config: {
-            numberOfImages: 1,
-            aspectRatio: "1:1"
-          }
-        });
-
-        if (!response.generatedImages || response.generatedImages.length === 0) {
-          throw new Error("No images returned from Imagen.");
+    // 2. Generate Content (Text + Image)
+    // Gemini 2.0 Flash requires 'TEXT' to be included in responseModalities
+    // It cannot generate *only* an image in this mode.
+    const response = await genAI.models.generateContent({
+      model: modelName,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: "Generate an image based on this prompt: " + prompt }
+          ]
         }
-
-        // Imagen returns raw image bytes directly
-        imageBuffer = Buffer.from(response.generatedImages[0].image.imageBytes, 'base64');
-        footerText = `Imagen 3 • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10}`;
-
-      } catch (err) {
-        // If prompt was rejected for safety, it often throws here
-        if (err.message && (err.message.includes("safety") || err.message.includes("blocked"))) {
-          throw new Error("Image generation blocked by safety filters. Please try a different prompt.");
-        }
-        throw err;
+      ],
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'] 
       }
-    } else {
-      // === GEMINI MODEL PATH ===
-      // Gemini uses generateContent with responseModalities
-      const response = await genAI.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          responseModalities: ['IMAGE']
+    });
+
+    // 3. Extract Image Data
+    const parts = response.candidates?.[0]?.content?.parts;
+    let imageBuffer = null;
+    let textResponse = "";
+
+    if (parts) {
+      for (const part of parts) {
+        if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
+          imageBuffer = Buffer.from(part.inlineData.data, 'base64');
+        } else if (part.text) {
+          textResponse += part.text;
         }
-      });
-
-      const parts = response.candidates?.[0]?.content?.parts;
-      if (!parts || !parts[0] || !parts[0].inlineData) {
-        throw new Error("No image data received from Gemini model.");
       }
-
-      imageBuffer = Buffer.from(parts[0].inlineData.data, 'base64');
-      footerText = `Nano Banana • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10}`;
     }
 
-    // 3. Create Attachment
+    if (!imageBuffer) {
+        // If no image was generated, it might be a refusal or just text output
+        if (textResponse) {
+            throw new Error(`The model responded with text only: "${textResponse.slice(0, 200)}..."`);
+        }
+        throw new Error("No image data received from model.");
+    }
+
     const attachment = new AttachmentBuilder(imageBuffer, { name: `imagine_${interaction.id}.png` });
 
     // 4. Update Usage
@@ -4707,7 +4695,7 @@ async function handleImagineCommand(interaction) {
       .setTitle('🎨 Image Generated')
       .setDescription(`**Prompt:** ${prompt}`)
       .setImage(`attachment://imagine_${interaction.id}.png`)
-      .setFooter({ text: footerText });
+      .setFooter({ text: `Gemini 2.0 Flash • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10} today` });
 
     await interaction.editReply({
       embeds: [embed],
@@ -4745,10 +4733,13 @@ async function handleImagineCommand(interaction) {
 
     if (error.status === 429 || (error.message && error.message.includes('429'))) {
         errorTitle = '⏳ Quota Exceeded';
-        errorDesc = 'The AI image model is currently overloaded or your quota has been exhausted. Please try again later.';
+        errorDesc = 'The AI model is currently overloaded. Please try again later.';
     } else if (error.status === 404) {
         errorTitle = '❌ Model Not Found';
         errorDesc = `The configured model (${modelName}) is not available for your API key.`;
+    } else if (error.status === 400) {
+        errorTitle = '⚠️ Bad Request';
+        errorDesc = `Model configuration error: ${error.message}`;
     }
 
     const errorEmbed = new EmbedBuilder()
@@ -4762,8 +4753,7 @@ async function handleImagineCommand(interaction) {
       await interaction.reply({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
     }
   }
-  }
-
+      }
     
 
 
