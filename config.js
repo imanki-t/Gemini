@@ -48,10 +48,10 @@ CRITICAL RULES (ALWAYS FOLLOW):
     autoRespondToPolls: true,
     minVotesForAnalysis: 1
   },
-  // UPDATED: Use standard Imagen 3
+  // UPDATED: Use Gemini 2.0 Flash Experimental (Publicly Available)
   imageConfig: {
     maxPerDay: 10,
     maxPerMinute: 1,
-    modelName: "imagen-3.0-generate-001" 
+    modelName: "gemini-2.0-flash-exp" 
   }
 };
