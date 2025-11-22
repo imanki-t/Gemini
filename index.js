@@ -4629,6 +4629,7 @@ async function handleImagineCommand(interaction) {
   try {
     const userId = interaction.user.id;
     const prompt = interaction.options.getString('prompt');
+    const modelName = config.imageConfig?.modelName || 'imagen-3.0-generate-001';
 
     // 1. Check Rate Limits
     const limitCheck = checkImageRateLimit(userId);
@@ -4641,23 +4642,59 @@ async function handleImagineCommand(interaction) {
 
     await interaction.deferReply();
 
-    // 2. Generate Image using gemini-2.5-flash-image
-    // Note: The model name is pulled from config
-    const response = await genAI.models.generateContent({
-      model: config.imageConfig?.modelName || 'gemini-2.5-flash-image',
-      contents: prompt,
-      config: {
-        responseModalities: ['IMAGE']
-      }
-    });
+    let imageBuffer;
+    let footerText = "";
 
-    // 3. Extract Image Data
-    const parts = response.candidates?.[0]?.content?.parts;
-    if (!parts || !parts[0] || !parts[0].inlineData) {
-      throw new Error("No image data received from model.");
+    // 2. Generate Image (Handle different model types)
+    if (modelName.includes('imagen')) {
+      // === IMAGEN MODEL PATH ===
+      // Imagen uses a different method: generateImages
+      try {
+        const response = await genAI.models.generateImages({
+          model: modelName,
+          prompt: prompt,
+          config: {
+            numberOfImages: 1,
+            aspectRatio: "1:1"
+          }
+        });
+
+        if (!response.generatedImages || response.generatedImages.length === 0) {
+          throw new Error("No images returned from Imagen.");
+        }
+
+        // Imagen returns raw image bytes directly
+        imageBuffer = Buffer.from(response.generatedImages[0].image.imageBytes, 'base64');
+        footerText = `Imagen 3 • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10}`;
+
+      } catch (err) {
+        // If prompt was rejected for safety, it often throws here
+        if (err.message && (err.message.includes("safety") || err.message.includes("blocked"))) {
+          throw new Error("Image generation blocked by safety filters. Please try a different prompt.");
+        }
+        throw err;
+      }
+    } else {
+      // === GEMINI MODEL PATH ===
+      // Gemini uses generateContent with responseModalities
+      const response = await genAI.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseModalities: ['IMAGE']
+        }
+      });
+
+      const parts = response.candidates?.[0]?.content?.parts;
+      if (!parts || !parts[0] || !parts[0].inlineData) {
+        throw new Error("No image data received from Gemini model.");
+      }
+
+      imageBuffer = Buffer.from(parts[0].inlineData.data, 'base64');
+      footerText = `Nano Banana • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10}`;
     }
 
-    const imageBuffer = Buffer.from(parts[0].inlineData.data, 'base64');
+    // 3. Create Attachment
     const attachment = new AttachmentBuilder(imageBuffer, { name: `imagine_${interaction.id}.png` });
 
     // 4. Update Usage
@@ -4670,14 +4707,14 @@ async function handleImagineCommand(interaction) {
       .setTitle('🎨 Image Generated')
       .setDescription(`**Prompt:** ${prompt}`)
       .setImage(`attachment://imagine_${interaction.id}.png`)
-      .setFooter({ text: `Nano Banana • Usage: ${state.imageUsage[userId].count}/${config.imageConfig?.maxPerDay || 10} today` });
+      .setFooter({ text: footerText });
 
     await interaction.editReply({
       embeds: [embed],
       files: [attachment]
     });
 
-    // 6. Update Chat History for Awareness
+    // 6. Update Chat History
     const guildId = interaction.guild?.id;
     const channelId = interaction.channelId;
     const isServerHistory = guildId && state.serverSettings[guildId]?.serverChatHistory;
@@ -4702,10 +4739,22 @@ async function handleImagineCommand(interaction) {
 
   } catch (error) {
     console.error('Error in imagine command:', error);
+    
+    let errorTitle = '❌ Generation Failed';
+    let errorDesc = `Failed to generate image: ${error.message}`;
+
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+        errorTitle = '⏳ Quota Exceeded';
+        errorDesc = 'The AI image model is currently overloaded or your quota has been exhausted. Please try again later.';
+    } else if (error.status === 404) {
+        errorTitle = '❌ Model Not Found';
+        errorDesc = `The configured model (${modelName}) is not available for your API key.`;
+    }
+
     const errorEmbed = new EmbedBuilder()
       .setColor(0xFF0000)
-      .setTitle('❌ Generation Failed')
-      .setDescription('Failed to generate image. The prompt might have violated safety policies or the model is busy.');
+      .setTitle(errorTitle)
+      .setDescription(errorDesc);
     
     if (interaction.deferred) {
       await interaction.editReply({ embeds: [errorEmbed] });
@@ -4713,9 +4762,9 @@ async function handleImagineCommand(interaction) {
       await interaction.reply({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
     }
   }
-}
+  }
 
+    
 
 
 client.login(token);
-
