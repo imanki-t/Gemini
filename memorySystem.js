@@ -324,54 +324,66 @@ class MemorySystem {
   }
 
   formatHistoryWithContext(historyArray) {
-    let previousTimestamp = null;
-    const timeThresholdMs = 30 * 60 * 1000;
+  let previousTimestamp = null;
+  const timeThresholdMs = 30 * 60 * 1000;
 
-    return historyArray.map(entry => {
-      const apiEntry = {
-        role: entry.role === 'assistant' ? 'model' : entry.role,
-        parts: []
-      };
+  return historyArray.map(entry => {
+    const apiEntry = {
+      role: entry.role === 'assistant' ? 'model' : entry.role,
+      parts: []
+    };
 
-      // ✅ ENHANCED: Include ALL content parts, not just text
-      let textContent = '';
-      let hasAttachments = false;
-      
-      for (const part of entry.content) {
-        if (part.text !== undefined) {
-          textContent += part.text + '\n';
-        } else if (part.fileUri || part.fileData) {
-          // This shouldn't normally happen after cleanup, but handle it
-          hasAttachments = true;
+    // --- CONTEXT PRESERVATION FIX START ---
+    // Instead of concatenating everything into one text string, 
+    // we push individual parts (Text OR File) to the parts array.
+    
+    // 1. Add Time Context if needed (as a text part)
+    if (previousTimestamp && entry.timestamp) {
+      const timeDiffMs = entry.timestamp - previousTimestamp;
+      if (timeDiffMs > timeThresholdMs) {
+        const durationString = this.formatDuration(timeDiffMs);
+        apiEntry.parts.push({ 
+          text: `[TIME ELAPSED: ${durationString} since the previous turn]\n` 
+        });
+      }
+    }
+    previousTimestamp = entry.timestamp;
+
+    // 2. Process Content Parts
+    let userInfoAdded = false;
+
+    for (const part of entry.content) {
+      // Handle Text
+      if (part.text !== undefined && part.text !== '') {
+        let finalText = part.text;
+        
+        // Add User Info to the FIRST text part only
+        if (!userInfoAdded && entry.role === 'user' && entry.username && entry.displayName) {
+          finalText = `[${entry.displayName} (@${entry.username})]: ${finalText}`;
+          userInfoAdded = true;
         }
+        
+        apiEntry.parts.push({ text: finalText });
+      } 
+      // Handle Files (URIs) - CRITICAL FOR CONTEXT
+      else if (part.fileUri) {
+        apiEntry.parts.push({ fileUri: part.fileUri });
       }
-      
-      textContent = textContent.trim();
-
-      let timePassed = "";
-      if (previousTimestamp && entry.timestamp) {
-        const timeDiffMs = entry.timestamp - previousTimestamp;
-        if (timeDiffMs > timeThresholdMs) {
-          const durationString = this.formatDuration(timeDiffMs);
-          timePassed = `[TIME ELAPSED: ${durationString} since the previous turn]\n`;
-        }
+      // Handle Inline Data (if any)
+      else if (part.inlineData) {
+        apiEntry.parts.push({ inlineData: part.inlineData });
       }
-      previousTimestamp = entry.timestamp;
+    }
 
-      if (entry.role === 'user' && entry.username && entry.displayName) {
-        textContent = timePassed + `[${entry.displayName} (@${entry.username})]: ${textContent}`;
-      } else {
-        textContent = timePassed + textContent;
-      }
+    // Fallback: If user sent ONLY an image (no text), ensuring attribution is hard,
+    // but the image is now attached.
+    // --- CONTEXT PRESERVATION FIX END ---
 
-      if (textContent.trim()) {
-        apiEntry.parts.push({ text: textContent });
-      }
-
-      return apiEntry;
-    }).filter(entry => entry.parts.length > 0);
+    return apiEntry;
+  }).filter(entry => entry.parts.length > 0);
   }
-
+  
+    
   getQueueStatus() {
     return {
       indexingQueueSize: this.indexingQueue.size,
