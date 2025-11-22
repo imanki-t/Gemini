@@ -52,6 +52,6 @@ CRITICAL RULES (ALWAYS FOLLOW):
   imageConfig: {
     maxPerDay: 10,
     maxPerMinute: 1,
-    modelName: "gemini-2.0-flash-exp" 
+    modelName: "imagen-3.0-generate-001" 
   }
 };
