@@ -48,10 +48,10 @@ CRITICAL RULES (ALWAYS FOLLOW):
     autoRespondToPolls: true,
     minVotesForAnalysis: 1
   },
-  // New Image Config
+  // UPDATED: Switched to Gemini 2.0 Flash Preview (Exp)
   imageConfig: {
     maxPerDay: 10,
     maxPerMinute: 1,
-    modelName: "gemini-2.5-flash-image"
+    modelName: "gemini-2.0-flash-exp" 
   }
 };
