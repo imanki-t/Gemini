@@ -588,11 +588,55 @@ async function handleCommandInteraction(interaction) {
   }
 }
 
-
-
 async function handleSearchCommand(interaction) {
+  try {
+    // 1. Validate Input
+    const prompt = interaction.options.getString('prompt');
+    const attachment = interaction.options.getAttachment('file');
+
+    if (!prompt && !attachment) {
+      return interaction.reply({
+        content: '❌ Please provide a prompt or an attachment.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    // 2. Defer immediately so the bot doesn't say "Interaction Failed" while waiting
+    await interaction.deferReply();
+
+    const userId = interaction.user.id;
+
+    // 3. Initialize Queue if needed
+    if (!state.requestQueues.has(userId)) {
+      state.requestQueues.set(userId, { queue: [], isProcessing: false });
+    }
+
+    const userQueueData = state.requestQueues.get(userId);
+
+    // 4. Check Queue Size (Optional Limit)
+    if (userQueueData.queue.length >= 5) {
+      return interaction.editReply({
+        content: '⏳ **Queue Full:** You have too many requests processing. Please wait.'
+      });
+    }
+
+    // 5. Add to Queue
+    userQueueData.queue.push(interaction);
+
+    // 6. Start Processor if idle
+    if (!userQueueData.isProcessing) {
+      processUserQueue(userId);
+    }
+
+  } catch (error) {
+    console.error('Error queuing search:', error);
+  }
+        }
+
+
+async function executeSearchInteraction(interaction) {
 try {
-  await interaction.deferReply();
+  
 
   const prompt = interaction.options.getString('prompt') || '';
   const attachment = interaction.options.getAttachment('file');
@@ -3594,6 +3638,7 @@ function extractForwardedContent(message) {
 
 
 
+// REPLACE your existing processUserQueue function with this:
 async function processUserQueue(userId) {
   const userQueueData = requestQueues.get(userId);
   if (!userQueueData) return;
@@ -3601,24 +3646,28 @@ async function processUserQueue(userId) {
   userQueueData.isProcessing = true;
 
   while (userQueueData.queue.length > 0) {
-    // FIFO: Get the oldest message
-    const currentMessage = userQueueData.queue[0]; 
+    const currentItem = userQueueData.queue[0]; // Get first item
 
     try {
-      // Process the message (await ensures sequential execution)
-      await handleTextMessage(currentMessage);
+      // If it is a Command (Search), run the search logic
+      if (currentItem.isChatInputCommand && currentItem.isChatInputCommand()) {
+        await executeSearchInteraction(currentItem);
+      } 
+      // Otherwise, it's a normal Message
+      else {
+        await handleTextMessage(currentItem);
+      }
     } catch (error) {
-      console.error(`Error processing queued message for ${userId}:`, error);
+      console.error(`Error processing queued item for ${userId}:`, error);
     } finally {
-      // Remove the finished message from queue
-      userQueueData.queue.shift();
+      userQueueData.queue.shift(); // Remove item from queue
     }
   }
 
-  // Queue empty
   userQueueData.isProcessing = false;
   requestQueues.delete(userId);
 }
+
 
 
 async function handleTextMessage(message) {
@@ -4808,6 +4857,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
