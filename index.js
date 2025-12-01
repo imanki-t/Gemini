@@ -40,12 +40,13 @@ import express from 'express';
 import ffmpeg from 'fluent-ffmpeg';
 
 import config from './config.js';
+
 import {
   client,
   genAI,
   createPartFromUri,
   token,
-  activeRequests,
+  requestQueues, 
   chatHistoryLock,
   state,
   TEMP_DIR,
@@ -516,26 +517,40 @@ try {
   state.activeUsersInChannels[channelId]?.[userId]
 );
 
-  if (shouldRespond) {
-    if (activeRequests.has(userId)) {
+    if (shouldRespond) {
+    // Initialize queue for user if it doesn't exist
+    if (!state.requestQueues.has(userId)) {
+      state.requestQueues.set(userId, { queue: [], isProcessing: false });
+    }
+
+    const userQueueData = state.requestQueues.get(userId);
+
+    // Check Limit (Max 3 messages in queue)
+    if (userQueueData.queue.length >= 3) {
       const embed = new EmbedBuilder()
         .setColor(0xFFAA00)
-        .setTitle('⏳ Request In Progress')
-        .setDescription('Please wait until your previous request is complete.');
+        .setTitle('⏳ Queue Full')
+        .setDescription('You have 3 requests pending. Please wait for them to finish.');
+      
+      // Reply to the specific message trying to be added
       await message.reply({
         embeds: [embed],
         flags: MessageFlags.Ephemeral
       });
-    } else {
-      activeRequests.add(userId);
-      await handleTextMessage(message);
+      return; 
+    }
+
+    // Add to queue
+    userQueueData.queue.push(message);
+
+    // If not currently processing, start the loop
+    if (!userQueueData.isProcessing) {
+      processUserQueue(userId);
     }
   }
 } catch (error) {
   console.error('Error processing the message:', error);
-  if (activeRequests.has(message.author.id)) {
-    activeRequests.delete(message.author.id);
-  }
+  // Cleanup on error is handled in processUserQueue now
 }
 });
 
@@ -3574,6 +3589,35 @@ function extractForwardedContent(message) {
   return { forwardedText, forwardedAttachments, forwardedStickers };
 }
 
+import { requestQueues } from './botManager.js'; // Ensure this is imported/available
+
+async function processUserQueue(userId) {
+  const userQueueData = requestQueues.get(userId);
+  if (!userQueueData) return;
+
+  userQueueData.isProcessing = true;
+
+  while (userQueueData.queue.length > 0) {
+    // FIFO: Get the oldest message
+    const currentMessage = userQueueData.queue[0]; 
+
+    try {
+      // Process the message (await ensures sequential execution)
+      await handleTextMessage(currentMessage);
+    } catch (error) {
+      console.error(`Error processing queued message for ${userId}:`, error);
+    } finally {
+      // Remove the finished message from queue
+      userQueueData.queue.shift();
+    }
+  }
+
+  // Queue empty
+  userQueueData.isProcessing = false;
+  requestQueues.delete(userId);
+}
+
+
 async function handleTextMessage(message) {
   const botId = client.user.id;
   const userId = message.author.id;
@@ -3828,15 +3872,14 @@ async function handleTextMessage(message) {
     ...gifLinkAttachments
   ];
 
-  // Ignore polls
+    // Ignore polls
   if (message.poll) {
-    if (activeRequests.has(userId)) activeRequests.delete(userId);
     return;
   }
   if (message.type === 46) {
-    if (activeRequests.has(userId)) activeRequests.delete(userId);
     return;
   }
+  
 
   // Check for content
   // We check if messageContent has non-whitespace chars OR if there are supported attachments
@@ -3889,12 +3932,12 @@ async function handleTextMessage(message) {
     parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
     hasMedia = parts.some(part => part.text === undefined);
 
-  } catch (error) {
+    } catch (error) {
     console.error('Error initializing message:', error);
-    if (activeRequests.has(userId)) activeRequests.delete(userId);
     clearInterval(typingInterval);
     return;
   }
+  
 
   const userSettings = state.userSettings[userId] || {};
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
@@ -4294,17 +4337,20 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
   // Initialize with whatever was passed (likely null)
   let botMessage = initialBotMessage;
 
-  // Helper to determine if we should Reply (tag) or Send (no tag)
+    // Helper to determine if we should Reply (tag) or Send (no tag)
   const shouldForceReply = () => {
+    // 1. If Continuous Reply is OFF, always tag
     if (!continuousReply) return true;
-    if (guildId) {
-      // Force reply if the chat has moved on (someone else messaged)
-      if (originalMessage.channel.lastMessageId !== originalMessage.id) {
-        return true;
-      }
+
+    // 2. If chat has moved on (e.g., this is a queued message and newer ones exist), Tag it
+    if (guildId && originalMessage.channel.lastMessageId !== originalMessage.id) {
+      return true;
     }
+    
+    // 3. Otherwise, send normally (No tag) for the latest message
     return false;
   };
+  
 
   // Update helper function
   const updateMessage = async () => {
@@ -4468,8 +4514,9 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
     }
   }
 
-  if (activeRequests.has(userId)) activeRequests.delete(userId);
+    // Queue processor handles cleanup now
 }   
+
 
 function updateEmbed(botMessage, finalResponse, message, groundingMetadata = null, urlContextMetadata = null, effectiveSettings) {
 try {
@@ -4758,3 +4805,4 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
