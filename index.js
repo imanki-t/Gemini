@@ -526,11 +526,11 @@ try {
     const userQueueData = state.requestQueues.get(userId);
 
     // Check Limit (Max 3 messages in queue)
-    if (userQueueData.queue.length >= 3) {
+    if (userQueueData.queue.length >= 5) {
       const embed = new EmbedBuilder()
         .setColor(0xFFAA00)
         .setTitle('⏳ Queue Full')
-        .setDescription('You have 3 requests pending. Please wait for them to finish.');
+        .setDescription('You have 5 requests pending. Please wait for them to finish.');
       
       // Reply to the specific message trying to be added
       await message.reply({
@@ -4805,5 +4805,6 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
