@@ -635,13 +635,16 @@ try {
     }
   }
 
-  let parts = [];
+    let parts = [];
   let hasMedia = false;
   if (prompt) {
+    // Force web search execution
+    const forcedSearchPrompt = `IMPERATIVE: You must use the 'googleSearch' tool to find the most current information for this request. Do not answer from internal memory. Query: ${prompt}`;
     parts.push({
-      text: prompt
+      text: forcedSearchPrompt
     });
-  }
+          }
+  
 
   if (attachment) {
   try {
@@ -4805,6 +4808,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
