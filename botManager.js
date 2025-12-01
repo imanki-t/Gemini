@@ -38,7 +38,8 @@ export {
 };
 export const token = process.env.DISCORD_BOT_TOKEN;
 
-export const activeRequests = new Set();
+// Key: UserId, Value: { queue: Array<Message>, isProcessing: boolean }
+export const requestQueues = new Map();
 
 class Mutex {
   constructor() {
@@ -145,15 +146,20 @@ export const state = {
   set blacklistedUsers(v) {
     blacklistedUsers = v;
   },
-  get continuousReplyChannels() {
+    get continuousReplyChannels() {
     return continuousReplyChannels;
   },
   set continuousReplyChannels(v) {
     continuousReplyChannels = v;
   },
+  // Expose the queue to the state object
+  get requestQueues() {
+    return requestQueues;
+  },
   get imageUsage() {
     return imageUsage;
   },
+  
   set imageUsage(v) {
     imageUsage = v;
   }
