@@ -3589,7 +3589,7 @@ function extractForwardedContent(message) {
   return { forwardedText, forwardedAttachments, forwardedStickers };
 }
 
-import { requestQueues } from './botManager.js'; // Ensure this is imported/available
+
 
 async function processUserQueue(userId) {
   const userQueueData = requestQueues.get(userId);
@@ -4805,4 +4805,5 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
