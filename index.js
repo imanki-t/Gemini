@@ -501,7 +501,9 @@ try {
   const userSettings = state.userSettings[userId] || {};
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
-  const continuousReply = effectiveSettings.continuousReply || false;
+  // Changed || false to ?? true to match config.js default and fix boolean logic
+  const continuousReply = effectiveSettings.continuousReply ?? true;
+  
   const channelContinuousReply = state.continuousReplyChannels?.[channelId] || false;
 
   const shouldRespond = (
@@ -2085,8 +2087,9 @@ async function showUserSettingsPage2(interaction, isUpdate = false) {
   try {
     const userId = interaction.user.id;
     const userSettings = state.userSettings[userId] || {};
-    const continuousReply = userSettings.continuousReply || true;
+    const continuousReply = userSettings.continuousReply ?? true; // Changed || to ??
     const embedColor = userSettings.embedColor || hexColour;
+    
     const hasPersonality = !!userSettings.customPersonality;
 
     // 1. Continuous Reply (Select Menu)
@@ -4857,6 +4860,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
