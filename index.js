@@ -4377,7 +4377,8 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
   const guildId = originalMessage.guild?.id;
   const responseFormat = effectiveSettings.responseFormat || 'Normal';
   const showActionButtons = effectiveSettings.showActionButtons !== false;
-  const continuousReply = effectiveSettings.continuousReply || false;
+  const continuousReply = effectiveSettings.continuousReply ?? true; // Changed || to ??
+  
   const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
   let attempts = 3;
 
@@ -4860,6 +4861,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
