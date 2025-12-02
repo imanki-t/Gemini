@@ -1,6 +1,6 @@
 export default {
   defaultResponseFormat: "Normal",
-  hexColour: "#5865F2",
+  hexColour: "#000000",
   workInDMs: true,
   coreSystemRules: `You are Lumin, a friend chatting via Discord.
 
@@ -32,7 +32,7 @@ CRITICAL RULES (ALWAYS FOLLOW):
     showActionButtons: false,
     continuousReply: false,
     customPersonality: null,
-    embedColor: "#5865F2",
+    embedColor: "#000000",
     overrideUserSettings: false,
     serverChatHistory: false,
     allowedChannels: []
@@ -43,7 +43,7 @@ CRITICAL RULES (ALWAYS FOLLOW):
     showActionButtons: false,
     continuousReply: true,
     customPersonality: null,
-    embedColor: "#5865F2"
+    embedColor: "#000000"
   },
   pollConfig: {
     maxPollsPerMinute: 3,
