@@ -889,7 +889,8 @@ const chat = genAI.chats.create({
       }
 
       botMessage = await interaction.fetchReply();
-      const showActionButtons = effectiveSettings.showActionButtons !== false;
+      const showActionButtons = effectiveSettings.showActionButtons === true;
+      
       if (showActionButtons && !isLargeResponse) {
         const components = [];
         const actionRow = new ActionRowBuilder();
@@ -1992,7 +1993,8 @@ async function showUserSettings(interaction, isUpdate = false) {
 
     const selectedModel = userSettings.selectedModel || 'gemini-2.5-flash';
     const responseFormat = userSettings.responseFormat || 'Normal';
-    const showActionButtons = userSettings.showActionButtons !== false;
+    const showActionButtons = userSettings.showActionButtons === true;
+    
     const embedColor = userSettings.embedColor || hexColour;
 
     const modelSelect = new StringSelectMenuBuilder()
@@ -2246,7 +2248,8 @@ async function showServerSettings(interaction, isUpdate = false) {
     const serverSettings = state.serverSettings[guildId] || {};
     const selectedModel = serverSettings.selectedModel || 'gemini-2.5-flash';
     const responseFormat = serverSettings.responseFormat || 'Normal';
-    const showActionButtons = serverSettings.showActionButtons !== false;
+    const showActionButtons = serverSettings.showActionButtons === true;
+    
     const embedColor = serverSettings.embedColor || hexColour;
 
     const modelSelect = new StringSelectMenuBuilder()
@@ -4384,7 +4387,8 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
   const userId = originalMessage.author.id;
   const guildId = originalMessage.guild?.id;
   const responseFormat = effectiveSettings.responseFormat || 'Normal';
-  const showActionButtons = effectiveSettings.showActionButtons !== false;
+  const showActionButtons = effectiveSettings.showActionButtons === true;
+  
   const continuousReply = effectiveSettings.continuousReply ?? true; // Changed || to ??
   
   const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
@@ -4869,6 +4873,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
