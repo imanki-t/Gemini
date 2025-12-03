@@ -3136,8 +3136,11 @@ try {
   const userId = interaction.user.id;
   if (state.userSettings[userId]) {
     delete state.userSettings[userId].customPersonality;
-    await saveStateToFile();
   }
+  if (state.customInstructions && state.customInstructions[userId]) {
+    delete state.customInstructions[userId]; 
+  }
+  await saveStateToFile();
 
   const embed = new EmbedBuilder()
     .setColor(0x00FF00)
@@ -3151,6 +3154,7 @@ try {
   console.error('Error removing user personality:', error);
 }
 }
+
 
 async function removeServerPersonality(interaction) {
 try {
@@ -3168,8 +3172,11 @@ try {
   const guildId = interaction.guild.id;
   if (state.serverSettings[guildId]) {
     delete state.serverSettings[guildId].customPersonality;
-    await saveStateToFile();
   }
+  if (state.customInstructions && state.customInstructions[guildId]) {
+    delete state.customInstructions[guildId];
+  }
+  await saveStateToFile();
 
   const embed = new EmbedBuilder()
     .setColor(0x00FF00)
@@ -3182,7 +3189,8 @@ try {
 } catch (error) {
   console.error('Error removing server personality:', error);
 }
-}
+      }
+
 
 async function showUserEmbedColorModal(interaction) {
   const userId = interaction.user.id;
@@ -4861,6 +4869,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
