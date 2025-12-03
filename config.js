@@ -91,7 +91,7 @@ Keep the tone warm, supportive, and bubbly throughout all interactions, making u
     continuousReply: false,
     customPersonality: null,
     embedColor: "#000000",
-    overrideUserSettings: false,
+    overrideUserSettings: true,
     serverChatHistory: false,
     allowedChannels: []
   },
