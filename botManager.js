@@ -531,7 +531,7 @@ export function initializeBlacklistForGuild(guildId) {
         continuousReply: false,
         customPersonality: null,
         embedColor: config.hexColour,
-        overrideUserSettings: false,
+        overrideUserSettings: true,
         serverChatHistory: false,
         allowedChannels: []
       };
