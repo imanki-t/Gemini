@@ -207,7 +207,6 @@ export const state = {
   get imageUsage() {
     return imageUsage;
   },
-  
   set imageUsage(v) {
     imageUsage = v;
   }
@@ -318,32 +317,6 @@ async function loadStateFromDB() {
     console.log('✅ Data loaded from MongoDB');
   } catch (error) {
     console.error('Error loading state from MongoDB:', error);
-  }
-}
-
-function removeFileData(histories) {
-  try {
-    Object.values(histories).forEach(subIdEntries => {
-      if (typeof subIdEntries === 'object' && subIdEntries !== null) {
-        Object.values(subIdEntries).forEach(messages => {
-          if (Array.isArray(messages)) {
-            messages.forEach(message => {
-              if (message.content) {
-                message.content = message.content.filter(contentItem => {
-                  if (contentItem.fileData || contentItem.fileUri) {
-                    return false;
-                  }
-                  return contentItem.text !== undefined;
-                });
-              }
-            });
-          }
-        });
-      }
-    });
-    console.log('fileData and fileUri elements have been removed from chat histories.');
-  } catch (error) {
-    console.error('An error occurred while removing fileData elements:', error);
   }
 }
 
@@ -488,8 +461,6 @@ export function getHistory(id, guildId = null) {
       parts: []
     };
 
-    // --- FIX: Logic to preserve File URIs ---
-    
     // 1. Add Time Context
     if (previousTimestamp) {
       const timeDiffMs = entry.timestamp - previousTimestamp;
@@ -515,11 +486,14 @@ export function getHistory(id, guildId = null) {
           apiEntry.parts.push({ text: textVal });
         } 
         else if (part.fileUri) {
-          // Pass the file URI directly to Gemini
-          apiEntry.parts.push({ fileUri: part.fileUri });
+          // ✅ FIX: STRIP FILE URIs FROM HISTORY
+          // To prevent 403 Forbidden errors when keys rotate or files expire,
+          // we replace historical files with text descriptions.
+          const mime = part.mimeType || 'media';
+          apiEntry.parts.push({ text: `[Attachment: Previous file (${mime}) - Content no longer available to vision model]` });
         }
         else if (part.inlineData) {
-          apiEntry.parts.push({ inlineData: part.inlineData });
+           apiEntry.parts.push({ text: `[Attachment: Previous inline image]` });
         }
       }
     }
@@ -668,5 +642,3 @@ process.on('SIGTERM', async () => {
   await db.closeDB();
   process.exit(0);
 });
-
-  
