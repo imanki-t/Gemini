@@ -18,32 +18,33 @@ class MemorySystem {
   }
 
   /**
+   * ✅ FIXED: Validation to prevent "requests must not be empty" error
    * ✅ FIXED: Correct API call format for @google/genai SDK
-   * Uses the embedContent method with proper parameters
    */
   async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
+    // 1. Critical Validation
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      // console.warn('⚠️ Skipped embedding generation: Text is empty.');
+      return null;
+    }
+
     const cacheKey = text.slice(0, 100) + taskType;
     if (this.embeddingCache.has(cacheKey)) {
       return this.embeddingCache.get(cacheKey);
     }
 
     try {
-      // ✅ CORRECT: New SDK format
       const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
-        contents: text,  // Changed from 'content' to 'contents'
+        contents: text, 
         config: {
-          taskType: taskType,  // Valid: RETRIEVAL_DOCUMENT, RETRIEVAL_QUERY
-          // Optional: outputDimensionality can be set (up to 3072 for gemini-embedding-001)
+          taskType: taskType,
         }
       });
       
-      // ✅ FIXED: Correct response structure
-      // The response has 'embeddings' array, we take the first one
       const embedding = result.embeddings?.[0]?.values;
       
       if (!embedding || !Array.isArray(embedding)) {
-        console.error('Invalid embedding response:', result);
         return null;
       }
 
@@ -57,11 +58,7 @@ class MemorySystem {
       
       return embedding;
     } catch (error) {
-      console.error('Embedding generation failed:', error);
-      // Enhanced error logging
-      if (error.message) {
-        console.error('Error details:', error.message);
-      }
+      console.error('Embedding generation failed:', error.message);
       return null;
     }
   }
@@ -84,7 +81,6 @@ class MemorySystem {
 
   extractTextFromMessage(message) {
     if (!message || !message.content) {
-      console.warn('Invalid message structure:', message);
       return '';
     }
     
@@ -115,7 +111,6 @@ class MemorySystem {
     if (messages.length <= 5) return messages;
 
     try {
-      // ✅ FIXED: systemInstruction is now a string
       const chat = genAI.chats.create({
         model: model,
         config: {
@@ -131,7 +126,6 @@ class MemorySystem {
         return `${role}: ${text}`;
       }).join('\n\n');
 
-      // ✅ FIXED: Send message as an object with 'message' property to satisfy ContentUnion requirement
       const result = await chat.sendMessage({
         message: `Summarize this conversation:\n\n${conversationText}`
       });
@@ -146,25 +140,24 @@ class MemorySystem {
         timestamp: Date.now()
       }];
     } catch (error) {
-      console.error('Compression failed:', error);
+      console.error('Compression failed:', error.message);
       // Fallback: return the last few messages if compression fails
       return messages.slice(-3);
     }
   }
 
-
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
-      // ✅ Use RETRIEVAL_QUERY for query embeddings
+      // Validation to prevent empty query embedding error
+      if (!currentQuery || currentQuery.trim().length === 0) return [];
+
       const queryEmbedding = await this.generateEmbedding(currentQuery, 'RETRIEVAL_QUERY');
       if (!queryEmbedding) {
-        console.warn('Failed to generate query embedding, skipping context retrieval');
         return [];
       }
 
       const memoryEntries = await db.getMemoryEntries(historyId);
       if (!memoryEntries || memoryEntries.length === 0) {
-        console.log(`No memory entries found for ${historyId}`);
         return [];
       }
 
@@ -181,11 +174,9 @@ class MemorySystem {
         .filter(entry => entry.similarity > 0.7)
         .slice(0, maxRelevant);
 
-      console.log(`Found ${relevant.length} relevant context entries (threshold: 0.7)`);
-
       return relevant.map(entry => entry.messages).flat();
     } catch (error) {
-      console.error('Context retrieval failed:', error);
+      console.error('Context retrieval failed:', error.message);
       return [];
     }
   }
@@ -198,14 +189,11 @@ class MemorySystem {
         .join(' ');
 
       if (conversationText.length < 10) {
-        console.log(`Skipping indexing: text too short (${conversationText.length} chars)`);
         return;
       }
 
-      // ✅ Use RETRIEVAL_DOCUMENT for document embeddings
       const embedding = await this.generateEmbedding(conversationText, 'RETRIEVAL_DOCUMENT');
       if (!embedding) {
-        console.error('Failed to generate embedding for', historyId);
         return;
       }
 
@@ -216,10 +204,8 @@ class MemorySystem {
         text: conversationText.slice(0, 500)
       });
       
-      console.log(`✅ Indexed ${messages.length} messages for ${historyId}`);
     } catch (error) {
-      console.error('Memory storage failed:', error);
-      throw error;
+      console.error('Memory storage failed:', error.message);
     }
   }
 
@@ -247,7 +233,7 @@ class MemorySystem {
 
           for (const batch of batches) {
             this.storeMemoryWithEmbedding(historyId, batch).catch(err => {
-              console.error('Background indexing error:', err);
+              console.error('Background indexing error:', err.message);
             });
           }
           
@@ -255,7 +241,7 @@ class MemorySystem {
         }
       }
     } catch (error) {
-      console.error('Auto-indexing check failed:', error);
+      console.error('Auto-indexing check failed:', error.message);
     }
   }
 
@@ -263,7 +249,6 @@ class MemorySystem {
     try {
       const allHistory = await db.getChatHistory(historyId);
       if (!allHistory) {
-        console.log(`No history found for ${historyId}`);
         return [];
       }
 
@@ -277,9 +262,7 @@ class MemorySystem {
       if (historyArray.length === 0) return [];
 
       // Trigger instant indexing check (non-blocking)
-      this.checkAndIndexMessages(historyId, allHistory).catch(err => {
-        console.error('Index check error:', err);
-      });
+      this.checkAndIndexMessages(historyId, allHistory).catch(() => {});
 
       if (historyArray.length <= MAX_FULL_MESSAGES) {
         return this.formatHistoryWithContext(historyArray);
@@ -318,72 +301,65 @@ class MemorySystem {
       return this.formatHistoryWithContext(uniqueMessages);
       
     } catch (error) {
-      console.error('History optimization failed:', error);
+      console.error('History optimization failed:', error.message);
       return [];
     }
   }
 
   formatHistoryWithContext(historyArray) {
-  let previousTimestamp = null;
-  const timeThresholdMs = 30 * 60 * 1000;
+    let previousTimestamp = null;
+    const timeThresholdMs = 30 * 60 * 1000;
 
-  return historyArray.map(entry => {
-    const apiEntry = {
-      role: entry.role === 'assistant' ? 'model' : entry.role,
-      parts: []
-    };
+    return historyArray.map(entry => {
+      const apiEntry = {
+        role: entry.role === 'assistant' ? 'model' : entry.role,
+        parts: []
+      };
 
-    // --- CONTEXT PRESERVATION FIX START ---
-    // Instead of concatenating everything into one text string, 
-    // we push individual parts (Text OR File) to the parts array.
-    
-    // 1. Add Time Context if needed (as a text part)
-    if (previousTimestamp && entry.timestamp) {
-      const timeDiffMs = entry.timestamp - previousTimestamp;
-      if (timeDiffMs > timeThresholdMs) {
-        const durationString = this.formatDuration(timeDiffMs);
-        apiEntry.parts.push({ 
-          text: `[TIME ELAPSED: ${durationString} since the previous turn]\n` 
-        });
-      }
-    }
-    previousTimestamp = entry.timestamp;
-
-    // 2. Process Content Parts
-    let userInfoAdded = false;
-
-    for (const part of entry.content) {
-      // Handle Text
-      if (part.text !== undefined && part.text !== '') {
-        let finalText = part.text;
-        
-        // Add User Info to the FIRST text part only
-        if (!userInfoAdded && entry.role === 'user' && entry.username && entry.displayName) {
-          finalText = `[${entry.displayName} (@${entry.username})]: ${finalText}`;
-          userInfoAdded = true;
+      // 1. Add Time Context if needed
+      if (previousTimestamp && entry.timestamp) {
+        const timeDiffMs = entry.timestamp - previousTimestamp;
+        if (timeDiffMs > timeThresholdMs) {
+          const durationString = this.formatDuration(timeDiffMs);
+          apiEntry.parts.push({ 
+            text: `[TIME ELAPSED: ${durationString} since the previous turn]\n` 
+          });
         }
-        
-        apiEntry.parts.push({ text: finalText });
-      } 
-      // Handle Files (URIs) - CRITICAL FOR CONTEXT
-      else if (part.fileUri) {
-        apiEntry.parts.push({ fileUri: part.fileUri });
       }
-      // Handle Inline Data (if any)
-      else if (part.inlineData) {
-        apiEntry.parts.push({ inlineData: part.inlineData });
+      previousTimestamp = entry.timestamp;
+
+      // 2. Process Content Parts
+      let userInfoAdded = false;
+
+      for (const part of entry.content) {
+        // Handle Text
+        if (part.text !== undefined && part.text !== '') {
+          let finalText = part.text;
+          
+          // Add User Info to the FIRST text part only
+          if (!userInfoAdded && entry.role === 'user' && entry.username && entry.displayName) {
+            finalText = `[${entry.displayName} (@${entry.username})]: ${finalText}`;
+            userInfoAdded = true;
+          }
+          
+          apiEntry.parts.push({ text: finalText });
+        } 
+        // Handle Files (URIs) - STRIP for memory to prevent 403 Forbidden
+        // When using RAG or compressed memory, we cannot pass old URIs because they might be
+        // owned by a different API key (rotation) or have expired.
+        else if (part.fileUri) {
+           const mime = part.mimeType || 'unknown';
+           apiEntry.parts.push({ text: `[Attachment: Previous file (${mime}) - Content no longer available to vision model]` });
+        }
+        else if (part.inlineData) {
+           apiEntry.parts.push({ text: `[Attachment: Previous inline image]` });
+        }
       }
-    }
 
-    // Fallback: If user sent ONLY an image (no text), ensuring attribution is hard,
-    // but the image is now attached.
-    // --- CONTEXT PRESERVATION FIX END ---
-
-    return apiEntry;
-  }).filter(entry => entry.parts.length > 0);
+      return apiEntry;
+    }).filter(entry => entry.parts.length > 0);
   }
   
-    
   getQueueStatus() {
     return {
       indexingQueueSize: this.indexingQueue.size,
@@ -434,7 +410,7 @@ class MemorySystem {
         messageCount: oldMessages.length
       };
     } catch (error) {
-      console.error('Force indexing failed:', error);
+      console.error('Force indexing failed:', error.message);
       return { success: false, message: error.message };
     }
   }
