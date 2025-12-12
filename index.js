@@ -3967,7 +3967,7 @@ async function handleTextMessage(message) {
     }));
 
   if (!hasAnyContent) {
-    if (activeRequests.has(userId)) activeRequests.delete(userId);
+    
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('💬 Empty Message')
@@ -4564,7 +4564,7 @@ async function handleModelResponse(initialBotMessage, chat, parts, originalMessa
       clearInterval(typingInterval);
       clearTimeout(updateTimeout);
 
-      if (activeRequests.has(userId)) activeRequests.delete(userId);
+      
 
       if (attempts === 0) {
         const embed = new EmbedBuilder()
@@ -4873,6 +4873,7 @@ async function handleImagineCommand(interaction) {
 
 
 client.login(token);
+
 
 
 
