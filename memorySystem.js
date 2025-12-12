@@ -6,9 +6,9 @@ const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 const MAX_CONTEXT_TOKENS = 30000;
 const TOKENS_PER_MESSAGE = 150;
-const MAX_FULL_MESSAGES = 30;
+const MAX_FULL_MESSAGES = 10;
 const COMPRESSION_THRESHOLD = 60;
-const INDEX_BATCH_SIZE = 20;
+const INDEX_BATCH_SIZE = 50;
 
 class MemorySystem {
   constructor() {
