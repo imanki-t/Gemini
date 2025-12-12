@@ -29,9 +29,57 @@ export const client = new Client({
   partials: [Partials.Channel],
 });
 
-export const genAI = new GoogleGenAI({
-  apiKey: process.env.GOOGLE_API_KEY
+// --- API KEY ROTATION SYSTEM ---
+const apiKeys = [];
+let keyIndex = 1;
+
+// 1. Automatically load GOOGLE_API_KEY1, GOOGLE_API_KEY2, etc.
+while (process.env[`GOOGLE_API_KEY${keyIndex}`]) {
+  apiKeys.push(process.env[`GOOGLE_API_KEY${keyIndex}`]);
+  keyIndex++;
+}
+
+// Fallback: If no numbered keys, check for standard GOOGLE_API_KEY
+if (apiKeys.length === 0 && process.env.GOOGLE_API_KEY) {
+  apiKeys.push(process.env.GOOGLE_API_KEY);
+}
+
+console.log(`✅ Loaded ${apiKeys.length} API keys for rotation.`);
+
+let currentKeyIdx = 0;
+let requestCount = 0;
+const ROTATION_THRESHOLD = 10; // Switch after this many requests
+
+// Initialize the first client
+let currentClient = new GoogleGenAI({ apiKey: apiKeys[0] });
+
+// 2. Proxy to handle rotation seamlessly
+export const genAI = new Proxy({}, {
+  get(target, prop) {
+    // Intercept access to main API features (chats, models, files) to track usage
+    if (['chats', 'models', 'files', 'managers'].includes(prop)) {
+      requestCount++;
+
+      // Check if we need to switch keys
+      if (requestCount >= ROTATION_THRESHOLD) {
+        requestCount = 0;
+        currentKeyIdx = (currentKeyIdx + 1) % apiKeys.length;
+        
+        // Initialize new client with the next key
+        currentClient = new GoogleGenAI({ apiKey: apiKeys[currentKeyIdx] });
+        console.log(`🔄 [API Switcher] Limit reached. Switched to Key #${currentKeyIdx + 1} (Total: ${apiKeys.length})`);
+      }
+    }
+    
+    // Forward the actual request to the current client instance
+    const value = currentClient[prop];
+    
+    // Bind functions to the correct instance context
+    return typeof value === 'function' ? value.bind(currentClient) : value;
+  }
 });
+// ---------------------------------------
+
 export {
   createUserContent,
   createPartFromUri
@@ -621,4 +669,4 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-      
+  
