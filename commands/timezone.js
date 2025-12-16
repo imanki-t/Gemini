@@ -6,7 +6,6 @@ export const timezoneCommand = {
   description: 'Set your timezone for time-based features (birthdays, reminders, quotes)'
 };
 
-// Common timezones for quick selection
 const commonTimezones = [
   { label: 'Pacific Time (PST/PDT)', value: 'America/Los_Angeles', emoji: '🌊' },
   { label: 'Mountain Time (MST/MDT)', value: 'America/Denver', emoji: '⛰️' },
@@ -57,7 +56,6 @@ export async function handleTimezoneSelect(interaction) {
   state.userTimezones[userId] = timezone;
   await saveStateToFile();
   
-  // Get current time in selected timezone
   let currentTime;
   try {
     currentTime = new Date().toLocaleString('en-US', { 
@@ -85,7 +83,6 @@ export async function handleTimezoneSelect(interaction) {
   });
 }
 
-// Utility function to get user's local time
 export function getUserTime(userId, date = new Date()) {
   const timezone = state.userTimezones?.[userId] || 'UTC';
   
@@ -93,17 +90,15 @@ export function getUserTime(userId, date = new Date()) {
     return new Date(date.toLocaleString('en-US', { timeZone: timezone }));
   } catch (error) {
     console.error('Error getting user time:', error);
-    return date; // Fallback to UTC
+    return date;
   }
 }
 
-// Utility function to check if it's a specific hour in user's timezone
 export function isUserHour(userId, targetHour) {
   const userTime = getUserTime(userId);
   return userTime.getHours() === targetHour;
 }
 
-// Utility function to get midnight in user's timezone
 export function getUserMidnight(userId) {
   const timezone = state.userTimezones?.[userId] || 'UTC';
   const now = new Date();
@@ -119,7 +114,6 @@ export function getUserMidnight(userId) {
   }
 }
 
-// Format time for display in user's timezone
 export function formatTimeForUser(userId, date) {
   const timezone = state.userTimezones?.[userId] || 'UTC';
   
