@@ -309,57 +309,84 @@ async function sendBirthdayWish(client, userId, data) {
   
   const { genAI } = await import('../botManager.js');
   
-  // Generate personalized birthday message using Gemini
-  const chat = genAI.chats.create({
-    model: 'gemini-2.5-flash',
-    config: {
-      systemInstruction: 'Generate a short, warm, and personalized birthday wish (2-3 sentences). Be genuine and heartfelt. Include emojis.',
-      temperature: 0.9
-    }
-  });
-  
-  const result = await chat.sendMessage({
-    message: `Write a birthday wish for ${user.username}`
-  });
-  
-  const wishMessage = result.text || `Happy Birthday, ${user.username}! 🎂🎉 Wishing you an amazing day filled with joy!`;
-  
-  const embed = new EmbedBuilder()
-    .setColor(0xFF69B4)
-    .setTitle('🎉 Happy Birthday! 🎂')
-    .setDescription(wishMessage)
-    .setThumbnail(user.displayAvatarURL())
-    .setFooter({ text: '🎊 Hope your day is as special as you are!' })
-    .setTimestamp();
-  
-  // Send to DM
-  if (data.preference === 'dm' || data.preference === 'both') {
-    try {
-      await user.send({ embeds: [embed] });
-    } catch (error) {
-      console.error(`Could not send birthday DM to ${userId}:`, error);
-    }
-  }
-  
-  // Send to server
-  if ((data.preference === 'server' || data.preference === 'both') && data.guildId) {
-    try {
-      const guild = client.guilds.cache.get(data.guildId);
-      if (guild) {
-        const channel = guild.channels.cache.find(ch => 
-          ch.isTextBased() && 
-          ch.permissionsFor(guild.members.me).has('SendMessages')
-        );
-        
-        if (channel) {
-          await channel.send({
-            content: `🎉 @everyone It's <@${userId}>'s birthday today! 🎂`,
-            embeds: [embed]
-          });
-        }
+  // ✅ CORRECT SDK: Generate personalized birthday message using Gemini
+  try {
+    const request = {
+      model: 'gemini-2.5-flash',
+      contents: [{ role: 'user', parts: [{ text: `Write a birthday wish for ${user.username}` }] }],
+      systemInstruction: { parts: [{ text: 'Generate a short, warm, and personalized birthday wish (2-3 sentences). Be genuine and heartfelt. Include emojis.' }] },
+      generationConfig: {
+        temperature: 0.9
       }
-    } catch (error) {
-      console.error(`Could not send birthday message in server ${data.guildId}:`, error);
+    };
+    
+    const result = await genAI.models.generateContent(request);
+    const wishMessage = result.text || `Happy Birthday, ${user.username}! 🎂🎉 Wishing you an amazing day filled with joy!`;
+    
+    const embed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setTitle('🎉 Happy Birthday! 🎂')
+      .setDescription(wishMessage)
+      .setThumbnail(user.displayAvatarURL())
+      .setFooter({ text: '🎊 Hope your day is as special as you are!' })
+      .setTimestamp();
+    
+    // Send to DM
+    if (data.preference === 'dm' || data.preference === 'both') {
+      try {
+        await user.send({ embeds: [embed] });
+      } catch (error) {
+        console.error(`Could not send birthday DM to ${userId}:`, error);
+      }
+    }
+    
+    // Send to server
+    if ((data.preference === 'server' || data.preference === 'both') && data.guildId) {
+      try {
+        const guild = client.guilds.cache.get(data.guildId);
+        if (guild) {
+          const channel = guild.channels.cache.find(ch => 
+            ch.isTextBased() && 
+            ch.permissionsFor(guild.members.me).has('SendMessages')
+          );
+          
+          if (channel) {
+            await channel.send({
+              content: `🎉 @everyone It's <@${userId}>'s birthday today! 🎂`,
+              embeds: [embed]
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Could not send birthday message in server ${data.guildId}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error generating birthday wish:', error);
+    // Fallback message if AI generation fails
+    const fallbackMessage = `Happy Birthday, ${user.username}! 🎂🎉 Wishing you an amazing day filled with joy!`;
+    const embed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setTitle('🎉 Happy Birthday! 🎂')
+      .setDescription(fallbackMessage)
+      .setThumbnail(user.displayAvatarURL())
+      .setFooter({ text: '🎊 Hope your day is as special as you are!' })
+      .setTimestamp();
+    
+    // Try sending fallback
+    if (data.preference === 'dm' || data.preference === 'both') {
+      try {
+        await user.send({ embeds: [embed] });
+      } catch (e) {}
+    }
+    if ((data.preference === 'server' || data.preference === 'both') && data.guildId) {
+      try {
+        const guild = client.guilds.cache.get(data.guildId);
+        const channel = guild?.channels.cache.find(ch => ch.isTextBased());
+        if (channel) {
+          await channel.send({ content: `🎉 It's <@${userId}>'s birthday!`, embeds: [embed] });
+        }
+      } catch (e) {}
     }
   }
-}
+          }
