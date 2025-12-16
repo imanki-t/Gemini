@@ -460,3 +460,4 @@ export async function handleImagineCommand(interaction) {
     }
   }
 }
+export { handleSearchCommand, handleImagineCommand, executeSearchInteraction };
