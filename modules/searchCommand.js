@@ -228,7 +228,6 @@ export async function executeSearchInteraction(interaction) {
           content: parts
         });
 
-        // ✅ CORRECT SDK USAGE
         const request = {
           model: modelName,
           contents: [...history, { role: 'user', parts }],
@@ -238,9 +237,9 @@ export async function executeSearchInteraction(interaction) {
           tools
         };
 
-        const messageResult = genAI.models.generateContentStream(request);
+        const result = await genAI.models.generateContentStream(request);
 
-        for await (const chunk of messageResult) {
+        for await (const chunk of result.stream) {
           const chunkText = chunk.text || '';
           if (chunkText && chunkText !== '') {
             finalResponse += chunkText;
@@ -351,4 +350,4 @@ export async function executeSearchInteraction(interaction) {
       });
     }
   }
-      }
+}
