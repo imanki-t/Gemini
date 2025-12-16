@@ -66,13 +66,21 @@ async function showBirthdaySetup(interaction) {
   });
 }
 
+function getDaysInMonth(month) {
+  const monthNum = parseInt(month);
+  if (monthNum === 2) return 29;
+  if ([4, 6, 9, 11].includes(monthNum)) return 30;
+  return 31;
+}
+
 export async function handleBirthdayMonthSelect(interaction) {
   const month = interaction.values[0];
+  const maxDays = getDaysInMonth(month);
   
   const embed = new EmbedBuilder()
     .setColor(0xFF69B4)
     .setTitle('🎂 Birthday Setup - Day')
-    .setDescription('Great! Now select the day of the month:');
+    .setDescription(`You selected **${getMonthName(month)}**.\nNow select the day of the month:`);
 
   const daySelect1 = new StringSelectMenuBuilder()
     .setCustomId(`birthday_day_${month}_1`)
@@ -84,11 +92,12 @@ export async function handleBirthdayMonthSelect(interaction) {
       }))
     );
 
+  const remainingDays = maxDays - 15;
   const daySelect2 = new StringSelectMenuBuilder()
     .setCustomId(`birthday_day_${month}_2`)
-    .setPlaceholder('Select day (16-31)')
+    .setPlaceholder(`Select day (16-${maxDays})`)
     .addOptions(
-      Array.from({ length: 16 }, (_, i) => ({
+      Array.from({ length: remainingDays }, (_, i) => ({
         label: String(i + 16),
         value: String(i + 16).padStart(2, '0')
       }))
@@ -392,4 +401,5 @@ async function sendBirthdayWish(client, userId, data) {
   }
 }
 
-  
+
+    
