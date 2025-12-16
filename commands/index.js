@@ -1,6 +1,3 @@
-// commands/index.js
-// Central handler for all new commands
-
 import { 
   birthdayCommand, 
   handleBirthdayCommand, 
@@ -68,14 +65,18 @@ import {
   handleWYRNext
 } from './game.js';
 
-// Initialize all scheduled tasks
+import {
+  timezoneCommand,
+  handleTimezoneCommand,
+  handleTimezoneSelect
+} from './timezone.js';
+
 export function initializeScheduledTasks(client) {
   scheduleBirthdayChecks(client);
   initializeReminders(client);
   initializeDailyQuotes(client);
 }
 
-// Handle command interactions
 export async function handleCommandInteraction(interaction) {
   const commandHandlers = {
     birthday: handleBirthdayCommand,
@@ -86,7 +87,8 @@ export async function handleCommandInteraction(interaction) {
     digest: handleDigestCommand,
     starter: handleStarterCommand,
     compliment: handleComplimentCommand,
-    game: handleGameCommand
+    game: handleGameCommand,
+    timezone: handleTimezoneCommand
   };
 
   const handler = commandHandlers[interaction.commandName];
@@ -95,7 +97,6 @@ export async function handleCommandInteraction(interaction) {
   }
 }
 
-// Handle select menu interactions
 export async function handleSelectMenuInteraction(interaction) {
   const handlers = {
     'birthday_month': handleBirthdayMonthSelect,
@@ -113,7 +114,8 @@ export async function handleSelectMenuInteraction(interaction) {
     'game_select': handleGameSelect,
     'tod_choice': handleTODChoice,
     'tds_choice': handleTDSChoice,
-    'akinator_mode': handleAkinatorModeSelect
+    'akinator_mode': handleAkinatorModeSelect,
+    'timezone_select': handleTimezoneSelect
   };
 
   for (const [key, handler] of Object.entries(handlers)) {
@@ -124,14 +126,12 @@ export async function handleSelectMenuInteraction(interaction) {
   }
 }
 
-// Handle modal submissions
 export async function handleModalSubmission(interaction) {
   if (interaction.customId.startsWith('reminder_modal_')) {
     await handleReminderModal(interaction);
   }
 }
 
-// Handle button interactions
 export async function handleButtonInteraction(interaction) {
   const handlers = {
     'tod_again': handleTODAgain,
@@ -157,7 +157,6 @@ export async function handleButtonInteraction(interaction) {
   }
 }
 
-// Check roulette for each message
 export function processMessageRoulette(message) {
   checkRoulette(message);
 }
@@ -171,5 +170,6 @@ export {
   digestCommand,
   starterCommand,
   complimentCommand,
-  gameCommand
+  gameCommand,
+  timezoneCommand
 };
