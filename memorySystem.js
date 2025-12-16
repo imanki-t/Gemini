@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const TEMP_DIR = path.join(__dirname, 'temp');
 
-// ✅ CORRECT: Latest model (GA since July 2025)
+// ✅ CORRECT: Latest model
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 const MAX_CONTEXT_TOKENS = 30000;
@@ -25,8 +25,7 @@ class MemorySystem {
   }
 
   /**
-   * ✅ FIXED: Validation to prevent "requests must not be empty" error
-   * ✅ FIXED: Correct API call format for @google/genai SDK
+   * ✅ FIXED: Correct SDK usage for embeddings
    */
   async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
     // 1. Critical Validation
@@ -40,14 +39,16 @@ class MemorySystem {
     }
 
     try {
+      // ✅ CORRECT SDK FORMAT
       const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
-        contents: text, 
+        contents: text,
         config: {
-          taskType: taskType,
+          taskType: taskType
         }
       });
       
+      // ✅ CORRECT: Access embeddings array
       const embedding = result.embeddings?.[0]?.values;
       
       if (!embedding || !Array.isArray(embedding)) {
@@ -117,25 +118,24 @@ class MemorySystem {
     if (messages.length <= 5) return messages;
 
     try {
-      const chat = genAI.chats.create({
-        model: model,
-        config: {
-          systemInstruction: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive.",
-          temperature: 0.3,
-          topP: 0.95
-        }
-      });
-
+      // ✅ CORRECT SDK FORMAT
       const conversationText = messages.map((msg, idx) => {
         const role = msg.role === 'user' ? 'User' : 'Assistant';
         const text = this.extractTextFromMessage(msg);
         return `${role}: ${text}`;
       }).join('\n\n');
 
-      const result = await chat.sendMessage({
-        message: `Summarize this conversation:\n\n${conversationText}`
-      });
+      const request = {
+        model: model,
+        contents: [{ role: 'user', parts: [{ text: `Summarize this conversation:\n\n${conversationText}` }] }],
+        systemInstruction: { parts: [{ text: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive." }] },
+        generationConfig: {
+          temperature: 0.3,
+          topP: 0.95
+        }
+      };
 
+      const result = await genAI.models.generateContent(request);
       const summary = result.text || conversationText.slice(0, 500);
 
       return [{
@@ -297,7 +297,7 @@ class MemorySystem {
   }
 
   /**
-   * Upload history as file and return file reference
+   * ✅ FIXED: Correct file upload API
    */
   async uploadHistoryAsFile(text, filename, description) {
     try {
@@ -307,6 +307,7 @@ class MemorySystem {
       const filePath = path.join(TEMP_DIR, filename);
       await fs.writeFile(filePath, text, 'utf8');
 
+      // ✅ CORRECT SDK: Use 'file' parameter with path string
       const uploadResult = await genAI.files.upload({
         file: filePath,
         config: {
