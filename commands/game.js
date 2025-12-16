@@ -359,7 +359,7 @@ export async function handleTDSChoice(interaction) {
   } else if (choice === 'dare') {
     prompt = 'Generate a fun, safe dare';
   } else {
-    prompt = 'Generate a hypothetical situation question (e.g., "What would you do if...")'  ;
+    prompt = 'Generate a hypothetical situation question (e.g., "What would you do if...")';
   }
   
   const chat = genAI.chats.create({
@@ -451,7 +451,8 @@ export async function handleNHIENext(interaction) {
 }
 
 // ============= WOULD YOU RATHER =============
-async function handleWYR(interaction) {
+// ADDED: Export this function that was missing
+export async function handleWYR(interaction) {
   await interaction.update({
     embeds: [new EmbedBuilder().setColor(0x3498DB).setDescription('🤔 Creating dilemma...')],
     components: []
@@ -520,4 +521,4 @@ export async function handleWYRVote(interaction) {
 
 export async function handleWYRNext(interaction) {
   await handleWYR(interaction);
-    }
+}
