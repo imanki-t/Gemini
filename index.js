@@ -10,6 +10,16 @@ import { handleButtonInteraction, handleSelectMenuInteraction, handleModalSubmit
 import { handleSearchCommand } from './modules/searchCommand.js';
 import { commands } from './commands.js';
 
+// NEW IMPORTS FOR COMMANDS
+import { 
+  initializeScheduledTasks,
+  handleCommandInteraction as handleNewCommands,
+  handleSelectMenuInteraction as handleNewSelectMenus,
+  handleModalSubmission as handleNewModals,
+  handleButtonInteraction as handleNewButtons,
+  processMessageRoulette
+} from './commands/index.js';
+
 initialize().catch(console.error);
 
 setInterval(async () => {
@@ -112,6 +122,9 @@ client.once('clientReady', async () => {
       status: 'idle',
     });
   }, 30000);
+
+  // NEW: Initialize scheduled tasks
+  initializeScheduledTasks(client);
 });
 
 client.on('guildCreate', async (guild) => {
@@ -193,6 +206,10 @@ client.on('messageCreate', async (message) => {
         processUserQueue(userId);
       }
     }
+
+    // NEW: Check for roulette reactions
+    processMessageRoulette(message);
+
   } catch (error) {
     console.error('Error processing the message:', error);
   }
@@ -203,11 +220,29 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
       await handleCommandInteraction(interaction);
     } else if (interaction.isButton()) {
-      await handleButtonInteraction(interaction);
+      // Try new button handlers first
+      try {
+        await handleNewButtons(interaction);
+      } catch (error) {
+        // If not handled by new commands, try existing handlers
+        await handleButtonInteraction(interaction);
+      }
     } else if (interaction.isModalSubmit()) {
-      await handleModalSubmit(interaction);
+      // Try new modal handlers first
+      try {
+        await handleNewModals(interaction);
+      } catch (error) {
+        // If not handled by new commands, try existing handlers
+        await handleModalSubmit(interaction);
+      }
     } else if (interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
-      await handleSelectMenuInteraction(interaction);
+      // Try new select menu handlers first
+      try {
+        await handleNewSelectMenus(interaction);
+      } catch (error) {
+        // If not handled by new commands, try existing handlers
+        await handleSelectMenuInteraction(interaction);
+      }
     }
   } catch (error) {
     console.error('Error handling interaction:', error.message);
@@ -222,7 +257,17 @@ async function handleCommandInteraction(interaction) {
       const { showMainSettings } = await import('./modules/settingsHandler.js');
       await showMainSettings(interaction, false);
     },
-    search: handleSearchCommand
+    search: handleSearchCommand,
+    // NEW COMMANDS
+    birthday: handleNewCommands,
+    reminder: handleNewCommands,
+    quote: handleNewCommands,
+    roulette: handleNewCommands,
+    anniversary: handleNewCommands,
+    digest: handleNewCommands,
+    starter: handleNewCommands,
+    compliment: handleNewCommands,
+    game: handleNewCommands
   };
 
   const handler = commandHandlers[interaction.commandName];
