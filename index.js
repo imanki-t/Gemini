@@ -7,7 +7,7 @@ import config from './config.js';
 import { client, token, initialize, saveStateToFile, state, TEMP_DIR, initializeBlacklistForGuild } from './botManager.js';
 import { processUserQueue } from './modules/messageProcessor.js';
 import { handleButtonInteraction, handleSelectMenuInteraction, handleModalSubmit } from './modules/settingsHandler.js';
-import { handleSearchCommand, handleImagineCommand } from './modules/searchCommand.js';
+import { handleSearchCommand } from './modules/searchCommand.js';
 import { commands } from './commands.js';
 
 initialize().catch(console.error);
@@ -222,8 +222,7 @@ async function handleCommandInteraction(interaction) {
       const { showMainSettings } = await import('./modules/settingsHandler.js');
       await showMainSettings(interaction, false);
     },
-    search: handleSearchCommand,
-    imagine: handleImagineCommand
+    search: handleSearchCommand
   };
 
   const handler = commandHandlers[interaction.commandName];
