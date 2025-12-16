@@ -110,11 +110,5 @@ Keep the tone warm, supportive, and bubbly throughout all interactions, making u
     maxResultsPerMinute: 5,
     autoRespondToPolls: true,
     minVotesForAnalysis: 1
-  },
-  
-  imageConfig: {
-    maxPerDay: 10,
-    maxPerMinute: 1,
-    modelName: "gemini-2.0-flash-exp" 
   }
 };
