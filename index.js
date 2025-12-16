@@ -219,10 +219,8 @@ async function handleCommandInteraction(interaction) {
 
   const commandHandlers = {
     settings: async (interaction) => {
-      const { handleButtonInteraction } = await import('./modules/settingsHandler.js');
-      interaction.customId = 'back_to_main';
-      interaction.isButton = () => true;
-      await handleButtonInteraction(interaction);
+      const { showMainSettings } = await import('./modules/settingsHandler.js');
+      await showMainSettings(interaction, false);
     },
     search: handleSearchCommand,
     imagine: handleImagineCommand
