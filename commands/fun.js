@@ -6,7 +6,6 @@ import fs from 'fs/promises';
 
 const FUN_MODEL = 'gemini-2.0-flash-exp';
 
-// ============= ROULETTE COMMAND =============
 export const rouletteCommand = {
   name: 'roulette',
   description: 'Bot randomly reacts to messages in this channel'
@@ -171,7 +170,6 @@ export function checkRoulette(message) {
   }
 }
 
-// ============= ANNIVERSARY COMMAND =============
 export const anniversaryCommand = {
   name: 'anniversary',
   description: 'View bot\'s server anniversary info'
@@ -228,7 +226,6 @@ export async function handleAnniversaryCommand(interaction) {
   });
 }
 
-// ============= ENHANCED DIGEST COMMAND WITH VECTOR SEARCH =============
 export const digestCommand = {
   name: 'digest',
   description: 'Get a weekly digest with AI-powered topic analysis (7-day cooldown)'
@@ -249,7 +246,6 @@ export async function handleDigestCommand(interaction) {
     });
   }
   
-  // Check cooldown
   const COOLDOWN_DAYS = 7;
   const now = Date.now();
   const cooldownMs = COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
@@ -273,7 +269,6 @@ export async function handleDigestCommand(interaction) {
         { name: '💬 Messages Analyzed', value: lastDigest.messageCount.toString(), inline: true }
       );
     
-    // Show last digest
     if (lastDigest.summary) {
       embed.addFields({
         name: '📊 Topics',
@@ -301,15 +296,13 @@ export async function handleDigestCommand(interaction) {
     });
   }
   
-  // Collect messages from last 7 days with vector search
   const DAYS_TO_ANALYZE = 7;
-  const MESSAGES_PER_DAY = 7; // ~50 total messages (7 days * 7 messages)
+  const MESSAGES_PER_DAY = 7;
   const oneDayMs = 24 * 60 * 60 * 1000;
   const sevenDaysAgo = now - (DAYS_TO_ANALYZE * oneDayMs);
   
   const allMessages = [];
   
-  // Collect all messages from last 7 days
   for (const messagesId in guildHistory) {
     const messages = guildHistory[messagesId];
     if (Array.isArray(messages)) {
@@ -340,10 +333,8 @@ export async function handleDigestCommand(interaction) {
     });
   }
   
-  // Sort by timestamp
   allMessages.sort((a, b) => a.timestamp - b.timestamp);
   
-  // Use vector search to find most important messages per day
   const selectedMessages = [];
   
   for (let dayOffset = 0; dayOffset < DAYS_TO_ANALYZE; dayOffset++) {
@@ -358,9 +349,7 @@ export async function handleDigestCommand(interaction) {
       if (dayMessages.length <= MESSAGES_PER_DAY) {
         selectedMessages.push(...dayMessages);
       } else {
-        // Use vector search to find most relevant messages for this day
         try {
-          const dayText = dayMessages.map(m => m.text).join(' ');
           const query = `What were the main topics discussed on ${new Date(dayStart).toLocaleDateString()}?`;
           
           const relevant = await memorySystem.getRelevantContext(guildId, query, { [guildId]: dayMessages });
@@ -368,19 +357,16 @@ export async function handleDigestCommand(interaction) {
           if (relevant && relevant.length > 0) {
             selectedMessages.push(...relevant.slice(0, MESSAGES_PER_DAY));
           } else {
-            // Fallback: take most recent messages from that day
             selectedMessages.push(...dayMessages.slice(-MESSAGES_PER_DAY));
           }
         } catch (error) {
           console.error('Vector search error:', error);
-          // Fallback
           selectedMessages.push(...dayMessages.slice(-MESSAGES_PER_DAY));
         }
       }
     }
   }
   
-  // Limit to 50 messages total
   const finalMessages = selectedMessages.slice(-50);
   
   if (finalMessages.length === 0) {
@@ -394,7 +380,6 @@ export async function handleDigestCommand(interaction) {
     });
   }
   
-  // Create conversation text file
   const conversationText = finalMessages
     .map(m => {
       const timestamp = new Date(m.timestamp).toLocaleString();
@@ -402,14 +387,12 @@ export async function handleDigestCommand(interaction) {
     })
     .join('\n');
   
-  // Upload conversation as file to Gemini API
   const fileName = `digest_${guildId}_${Date.now()}.txt`;
   const filePath = path.join(TEMP_DIR, fileName);
   
   await fs.writeFile(filePath, conversationText, 'utf8');
   
   try {
-    // Upload file to Gemini
     const uploadResult = await genAI.files.upload({
       path: filePath,
       config: {
@@ -418,7 +401,6 @@ export async function handleDigestCommand(interaction) {
       }
     });
     
-    // Generate summary using uploaded file
     const request = {
       model: FUN_MODEL,
       contents: [{
@@ -447,7 +429,6 @@ export async function handleDigestCommand(interaction) {
     const result = await genAI.models.generateContent(request);
     const summary = result.text || 'No clear topics identified.';
     
-    // Save digest data
     state.serverDigests[guildId] = {
       timestamp: now,
       messageCount: finalMessages.length,
@@ -457,7 +438,6 @@ export async function handleDigestCommand(interaction) {
     
     await saveStateToFile();
     
-    // Create downloadable file for user
     const userFileName = `${interaction.guild.name.replace(/[^a-z0-9]/gi, '_')}_weekly_digest.txt`;
     const userFilePath = path.join(TEMP_DIR, userFileName);
     
@@ -499,7 +479,6 @@ ${conversationText}`;
       files: [attachment]
     });
     
-    // Clean up temp files
     await fs.unlink(filePath).catch(() => {});
     await fs.unlink(userFilePath).catch(() => {});
     
@@ -519,7 +498,6 @@ ${conversationText}`;
   }
 }
 
-// ============= STARTER COMMAND =============
 export const starterCommand = {
   name: 'starter',
   description: 'Get a conversation starter'
@@ -528,18 +506,25 @@ export const starterCommand = {
 export async function handleStarterCommand(interaction) {
   await interaction.deferReply();
   
-  const chat = genAI.chats.create({
+  const request = {
     model: FUN_MODEL,
-    config: {
-      systemInstruction: 'Generate an interesting conversation starter question. Make it engaging, thought-provoking, and fun. Keep it to one sentence.',
+    contents: [{
+      role: 'user',
+      parts: [{
+        text: 'Generate one unique conversation starter question.'
+      }]
+    }],
+    systemInstruction: {
+      parts: [{
+        text: 'Generate an interesting conversation starter question. Make it engaging, thought-provoking, and fun. Keep it to one sentence.'
+      }]
+    },
+    generationConfig: {
       temperature: 0.9
     }
-  });
+  };
   
-  const result = await chat.sendMessage({
-    message: 'Generate one unique conversation starter question.'
-  });
-  
+  const result = await genAI.models.generateContent(request);
   const question = result.text || 'What\'s the most interesting thing that happened to you this week?';
   
   const embed = new EmbedBuilder()
@@ -553,7 +538,6 @@ export async function handleStarterCommand(interaction) {
   });
 }
 
-// ============= COMPLIMENT COMMAND =============
 export const complimentCommand = {
   name: 'compliment',
   description: 'Send an anonymous compliment to someone',
@@ -613,18 +597,25 @@ export async function handleComplimentCommand(interaction) {
   
   await interaction.deferReply({ ephemeral: true });
   
-  const chat = genAI.chats.create({
+  const request = {
     model: FUN_MODEL,
-    config: {
-      systemInstruction: 'Generate a kind, genuine compliment (2-3 sentences). Be specific and heartfelt. Avoid generic phrases.',
+    contents: [{
+      role: 'user',
+      parts: [{
+        text: `Generate a sincere compliment for someone named ${targetUser.username}`
+      }]
+    }],
+    systemInstruction: {
+      parts: [{
+        text: 'Generate a kind, genuine compliment (2-3 sentences). Be specific and heartfelt. Avoid generic phrases.'
+      }]
+    },
+    generationConfig: {
       temperature: 0.9
     }
-  });
+  };
   
-  const result = await chat.sendMessage({
-    message: `Generate a sincere compliment for someone named ${targetUser.username}`
-  });
-  
+  const result = await genAI.models.generateContent(request);
   const compliment = result.text || 'You\'re an amazing person who brings joy to those around you! Keep being awesome! 🌟';
   
   if (!state.complimentCounts) {
@@ -661,4 +652,4 @@ export async function handleComplimentCommand(interaction) {
       embeds: [errorEmbed]
     });
   }
-}
+                                           }
