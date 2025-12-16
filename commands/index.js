@@ -58,11 +58,13 @@ import {
   handleAkinatorAnswer,
   handleAkinatorResult,
   handleAkinatorAgain,
+  handleAkinatorModeSelect,
   handleTDSChoice,
   handleTDSAgain,
   handleNHIENext,
   handleWYR,
   handleWYRVote,
+  handleWYRResults,
   handleWYRNext
 } from './game.js';
 
@@ -110,7 +112,8 @@ export async function handleSelectMenuInteraction(interaction) {
     'roulette_rarity': handleRouletteRaritySelect,
     'game_select': handleGameSelect,
     'tod_choice': handleTODChoice,
-    'tds_choice': handleTDSChoice
+    'tds_choice': handleTDSChoice,
+    'akinator_mode': handleAkinatorModeSelect
   };
 
   for (const [key, handler] of Object.entries(handlers)) {
@@ -140,9 +143,10 @@ export async function handleButtonInteraction(interaction) {
     'akinator_again': handleAkinatorAgain,
     'tds_again': handleTDSAgain,
     'nhie_next': handleNHIENext,
-    'wyr_option1': handleWYRVote,
-    'wyr_option2': handleWYRVote,
-    'wyr_next': handleWYRNext
+    'wyr_option1_': handleWYRVote,
+    'wyr_option2_': handleWYRVote,
+    'wyr_results_': handleWYRResults,
+    'wyr_next_': handleWYRNext
   };
 
   for (const [key, handler] of Object.entries(handlers)) {
