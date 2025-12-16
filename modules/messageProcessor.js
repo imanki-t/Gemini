@@ -630,7 +630,6 @@ async function processPromptAndMediaAttachments(prompt, message, attachments = n
         const processedPart = await processAttachment(attachment, message.author.id, message.id);
         if (processedPart) {
           if (Array.isArray(processedPart)) {
-            // Filter out metadata text, only keep actual file parts
             for (const part of processedPart) {
               if (part.fileUri || part.fileData || part.inlineData) {
                 parts.push(part);
@@ -709,7 +708,6 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
         content: parts
       });
 
-      // ✅ CORRECT SDK USAGE
       const request = {
         model: modelName,
         contents: [...history, { role: 'user', parts }],
@@ -719,11 +717,11 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
         tools
       };
 
-      const messageResult = genAI.models.generateContentStream(request);
+      const result = await genAI.models.generateContentStream(request);
 
       clearInterval(typingInterval);
 
-      for await (const chunk of messageResult) {
+      for await (const chunk of result.stream) {
         const chunkText = chunk.text || '';
 
         if (chunkText && chunkText !== '') {
@@ -840,4 +838,4 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       }
     }
   }
-}
+    }
