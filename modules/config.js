@@ -38,3 +38,4 @@ export const generationConfig = {
     thinkingBudget: -1
   }
 };
+export { MODELS, safetySettings, generationConfig };
