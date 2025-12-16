@@ -12,13 +12,19 @@ const collections = {
   channelSettings: 'channelSettings',
   memoryEntries: 'memoryEntries',
   imageUsage: 'imageUsage',
-  // NEW COLLECTIONS
+  // NEW COLLECTIONS (Original File)
   birthdays: 'birthdays',
   reminders: 'reminders',
   dailyQuotes: 'dailyQuotes',
   roulette: 'roulette',
   compliments: 'compliments',
-  complimentOptOut: 'complimentOptOut'
+  complimentOptOut: 'complimentOptOut',
+  // NEW COLLECTIONS (Integrated)
+  userTimezones: 'userTimezones',
+  serverDigests: 'serverDigests',
+  // Active Users collection was missing from collections object, adding it for consistency
+  activeUsersInChannels: 'activeUsersInChannels', 
+  userResponsePreference: 'userResponsePreference'
 };
 
 export async function connectDB() {
@@ -56,12 +62,17 @@ async function createIndexes() {
     await db.collection(collections.memoryEntries).createIndex({ historyId: 1, timestamp: -1 });
     await db.collection(collections.imageUsage).createIndex({ userId: 1 }, { unique: true });
     
-    // NEW INDEXES
+    // NEW INDEXES (Original File)
     await db.collection(collections.birthdays).createIndex({ userId: 1 }, { unique: true });
+    // Note: The original index on reminders was { userId: 1, id: 1 } which may not be unique, keeping it as-is.
     await db.collection(collections.reminders).createIndex({ userId: 1, id: 1 });
     await db.collection(collections.dailyQuotes).createIndex({ userId: 1 }, { unique: true });
     await db.collection(collections.roulette).createIndex({ channelId: 1 }, { unique: true });
     await db.collection(collections.compliments).createIndex({ userId: 1 }, { unique: true });
+
+    // NEW INDEXES (Integrated - from Mongoose definitions)
+    await db.collection(collections.userTimezones).createIndex({ userId: 1 }, { unique: true });
+    await db.collection(collections.serverDigests).createIndex({ guildId: 1 }, { unique: true });
     
     console.log('✅ Database indexes created');
   } catch (error) {
@@ -320,7 +331,7 @@ export async function getAllChannelSettings(settingType) {
 // --- Active Users ---
 export async function saveActiveUsersInChannels(data) {
   try {
-    await db.collection('activeUsersInChannels').updateOne(
+    await db.collection(collections.activeUsersInChannels).updateOne(
       { _id: 'active_users' },
       { $set: { data, updatedAt: new Date() } },
       { upsert: true }
@@ -333,7 +344,7 @@ export async function saveActiveUsersInChannels(data) {
 
 export async function getActiveUsersInChannels() {
   try {
-    const record = await db.collection('activeUsersInChannels').findOne({ _id: 'active_users' });
+    const record = await db.collection(collections.activeUsersInChannels).findOne({ _id: 'active_users' });
     return record ? record.data : {};
   } catch (error) {
     console.error('Error getting active users:', error);
@@ -344,7 +355,7 @@ export async function getActiveUsersInChannels() {
 // --- Response Preferences ---
 export async function saveUserResponsePreference(userId, preference) {
   try {
-    await db.collection('userResponsePreference').updateOne(
+    await db.collection(collections.userResponsePreference).updateOne(
       { userId },
       { $set: { userId, preference, updatedAt: new Date() } },
       { upsert: true }
@@ -357,7 +368,7 @@ export async function saveUserResponsePreference(userId, preference) {
 
 export async function getUserResponsePreference(userId) {
   try {
-    const record = await db.collection('userResponsePreference').findOne({ userId });
+    const record = await db.collection(collections.userResponsePreference).findOne({ userId });
     return record ? record.preference : null;
   } catch (error) {
     console.error('Error getting user response preference:', error);
@@ -367,7 +378,7 @@ export async function getUserResponsePreference(userId) {
 
 export async function getAllUserResponsePreferences() {
   try {
-    const prefs = await db.collection('userResponsePreference').find({}).toArray();
+    const prefs = await db.collection(collections.userResponsePreference).find({}).toArray();
     const result = {};
     prefs.forEach(pref => {
       result[pref.userId] = pref.preference;
@@ -504,6 +515,7 @@ export async function saveReminder(userId, reminder) {
 
 export async function getAllReminders() {
   try {
+    // Assuming 'active: true' is a filter needed based on the original function body
     const reminders = await db.collection(collections.reminders).find({ active: true }).toArray();
     const result = {};
     reminders.forEach(reminder => {
@@ -660,3 +672,28 @@ export async function getAllComplimentOptOuts() {
 export function getDB() {
   return db;
 }
+
+// ============= USER TIMEZONE FUNCTIONS =============
+export async function saveUserTimezone(userId, timezone) {
+  try {
+    await db.collection(collections.userTimezones).updateOne(
+      { userId },
+      { 
+        $set: { 
+          userId, 
+          timezone, 
+          updatedAt: new Date()
+        },
+        $setOnInsert: { // Ensure fields like autoDetected are set on insert, if needed
+          autoDetected: false // Default value from Mongoose schema
+        }
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving user timezone:', error);
+    throw error;
+  }
+}
+
+export async function getUserTimezone(userId)
