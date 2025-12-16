@@ -92,6 +92,7 @@ export async function executeSearchInteraction(interaction) {
 
     let parts = [];
     let hasMedia = false;
+    
     if (prompt) {
       const forcedSearchPrompt = `IMPERATIVE: You must use the 'googleSearch' tool to find the most current information for this request. Do not answer from internal memory. Query: ${prompt}`;
       parts.push({
@@ -103,16 +104,25 @@ export async function executeSearchInteraction(interaction) {
       try {
         const { processAttachment } = await import('./attachmentProcessor.js');
         const processedPart = await processAttachment(attachment, interaction.user.id, interaction.id);
+        
         if (processedPart) {
           if (Array.isArray(processedPart)) {
-            parts.push(...processedPart);
-            if (processedPart.some(part => part.text === undefined || part.fileUri || part.fileData)) {
-              hasMedia = true;
+            for (const part of processedPart) {
+              // Skip text metadata parts, only add actual file parts
+              if (part.fileUri || part.fileData || part.inlineData) {
+                parts.push(part);
+                hasMedia = true;
+              } else if (part.text && !part.text.includes('[') && !part.text.includes('uploaded:') && !part.text.includes('converted')) {
+                // Only add text if it's actual content, not metadata
+                parts.push(part);
+              }
             }
           } else {
-            parts.push(processedPart);
-            if (processedPart.text === undefined) {
+            if (processedPart.fileUri || processedPart.fileData || processedPart.inlineData) {
+              parts.push(processedPart);
               hasMedia = true;
+            } else if (processedPart.text && !processedPart.text.includes('[') && !processedPart.text.includes('uploaded:')) {
+              parts.push(processedPart);
             }
           }
         }
@@ -126,6 +136,17 @@ export async function executeSearchInteraction(interaction) {
           embeds: [embed]
         });
       }
+    }
+
+    // If we only have metadata text and no actual prompt, return error
+    if (parts.length === 0 || (parts.length === 1 && !parts[0].text && !parts[0].fileUri && !parts[0].fileData)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ Invalid Input')
+        .setDescription('Please provide a text prompt along with your file, or ensure the file was processed correctly.');
+      return interaction.editReply({
+        embeds: [embed]
+      });
     }
 
     const userSettings = state.userSettings[userId] || {};
@@ -338,4 +359,4 @@ export async function executeSearchInteraction(interaction) {
       });
     }
   }
-}
+        }
