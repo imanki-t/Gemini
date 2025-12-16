@@ -257,3 +257,4 @@ export function updateEmbedForInteraction(interaction, botMessage, finalResponse
     console.error("Error updating interaction embed:", error.message);
   }
 }
+export { updateEmbed, sendAsTextFile, addDownloadButton, addDeleteButton, updateEmbedForInteraction };
