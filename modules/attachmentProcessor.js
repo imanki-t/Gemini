@@ -524,3 +524,4 @@ function sanitizeFileName(fileName) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 100);
 }
+export { processAttachment };
