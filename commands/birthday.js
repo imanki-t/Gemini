@@ -1,5 +1,5 @@
 import { EmbedBuilder, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
-import { state, saveStateToFile } from '../botManager.js';
+import { state, saveStateToFile, genAI } from '../botManager.js';
 import * as db from '../database.js';
 
 export const birthdayCommand = {
@@ -62,7 +62,7 @@ async function showBirthdaySetup(interaction) {
   await interaction.reply({
     embeds: [embed],
     components: [row],
-    ephemeral: true // Changed from flags to ephemeral
+    ephemeral: true
   });
 }
 
@@ -86,7 +86,6 @@ export async function handleBirthdayMonthSelect(interaction) {
 
   const row = new ActionRowBuilder().addComponents(daySelect);
 
-  // Use update instead of reply to prevent timeout
   await interaction.update({
     embeds: [embed],
     components: [row]
@@ -139,7 +138,7 @@ export async function handleBirthdayPrefSelect(interaction) {
     day,
     preference,
     guildId: preference !== 'dm' ? guildId : null,
-    year: null // We don't ask for year for privacy
+    year: null
   };
   
   await db.saveBirthday(userId, state.birthdays[userId]);
@@ -274,7 +273,6 @@ function getMonthName(monthNum) {
 }
 
 export function scheduleBirthdayChecks(client) {
-  // Check every day at midnight
   const checkBirthdays = async () => {
     const now = new Date();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -289,17 +287,14 @@ export function scheduleBirthdayChecks(client) {
     }
   };
   
-  // Calculate time until next midnight
   const now = new Date();
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(0, 0, 0, 0);
   const timeUntilMidnight = tomorrow - now;
   
-  // Schedule first check at midnight
   setTimeout(() => {
     checkBirthdays();
-    // Then check every 24 hours
     setInterval(checkBirthdays, 24 * 60 * 60 * 1000);
   }, timeUntilMidnight);
 }
@@ -308,9 +303,6 @@ async function sendBirthdayWish(client, userId, data) {
   const user = await client.users.fetch(userId).catch(() => null);
   if (!user) return;
   
-  const { genAI } = await import('../botManager.js');
-  
-  // Use gemini-2.0-flash for lighter load
   try {
     const request = {
       model: 'gemini-2.0-flash-exp',
@@ -332,7 +324,6 @@ async function sendBirthdayWish(client, userId, data) {
       .setFooter({ text: '🎊 Hope your day is as special as you are!' })
       .setTimestamp();
     
-    // Send to DM
     if (data.preference === 'dm' || data.preference === 'both') {
       try {
         await user.send({ embeds: [embed] });
@@ -341,7 +332,6 @@ async function sendBirthdayWish(client, userId, data) {
       }
     }
     
-    // Send to server
     if ((data.preference === 'server' || data.preference === 'both') && data.guildId) {
       try {
         const guild = client.guilds.cache.get(data.guildId);
@@ -364,7 +354,6 @@ async function sendBirthdayWish(client, userId, data) {
     }
   } catch (error) {
     console.error('Error generating birthday wish:', error);
-    // Fallback message if AI generation fails
     const fallbackMessage = `Happy Birthday, ${user.username}! 🎂🎉 Wishing you an amazing day filled with joy!`;
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
@@ -374,7 +363,6 @@ async function sendBirthdayWish(client, userId, data) {
       .setFooter({ text: '🎊 Hope your day is as special as you are!' })
       .setTimestamp();
     
-    // Try sending fallback
     if (data.preference === 'dm' || data.preference === 'both') {
       try {
         await user.send({ embeds: [embed] });
@@ -390,4 +378,4 @@ async function sendBirthdayWish(client, userId, data) {
       } catch (e) {}
     }
   }
-}
+    }
