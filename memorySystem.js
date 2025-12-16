@@ -1,5 +1,12 @@
 import { genAI } from './botManager.js';
 import * as db from './database.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TEMP_DIR = path.join(__dirname, 'temp');
 
 // ✅ CORRECT: Latest model (GA since July 2025)
 const EMBEDDING_MODEL = 'gemini-embedding-001';
@@ -24,7 +31,6 @@ class MemorySystem {
   async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
     // 1. Critical Validation
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      // console.warn('⚠️ Skipped embedding generation: Text is empty.');
       return null;
     }
 
@@ -141,14 +147,12 @@ class MemorySystem {
       }];
     } catch (error) {
       console.error('Compression failed:', error.message);
-      // Fallback: return the last few messages if compression fails
       return messages.slice(-3);
     }
   }
 
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
-      // Validation to prevent empty query embedding error
       if (!currentQuery || currentQuery.trim().length === 0) return [];
 
       const queryEmbedding = await this.generateEmbedding(currentQuery, 'RETRIEVAL_QUERY');
@@ -245,6 +249,86 @@ class MemorySystem {
     }
   }
 
+  /**
+   * Convert messages to readable text format for file upload
+   */
+  messagesToText(messages) {
+    let text = '';
+    let previousTimestamp = null;
+    const timeThresholdMs = 30 * 60 * 1000;
+
+    for (const entry of messages) {
+      // Add time context
+      if (previousTimestamp && entry.timestamp) {
+        const timeDiffMs = entry.timestamp - previousTimestamp;
+        if (timeDiffMs > timeThresholdMs) {
+          const durationString = this.formatDuration(timeDiffMs);
+          text += `\n[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+        }
+      }
+      previousTimestamp = entry.timestamp;
+
+      // Add role
+      const role = entry.role === 'user' ? 'User' : 'Assistant';
+      text += `\n${role}`;
+
+      // Add user attribution if available
+      if (entry.role === 'user' && entry.username && entry.displayName) {
+        text += ` [${entry.displayName} (@${entry.username})]`;
+      }
+      text += ':\n';
+
+      // Add content
+      for (const part of entry.content) {
+        if (part.text !== undefined && part.text !== '') {
+          text += part.text + '\n';
+        } else if (part.fileUri) {
+          const mime = part.mimeType || 'unknown';
+          text += `[Attachment: Previous file (${mime}) - Content no longer available]\n`;
+        } else if (part.inlineData) {
+          text += `[Attachment: Previous inline image]\n`;
+        }
+      }
+
+      text += '\n';
+    }
+
+    return text;
+  }
+
+  /**
+   * Upload history as file and return file reference
+   */
+  async uploadHistoryAsFile(text, filename, description) {
+    try {
+      // Ensure temp directory exists
+      await fs.mkdir(TEMP_DIR, { recursive: true });
+
+      const filePath = path.join(TEMP_DIR, filename);
+      await fs.writeFile(filePath, text, 'utf8');
+
+      const uploadResult = await genAI.files.upload({
+        file: filePath,
+        config: {
+          mimeType: 'text/plain',
+          displayName: filename,
+        }
+      });
+
+      // Clean up temp file
+      await fs.unlink(filePath).catch(() => {});
+
+      return {
+        description,
+        fileUri: uploadResult.uri,
+        mimeType: 'text/plain'
+      };
+    } catch (error) {
+      console.error('Failed to upload history file:', error.message);
+      return null;
+    }
+  }
+
   async getOptimizedHistory(historyId, currentQuery, model) {
     try {
       const allHistory = await db.getChatHistory(historyId);
@@ -264,11 +348,12 @@ class MemorySystem {
       // Trigger instant indexing check (non-blocking)
       this.checkAndIndexMessages(historyId, allHistory).catch(() => {});
 
+      // If history is short enough, return as-is (formatted for API)
       if (historyArray.length <= MAX_FULL_MESSAGES) {
         return this.formatHistoryWithContext(historyArray);
       }
 
-      // For longer histories, use RAG with compression
+      // For longer histories, use files with RAG
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
 
@@ -283,22 +368,57 @@ class MemorySystem {
         ? await this.compressOldMessages(oldMessages, model)
         : oldMessages.slice(-10);
 
-      const combined = [
-        ...compressedOld,
-        ...relevantContext,
-        ...recentMessages
-      ];
+      // Create text files for history sections
+      const uploadedFiles = [];
 
-      // Remove duplicates while preserving order
-      const uniqueMessages = Array.from(
-        new Map(combined.map(msg => [
-          this.extractTextFromMessage(msg) + (msg.timestamp || ''),
-          msg
-        ])).values()
+      // Upload compressed/summary history
+      if (compressedOld.length > 0) {
+        const summaryText = this.messagesToText(compressedOld);
+        const summaryCount = oldMessages.length;
+        const summaryFile = await this.uploadHistoryAsFile(
+          summaryText,
+          `history_summary_${historyId}_${Date.now()}.txt`,
+          `This was a summarized message for the last ${summaryCount} messages`
+        );
+        if (summaryFile) uploadedFiles.push(summaryFile);
+      }
+
+      // Upload relevant context if any
+      if (relevantContext.length > 0) {
+        const contextText = this.messagesToText(relevantContext);
+        const contextFile = await this.uploadHistoryAsFile(
+          contextText,
+          `relevant_context_${historyId}_${Date.now()}.txt`,
+          `Relevant conversation excerpts (${relevantContext.length} messages retrieved from memory)`
+        );
+        if (contextFile) uploadedFiles.push(contextFile);
+      }
+
+      // Upload recent messages
+      const recentText = this.messagesToText(recentMessages);
+      const recentFile = await this.uploadHistoryAsFile(
+        recentText,
+        `recent_messages_${historyId}_${Date.now()}.txt`,
+        `These are the last ${recentMessages.length} messages from the conversation`
       );
+      if (recentFile) uploadedFiles.push(recentFile);
 
-      uniqueMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-      return this.formatHistoryWithContext(uniqueMessages);
+      // Convert uploaded files to API format with descriptions
+      const fileHistory = [];
+      for (const file of uploadedFiles) {
+        fileHistory.push({
+          role: 'user',
+          parts: [
+            { text: `[${file.description}]` },
+            {
+              fileUri: file.fileUri,
+              mimeType: file.mimeType
+            }
+          ]
+        });
+      }
+
+      return fileHistory;
       
     } catch (error) {
       console.error('History optimization failed:', error.message);
@@ -345,8 +465,6 @@ class MemorySystem {
           apiEntry.parts.push({ text: finalText });
         } 
         // Handle Files (URIs) - STRIP for memory to prevent 403 Forbidden
-        // When using RAG or compressed memory, we cannot pass old URIs because they might be
-        // owned by a different API key (rotation) or have expired.
         else if (part.fileUri) {
            const mime = part.mimeType || 'unknown';
            apiEntry.parts.push({ text: `[Attachment: Previous file (${mime}) - Content no longer available to vision model]` });
