@@ -12,17 +12,14 @@ const collections = {
   channelSettings: 'channelSettings',
   memoryEntries: 'memoryEntries',
   imageUsage: 'imageUsage',
-  // NEW COLLECTIONS (Original File)
   birthdays: 'birthdays',
   reminders: 'reminders',
   dailyQuotes: 'dailyQuotes',
   roulette: 'roulette',
   compliments: 'compliments',
   complimentOptOut: 'complimentOptOut',
-  // NEW COLLECTIONS (Integrated)
   userTimezones: 'userTimezones',
   serverDigests: 'serverDigests',
-  // Active Users collection was missing from collections object, adding it for consistency
   activeUsersInChannels: 'activeUsersInChannels', 
   userResponsePreference: 'userResponsePreference'
 };
@@ -61,16 +58,11 @@ async function createIndexes() {
     await db.collection(collections.channelSettings).createIndex({ channelId: 1 }, { unique: true });
     await db.collection(collections.memoryEntries).createIndex({ historyId: 1, timestamp: -1 });
     await db.collection(collections.imageUsage).createIndex({ userId: 1 }, { unique: true });
-    
-    // NEW INDEXES (Original File)
     await db.collection(collections.birthdays).createIndex({ userId: 1 }, { unique: true });
-    // Note: The original index on reminders was { userId: 1, id: 1 } which may not be unique, keeping it as-is.
     await db.collection(collections.reminders).createIndex({ userId: 1, id: 1 });
     await db.collection(collections.dailyQuotes).createIndex({ userId: 1 }, { unique: true });
     await db.collection(collections.roulette).createIndex({ channelId: 1 }, { unique: true });
     await db.collection(collections.compliments).createIndex({ userId: 1 }, { unique: true });
-
-    // NEW INDEXES (Integrated - from Mongoose definitions)
     await db.collection(collections.userTimezones).createIndex({ userId: 1 }, { unique: true });
     await db.collection(collections.serverDigests).createIndex({ guildId: 1 }, { unique: true });
     
@@ -87,7 +79,6 @@ export async function closeDB() {
   }
 }
 
-// --- User Settings ---
 export async function saveUserSettings(userId, settings) {
   try {
     await db.collection(collections.userSettings).updateOne(
@@ -126,7 +117,6 @@ export async function getAllUserSettings() {
   }
 }
 
-// --- Server Settings ---
 export async function saveServerSettings(guildId, settings) {
   try {
     await db.collection(collections.serverSettings).updateOne(
@@ -165,7 +155,6 @@ export async function getAllServerSettings() {
   }
 }
 
-// --- Chat History ---
 export async function saveChatHistory(id, history) {
   try {
     await db.collection(collections.chatHistories).updateOne(
@@ -212,7 +201,6 @@ export async function deleteChatHistory(id) {
   }
 }
 
-// --- Custom Instructions ---
 export async function saveCustomInstructions(id, instructions) {
   try {
     await db.collection(collections.customInstructions).updateOne(
@@ -250,7 +238,6 @@ export async function getAllCustomInstructions() {
   }
 }
 
-// --- Blacklisted Users ---
 export async function saveBlacklistedUsers(guildId, users) {
   try {
     await db.collection(collections.blacklistedUsers).updateOne(
@@ -288,7 +275,6 @@ export async function getAllBlacklistedUsers() {
   }
 }
 
-// --- Channel Settings ---
 export async function saveChannelSetting(channelId, settingType, value) {
   try {
     await db.collection(collections.channelSettings).updateOne(
@@ -328,7 +314,6 @@ export async function getAllChannelSettings(settingType) {
   }
 }
 
-// --- Active Users ---
 export async function saveActiveUsersInChannels(data) {
   try {
     await db.collection(collections.activeUsersInChannels).updateOne(
@@ -352,7 +337,6 @@ export async function getActiveUsersInChannels() {
   }
 }
 
-// --- Response Preferences ---
 export async function saveUserResponsePreference(userId, preference) {
   try {
     await db.collection(collections.userResponsePreference).updateOne(
@@ -390,7 +374,6 @@ export async function getAllUserResponsePreferences() {
   }
 }
 
-// --- Memory Entries ---
 export async function saveMemoryEntry(historyId, entry) {
   try {
     await db.collection(collections.memoryEntries).insertOne({
@@ -429,7 +412,6 @@ export async function deleteOldMemoryEntries(cutoffTimestamp) {
   }
 }
 
-// --- Image Usage (Rate Limiting) ---
 export async function saveImageUsage(userId, usageData) {
   try {
     await db.collection(collections.imageUsage).updateOne(
@@ -461,7 +443,6 @@ export async function getAllImageUsages() {
   }
 }
 
-// ========== BIRTHDAY FUNCTIONS ==========
 export async function saveBirthday(userId, data) {
   try {
     await db.collection(collections.birthdays).updateOne(
@@ -499,7 +480,6 @@ export async function deleteBirthday(userId) {
   }
 }
 
-// ========== REMINDER FUNCTIONS ==========
 export async function saveReminder(userId, reminder) {
   try {
     await db.collection(collections.reminders).insertOne({
@@ -515,7 +495,6 @@ export async function saveReminder(userId, reminder) {
 
 export async function getAllReminders() {
   try {
-    // Assuming 'active: true' is a filter needed based on the original function body
     const reminders = await db.collection(collections.reminders).find({ active: true }).toArray();
     const result = {};
     reminders.forEach(reminder => {
@@ -543,7 +522,6 @@ export async function updateReminder(reminderId, updates) {
   }
 }
 
-// ========== DAILY QUOTE FUNCTIONS ==========
 export async function saveDailyQuote(userId, config) {
   try {
     await db.collection(collections.dailyQuotes).updateOne(
@@ -581,7 +559,6 @@ export async function deleteDailyQuote(userId) {
   }
 }
 
-// ========== ROULETTE FUNCTIONS ==========
 export async function saveRouletteConfig(channelId, config) {
   try {
     await db.collection(collections.roulette).updateOne(
@@ -610,7 +587,6 @@ export async function getAllRouletteConfigs() {
   }
 }
 
-// ========== COMPLIMENT FUNCTIONS ==========
 export async function saveComplimentCount(userId, count) {
   try {
     await db.collection(collections.compliments).updateOne(
@@ -669,11 +645,6 @@ export async function getAllComplimentOptOuts() {
   }
 }
 
-export function getDB() {
-  return db;
-}
-
-// ============= USER TIMEZONE FUNCTIONS =============
 export async function saveUserTimezone(userId, timezone) {
   try {
     await db.collection(collections.userTimezones).updateOne(
@@ -683,9 +654,6 @@ export async function saveUserTimezone(userId, timezone) {
           userId, 
           timezone, 
           updatedAt: new Date()
-        },
-        $setOnInsert: { // Ensure fields like autoDetected are set on insert, if needed
-          autoDetected: false // Default value from Mongoose schema
         }
       },
       { upsert: true }
@@ -696,4 +664,84 @@ export async function saveUserTimezone(userId, timezone) {
   }
 }
 
-export async function getUserTimezone(userId)
+export async function getUserTimezone(userId) {
+  try {
+    const doc = await db.collection(collections.userTimezones).findOne({ userId });
+    return doc?.timezone || null;
+  } catch (error) {
+    console.error('Error getting user timezone:', error);
+    return null;
+  }
+}
+
+export async function getAllUserTimezones() {
+  try {
+    const docs = await db.collection(collections.userTimezones).find({}).toArray();
+    const result = {};
+    docs.forEach(doc => {
+      result[doc.userId] = doc.timezone;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting all user timezones:', error);
+    return {};
+  }
+}
+
+export async function saveServerDigest(guildId, digest) {
+  try {
+    await db.collection(collections.serverDigests).updateOne(
+      { guildId },
+      { 
+        $set: { 
+          guildId,
+          ...digest,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving server digest:', error);
+    throw error;
+  }
+}
+
+export async function getServerDigest(guildId) {
+  try {
+    const doc = await db.collection(collections.serverDigests).findOne({ guildId });
+    if (!doc) return null;
+    return {
+      timestamp: doc.timestamp,
+      messageCount: doc.messageCount,
+      summary: doc.summary,
+      daysAnalyzed: doc.daysAnalyzed
+    };
+  } catch (error) {
+    console.error('Error getting server digest:', error);
+    return null;
+  }
+}
+
+export async function getAllServerDigests() {
+  try {
+    const docs = await db.collection(collections.serverDigests).find({}).toArray();
+    const result = {};
+    docs.forEach(doc => {
+      result[doc.guildId] = {
+        timestamp: doc.timestamp,
+        messageCount: doc.messageCount,
+        summary: doc.summary,
+        daysAnalyzed: doc.daysAnalyzed
+      };
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting all server digests:', error);
+    return {};
+  }
+}
+
+export function getDB() {
+  return db;
+}
