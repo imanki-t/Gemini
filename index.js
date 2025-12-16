@@ -10,7 +10,6 @@ import { handleButtonInteraction, handleSelectMenuInteraction, handleModalSubmit
 import { handleSearchCommand } from './modules/searchCommand.js';
 import { commands } from './commands.js';
 
-// NEW IMPORTS FOR COMMANDS
 import { 
   initializeScheduledTasks,
   handleCommandInteraction as handleNewCommands,
@@ -123,7 +122,6 @@ client.once('clientReady', async () => {
     });
   }, 30000);
 
-  // NEW: Initialize scheduled tasks
   initializeScheduledTasks(client);
 });
 
@@ -207,7 +205,6 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // NEW: Check for roulette reactions
     processMessageRoulette(message);
 
   } catch (error) {
@@ -220,7 +217,6 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
       await handleCommandInteraction(interaction);
     } else if (interaction.isButton()) {
-      // Check if it's a new command button first
       const newCommandButtons = [
         'tod_again', 'akinator_yes_', 'akinator_no_', 'akinator_maybe_',
         'akinator_correct_', 'akinator_wrong_', 'akinator_again',
@@ -234,19 +230,15 @@ client.on('interactionCreate', async (interaction) => {
       if (isNewCommandButton) {
         await handleNewButtons(interaction);
       } else {
-        // Otherwise, use existing button handler
         await handleButtonInteraction(interaction);
       }
     } else if (interaction.isModalSubmit()) {
-      // Check if it's a new command modal
       if (interaction.customId.startsWith('reminder_modal_')) {
         await handleNewModals(interaction);
       } else {
-        // Otherwise, use existing modal handler
         await handleModalSubmit(interaction);
       }
     } else if (interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
-      // Check if it's a new command select menu
       const newCommandMenus = [
         'birthday_month', 'birthday_day_', 'birthday_pref_',
         'reminder_type', 'reminder_location_',
@@ -262,7 +254,6 @@ client.on('interactionCreate', async (interaction) => {
       if (isNewCommandMenu) {
         await handleNewSelectMenus(interaction);
       } else {
-        // Otherwise, use existing select menu handler
         await handleSelectMenuInteraction(interaction);
       }
     }
@@ -280,7 +271,6 @@ async function handleCommandInteraction(interaction) {
       await showMainSettings(interaction, false);
     },
     search: handleSearchCommand,
-    // NEW COMMANDS
     birthday: handleNewCommands,
     reminder: handleNewCommands,
     quote: handleNewCommands,
@@ -289,7 +279,8 @@ async function handleCommandInteraction(interaction) {
     digest: handleNewCommands,
     starter: handleNewCommands,
     compliment: handleNewCommands,
-    game: handleNewCommands
+    game: handleNewCommands,
+    timezone: handleNewCommands
   };
 
   const handler = commandHandlers[interaction.commandName];
@@ -301,3 +292,4 @@ async function handleCommandInteraction(interaction) {
 }
 
 client.login(token);
+
