@@ -20,6 +20,63 @@ const commands = [
         required: false
       }
     ]
+  },
+  {
+    name: "birthday",
+    description: "Manage your birthday reminders",
+    options: [
+      {
+        name: "action",
+        description: "What do you want to do?",
+        type: 3,
+        required: true,
+        choices: [
+          { name: "Set Birthday", value: "set" },
+          { name: "Remove Birthday", value: "remove" },
+          { name: "List Birthdays", value: "list" }
+        ]
+      }
+    ]
+  },
+  {
+    name: "reminder",
+    description: "Set reminders for yourself"
+  },
+  {
+    name: "quote",
+    description: "Daily inspirational quotes"
+  },
+  {
+    name: "roulette",
+    description: "Bot randomly reacts to messages in this channel"
+  },
+  {
+    name: "anniversary",
+    description: "View bot's server anniversary info"
+  },
+  {
+    name: "digest",
+    description: "Get a summary of recent server conversations"
+  },
+  {
+    name: "starter",
+    description: "Get a conversation starter"
+  },
+  {
+    name: "compliment",
+    description: "Send an anonymous compliment to someone",
+    options: [
+      {
+        name: "user",
+        description: "User to compliment",
+        type: 6,
+        required: true
+      }
+    ]
+  },
+  {
+    name: "game",
+    description: "Play interactive games with AI"
   }
 ];
 
