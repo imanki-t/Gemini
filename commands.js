@@ -20,18 +20,6 @@ const commands = [
         required: false
       }
     ]
-  },
-  {
-    name: "imagine",
-    description: "Generate an AI image based on your prompt.",
-    options: [
-      {
-        name: "prompt",
-        description: "Description of the image you want to generate",
-        type: 3,
-        required: true
-      }
-    ]
   }
 ];
 
