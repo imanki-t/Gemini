@@ -220,27 +220,49 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
       await handleCommandInteraction(interaction);
     } else if (interaction.isButton()) {
-      // Try new button handlers first
-      try {
+      // Check if it's a new command button first
+      const newCommandButtons = [
+        'tod_again', 'akinator_yes_', 'akinator_no_', 'akinator_maybe_',
+        'akinator_correct_', 'akinator_wrong_', 'akinator_again',
+        'tds_again', 'nhie_next', 'wyr_option1', 'wyr_option2', 'wyr_next'
+      ];
+      
+      const isNewCommandButton = newCommandButtons.some(prefix => 
+        interaction.customId.startsWith(prefix)
+      );
+      
+      if (isNewCommandButton) {
         await handleNewButtons(interaction);
-      } catch (error) {
-        // If not handled by new commands, try existing handlers
+      } else {
+        // Otherwise, use existing button handler
         await handleButtonInteraction(interaction);
       }
     } else if (interaction.isModalSubmit()) {
-      // Try new modal handlers first
-      try {
+      // Check if it's a new command modal
+      if (interaction.customId.startsWith('reminder_modal_')) {
         await handleNewModals(interaction);
-      } catch (error) {
-        // If not handled by new commands, try existing handlers
+      } else {
+        // Otherwise, use existing modal handler
         await handleModalSubmit(interaction);
       }
     } else if (interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
-      // Try new select menu handlers first
-      try {
+      // Check if it's a new command select menu
+      const newCommandMenus = [
+        'birthday_month', 'birthday_day_', 'birthday_pref_',
+        'reminder_type', 'reminder_location_',
+        'quote_action', 'quote_category', 'quote_time_', 'quote_location_', 'quote_channel_',
+        'roulette_action', 'roulette_rarity',
+        'game_select', 'tod_choice', 'tds_choice'
+      ];
+      
+      const isNewCommandMenu = newCommandMenus.some(prefix => 
+        interaction.customId.startsWith(prefix)
+      );
+      
+      if (isNewCommandMenu) {
         await handleNewSelectMenus(interaction);
-      } catch (error) {
-        // If not handled by new commands, try existing handlers
+      } else {
+        // Otherwise, use existing select menu handler
         await handleSelectMenuInteraction(interaction);
       }
     }
