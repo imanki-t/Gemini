@@ -108,21 +108,15 @@ export async function executeSearchInteraction(interaction) {
         if (processedPart) {
           if (Array.isArray(processedPart)) {
             for (const part of processedPart) {
-              // Skip text metadata parts, only add actual file parts
               if (part.fileUri || part.fileData || part.inlineData) {
                 parts.push(part);
                 hasMedia = true;
-              } else if (part.text && !part.text.includes('[') && !part.text.includes('uploaded:') && !part.text.includes('converted')) {
-                // Only add text if it's actual content, not metadata
-                parts.push(part);
               }
             }
           } else {
             if (processedPart.fileUri || processedPart.fileData || processedPart.inlineData) {
               parts.push(processedPart);
               hasMedia = true;
-            } else if (processedPart.text && !processedPart.text.includes('[') && !processedPart.text.includes('uploaded:')) {
-              parts.push(processedPart);
             }
           }
         }
@@ -138,8 +132,7 @@ export async function executeSearchInteraction(interaction) {
       }
     }
 
-    // If we only have metadata text and no actual prompt, return error
-    if (parts.length === 0 || (parts.length === 1 && !parts[0].text && !parts[0].fileUri && !parts[0].fileData)) {
+    if (parts.length === 0) {
       const embed = new EmbedBuilder()
         .setColor(0xFF5555)
         .setTitle('❌ Invalid Input')
@@ -189,20 +182,11 @@ export async function executeSearchInteraction(interaction) {
       tools.push({ codeExecution: {} });
     }
 
-    const chat = genAI.chats.create({
-      model: modelName,
-      config: {
-        systemInstruction: finalInstructions,
-        ...generationConfig,
-        safetySettings,
-        tools
-      },
-      history: await memorySystem.getOptimizedHistory(
-        historyId, 
-        prompt || 'search query', 
-        modelName
-      )
-    });
+    const history = await memorySystem.getOptimizedHistory(
+      historyId, 
+      prompt || 'search query', 
+      modelName
+    );
 
     let botMessage = await interaction.fetchReply();
 
@@ -244,12 +228,20 @@ export async function executeSearchInteraction(interaction) {
           content: parts
         });
 
-        const messageResult = await chat.sendMessageStream({
-          message: parts
-        });
+        // ✅ CORRECT SDK USAGE
+        const request = {
+          model: modelName,
+          contents: [...history, { role: 'user', parts }],
+          systemInstruction: { parts: [{ text: finalInstructions }] },
+          generationConfig,
+          safetySettings,
+          tools
+        };
+
+        const messageResult = genAI.models.generateContentStream(request);
 
         for await (const chunk of messageResult) {
-          const chunkText = (chunk.text || (chunk.codeExecutionResult?.output ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` : "") || (chunk.executableCode ? `\n\`\`\`\n${chunk.executableCode}\n\`\`\`\n` : ""));
+          const chunkText = chunk.text || '';
           if (chunkText && chunkText !== '') {
             finalResponse += chunkText;
             tempResponse += chunkText;
@@ -359,4 +351,4 @@ export async function executeSearchInteraction(interaction) {
       });
     }
   }
-        }
+      }
