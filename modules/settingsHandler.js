@@ -1697,4 +1697,4 @@ function sendPermError(interaction) {
     flags: MessageFlags.Ephemeral
   });
 }
-export { handleButtonInteraction, handleSelectMenuInteraction, handleModalSubmit, showMainSettings };
+export { showMainSettings };
