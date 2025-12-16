@@ -74,26 +74,38 @@ export async function handleBirthdayMonthSelect(interaction) {
     .setTitle('🎂 Birthday Setup - Day')
     .setDescription('Great! Now select the day of the month:');
 
-  const daySelect = new StringSelectMenuBuilder()
-    .setCustomId(`birthday_day_${month}`)
-    .setPlaceholder('Select day (1-31)')
+  const daySelect1 = new StringSelectMenuBuilder()
+    .setCustomId(`birthday_day_${month}_1`)
+    .setPlaceholder('Select day (1-15)')
     .addOptions(
-      Array.from({ length: 31 }, (_, i) => ({
+      Array.from({ length: 15 }, (_, i) => ({
         label: String(i + 1),
         value: String(i + 1).padStart(2, '0')
       }))
     );
 
-  const row = new ActionRowBuilder().addComponents(daySelect);
+  const daySelect2 = new StringSelectMenuBuilder()
+    .setCustomId(`birthday_day_${month}_2`)
+    .setPlaceholder('Select day (16-31)')
+    .addOptions(
+      Array.from({ length: 16 }, (_, i) => ({
+        label: String(i + 16),
+        value: String(i + 16).padStart(2, '0')
+      }))
+    );
+
+  const row1 = new ActionRowBuilder().addComponents(daySelect1);
+  const row2 = new ActionRowBuilder().addComponents(daySelect2);
 
   await interaction.update({
     embeds: [embed],
-    components: [row]
+    components: [row1, row2]
   });
 }
 
 export async function handleBirthdayDaySelect(interaction) {
-  const [_, __, month] = interaction.customId.split('_');
+  const parts = interaction.customId.split('_');
+  const month = parts[2]; 
   const day = interaction.values[0];
   
   const embed = new EmbedBuilder()
@@ -378,4 +390,6 @@ async function sendBirthdayWish(client, userId, data) {
       } catch (e) {}
     }
   }
-    }
+}
+
+  
