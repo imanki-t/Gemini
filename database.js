@@ -11,7 +11,14 @@ const collections = {
   blacklistedUsers: 'blacklistedUsers',
   channelSettings: 'channelSettings',
   memoryEntries: 'memoryEntries',
-  imageUsage: 'imageUsage' // New collection for image rate limiting
+  imageUsage: 'imageUsage',
+  // NEW COLLECTIONS
+  birthdays: 'birthdays',
+  reminders: 'reminders',
+  dailyQuotes: 'dailyQuotes',
+  roulette: 'roulette',
+  compliments: 'compliments',
+  complimentOptOut: 'complimentOptOut'
 };
 
 export async function connectDB() {
@@ -48,6 +55,13 @@ async function createIndexes() {
     await db.collection(collections.channelSettings).createIndex({ channelId: 1 }, { unique: true });
     await db.collection(collections.memoryEntries).createIndex({ historyId: 1, timestamp: -1 });
     await db.collection(collections.imageUsage).createIndex({ userId: 1 }, { unique: true });
+    
+    // NEW INDEXES
+    await db.collection(collections.birthdays).createIndex({ userId: 1 }, { unique: true });
+    await db.collection(collections.reminders).createIndex({ userId: 1, id: 1 });
+    await db.collection(collections.dailyQuotes).createIndex({ userId: 1 }, { unique: true });
+    await db.collection(collections.roulette).createIndex({ channelId: 1 }, { unique: true });
+    await db.collection(collections.compliments).createIndex({ userId: 1 }, { unique: true });
     
     console.log('✅ Database indexes created');
   } catch (error) {
@@ -436,8 +450,213 @@ export async function getAllImageUsages() {
   }
 }
 
+// ========== BIRTHDAY FUNCTIONS ==========
+export async function saveBirthday(userId, data) {
+  try {
+    await db.collection(collections.birthdays).updateOne(
+      { userId },
+      { $set: { userId, ...data, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving birthday:', error);
+    throw error;
+  }
+}
+
+export async function getAllBirthdays() {
+  try {
+    const birthdays = await db.collection(collections.birthdays).find({}).toArray();
+    const result = {};
+    birthdays.forEach(birthday => {
+      const { userId, _id, updatedAt, ...rest } = birthday;
+      result[userId] = rest;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting birthdays:', error);
+    return {};
+  }
+}
+
+export async function deleteBirthday(userId) {
+  try {
+    await db.collection(collections.birthdays).deleteOne({ userId });
+  } catch (error) {
+    console.error('Error deleting birthday:', error);
+    throw error;
+  }
+}
+
+// ========== REMINDER FUNCTIONS ==========
+export async function saveReminder(userId, reminder) {
+  try {
+    await db.collection(collections.reminders).insertOne({
+      userId,
+      ...reminder,
+      createdAt: new Date()
+    });
+  } catch (error) {
+    console.error('Error saving reminder:', error);
+    throw error;
+  }
+}
+
+export async function getAllReminders() {
+  try {
+    const reminders = await db.collection(collections.reminders).find({ active: true }).toArray();
+    const result = {};
+    reminders.forEach(reminder => {
+      if (!result[reminder.userId]) {
+        result[reminder.userId] = [];
+      }
+      result[reminder.userId].push(reminder);
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting reminders:', error);
+    return {};
+  }
+}
+
+export async function updateReminder(reminderId, updates) {
+  try {
+    await db.collection(collections.reminders).updateOne(
+      { id: reminderId },
+      { $set: updates }
+    );
+  } catch (error) {
+    console.error('Error updating reminder:', error);
+    throw error;
+  }
+}
+
+// ========== DAILY QUOTE FUNCTIONS ==========
+export async function saveDailyQuote(userId, config) {
+  try {
+    await db.collection(collections.dailyQuotes).updateOne(
+      { userId },
+      { $set: { userId, ...config, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving daily quote:', error);
+    throw error;
+  }
+}
+
+export async function getAllDailyQuotes() {
+  try {
+    const quotes = await db.collection(collections.dailyQuotes).find({ active: true }).toArray();
+    const result = {};
+    quotes.forEach(quote => {
+      const { userId, _id, updatedAt, ...rest } = quote;
+      result[userId] = rest;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting daily quotes:', error);
+    return {};
+  }
+}
+
+export async function deleteDailyQuote(userId) {
+  try {
+    await db.collection(collections.dailyQuotes).deleteOne({ userId });
+  } catch (error) {
+    console.error('Error deleting daily quote:', error);
+    throw error;
+  }
+}
+
+// ========== ROULETTE FUNCTIONS ==========
+export async function saveRouletteConfig(channelId, config) {
+  try {
+    await db.collection(collections.roulette).updateOne(
+      { channelId },
+      { $set: { channelId, ...config, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving roulette config:', error);
+    throw error;
+  }
+}
+
+export async function getAllRouletteConfigs() {
+  try {
+    const configs = await db.collection(collections.roulette).find({}).toArray();
+    const result = {};
+    configs.forEach(config => {
+      const { channelId, _id, updatedAt, ...rest } = config;
+      result[channelId] = rest;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting roulette configs:', error);
+    return {};
+  }
+}
+
+// ========== COMPLIMENT FUNCTIONS ==========
+export async function saveComplimentCount(userId, count) {
+  try {
+    await db.collection(collections.compliments).updateOne(
+      { userId },
+      { $set: { userId, count, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving compliment count:', error);
+    throw error;
+  }
+}
+
+export async function getAllComplimentCounts() {
+  try {
+    const counts = await db.collection(collections.compliments).find({}).toArray();
+    const result = {};
+    counts.forEach(c => {
+      result[c.userId] = c.count;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting compliment counts:', error);
+    return {};
+  }
+}
+
+export async function saveComplimentOptOut(userId, optedOut) {
+  try {
+    if (optedOut) {
+      await db.collection(collections.complimentOptOut).updateOne(
+        { userId },
+        { $set: { userId, optedOut: true, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    } else {
+      await db.collection(collections.complimentOptOut).deleteOne({ userId });
+    }
+  } catch (error) {
+    console.error('Error saving compliment opt-out:', error);
+    throw error;
+  }
+}
+
+export async function getAllComplimentOptOuts() {
+  try {
+    const optOuts = await db.collection(collections.complimentOptOut).find({}).toArray();
+    const result = {};
+    optOuts.forEach(o => {
+      result[o.userId] = true;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting compliment opt-outs:', error);
+    return {};
+  }
+}
+
 export function getDB() {
   return db;
 }
-
-    
