@@ -302,7 +302,7 @@ class MemorySystem {
   async uploadHistoryAsFile(text, filename, description) {
     try {
       // For short texts, return inline data instead of file upload
-      if (text.length < 10000) {
+      if (text.length < 1000) {
         return {
           description,
           text: text,  // Inline text
