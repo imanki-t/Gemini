@@ -2,22 +2,53 @@ import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, 
 import { state, saveStateToFile, genAI } from '../botManager.js';
 import * as db from '../database.js';
 
+const QUOTE_MODEL = 'gemini-2.5-flash-lite';
+const FALLBACK_MODEL = 'gemini-2.5-flash';
+const MAX_QUOTES_PER_DAY = 5;
+
 export const quoteCommand = {
   name: 'quote',
-  description: 'Daily inspirational quotes'
+  description: 'Daily inspirational quotes (5 quotes per day limit)'
 };
 
 export async function handleQuoteCommand(interaction) {
+  const userId = interaction.user.id;
+  
+  // Initialize quote usage tracking
+  if (!state.quoteUsage) {
+    state.quoteUsage = {};
+  }
+  
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  
+  if (!state.quoteUsage[userId]) {
+    state.quoteUsage[userId] = {
+      count: 0,
+      lastReset: now
+    };
+  }
+  
+  const usage = state.quoteUsage[userId];
+  
+  // Reset if a day has passed
+  if (now - usage.lastReset > ONE_DAY) {
+    usage.count = 0;
+    usage.lastReset = now;
+  }
+  
+  const remainingQuotes = MAX_QUOTES_PER_DAY - usage.count;
+  
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
     .setTitle('✨ Daily Quote Setup')
-    .setDescription('What would you like to do?');
+    .setDescription(`What would you like to do?\n\n**Daily Limit:** ${usage.count}/${MAX_QUOTES_PER_DAY} quotes used today\n**Resets:** ${new Date(usage.lastReset + ONE_DAY).toLocaleString()}`);
 
   const actionSelect = new StringSelectMenuBuilder()
     .setCustomId('quote_action')
     .setPlaceholder('Choose an action')
     .addOptions(
-      { label: 'Get Quote Now', value: 'now', description: 'Receive a quote immediately', emoji: '💭' },
+      { label: 'Get Quote Now', value: 'now', description: `Receive a quote immediately (${remainingQuotes} left)`, emoji: '💭' },
       { label: 'Set Daily Quote', value: 'setup', description: 'Configure automatic daily quotes', emoji: '⏰' },
       { label: 'Remove Daily Quote', value: 'remove', description: 'Stop daily quotes', emoji: '🗑️' }
     );
@@ -44,6 +75,46 @@ export async function handleQuoteActionSelect(interaction) {
 }
 
 async function sendQuoteNow(interaction) {
+  const userId = interaction.user.id;
+  
+  if (!state.quoteUsage) {
+    state.quoteUsage = {};
+  }
+  
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  
+  if (!state.quoteUsage[userId]) {
+    state.quoteUsage[userId] = {
+      count: 0,
+      lastReset: now
+    };
+  }
+  
+  const usage = state.quoteUsage[userId];
+  
+  // Reset if a day has passed
+  if (now - usage.lastReset > ONE_DAY) {
+    usage.count = 0;
+    usage.lastReset = now;
+  }
+  
+  // Check rate limit
+  if (usage.count >= MAX_QUOTES_PER_DAY) {
+    const timeUntilReset = usage.lastReset + ONE_DAY - now;
+    const hoursLeft = Math.ceil(timeUntilReset / (60 * 60 * 1000));
+    
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('❌ Daily Limit Reached')
+      .setDescription(`You've used all ${MAX_QUOTES_PER_DAY} quotes for today.\n\n**Resets in:** ${hoursLeft} hour${hoursLeft > 1 ? 's' : ''}`);
+    
+    return interaction.update({
+      embeds: [embed],
+      components: []
+    });
+  }
+  
   await interaction.update({
     embeds: [new EmbedBuilder().setColor(0x9B59B6).setDescription('✨ Generating your quote...')],
     components: []
@@ -51,11 +122,18 @@ async function sendQuoteNow(interaction) {
   
   const quote = await generateQuote('inspirational');
   
+  // Increment usage
+  usage.count++;
+  await db.saveQuoteUsage(userId, usage);
+  await saveStateToFile();
+  
+  const remainingQuotes = MAX_QUOTES_PER_DAY - usage.count;
+  
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
     .setTitle('💭 Quote of the Moment')
     .setDescription(quote)
-    .setFooter({ text: 'Use /quote setup to receive daily quotes!' })
+    .setFooter({ text: `${remainingQuotes} quote${remainingQuotes !== 1 ? 's' : ''} remaining today • Use /quote setup for daily quotes!` })
     .setTimestamp();
 
   await interaction.editReply({
@@ -120,18 +198,28 @@ export async function handleQuoteTimeSelect(interaction) {
   const [_, __, category] = interaction.customId.split('_');
   const time = interaction.values[0];
   
+  const guildId = interaction.guild?.id;
+  
   const embed = new EmbedBuilder()
     .setColor(0x9B59B6)
     .setTitle('✨ Daily Quote Setup - Location')
     .setDescription(`Category: **${category}**\nTime: **${time}**\n\nWhere should I send your daily quote?`);
 
   const locationSelect = new StringSelectMenuBuilder()
-    .setCustomId(`quote_location_${category}_${time.replace(':', '-')}`)
-    .setPlaceholder('Choose delivery location')
-    .addOptions(
-      { label: 'DM Only', value: 'dm', description: 'Receive in direct messages', emoji: '📬' },
-      { label: 'Server Channel', value: 'server', description: 'Post in a specific channel', emoji: '💬' }
-    );
+    .setCustomId(`quote_location_${category}_${time.replace(':', '-')}`);
+  
+  if (guildId) {
+    locationSelect.setPlaceholder('Choose delivery location')
+      .addOptions(
+        { label: 'DM Only', value: 'dm', description: 'Receive in direct messages', emoji: '📬' },
+        { label: 'Server Channel', value: 'server', description: 'Post in a specific channel', emoji: '💬' }
+      );
+  } else {
+    locationSelect.setPlaceholder('Choose delivery location')
+      .addOptions(
+        { label: 'DM', value: 'dm', description: 'Receive in direct messages', emoji: '📬' }
+      );
+  }
 
   const row = new ActionRowBuilder().addComponents(locationSelect);
 
@@ -146,7 +234,7 @@ export async function handleQuoteLocationSelect(interaction) {
   const time = timeStr.replace('-', ':');
   const location = interaction.values[0];
   
-  if (location === 'server') {
+  if (location === 'server' && interaction.guild) {
     const embed = new EmbedBuilder()
       .setColor(0x9B59B6)
       .setTitle('✨ Daily Quote Setup - Channel')
@@ -206,7 +294,7 @@ async function finalizeQuoteSetup(interaction, category, time, location, channel
   const embed = new EmbedBuilder()
     .setColor(0x00FF00)
     .setTitle('✅ Daily Quote Activated!')
-    .setDescription(`**Category:** ${category}\n**Time:** ${time}\n**Location:** ${locationText}\n\nYou'll receive a quote every day at this time! ✨`)
+    .setDescription(`**Category:** ${category}\n**Time:** ${time}\n**Location:** ${locationText}\n\nYou'll receive a quote every day at this time! ✨\n\n*Note: Daily quotes don't count toward your 5 quotes per day limit.*`)
     .setFooter({ text: 'Use /quote remove to stop daily quotes' });
 
   await interaction.update({
@@ -248,19 +336,56 @@ async function removeQuoteSetup(interaction) {
 }
 
 async function generateQuote(category) {
-  const chat = genAI.chats.create({
-    model: 'gemini-2.5-flash',
-    config: {
-      systemInstruction: `Generate a single ${category} quote. Format: "Quote text" - Author\n\nRules:\n- Keep quotes concise (1-2 sentences)\n- Include author name\n- Match the ${category} theme perfectly\n- Be inspiring and meaningful`,
-      temperature: 0.9
+  try {
+    const request = {
+      model: QUOTE_MODEL,
+      contents: [{
+        role: 'user',
+        parts: [{
+          text: `Generate one ${category} quote with author attribution.`
+        }]
+      }],
+      systemInstruction: {
+        parts: [{
+          text: `Generate a single ${category} quote. Format: "Quote text" - Author\n\nRules:\n- Keep quotes concise (1-2 sentences)\n- Include author name\n- Match the ${category} theme perfectly\n- Be inspiring and meaningful`
+        }]
+      },
+      generationConfig: {
+        temperature: 0.9
+      }
+    };
+    
+    const result = await genAI.models.generateContent(request);
+    return result.text || '"The only way to do great work is to love what you do." - Steve Jobs';
+  } catch (error) {
+    console.error('Error with flash-lite, trying fallback:', error);
+    
+    try {
+      const request = {
+        model: FALLBACK_MODEL,
+        contents: [{
+          role: 'user',
+          parts: [{
+            text: `Generate one ${category} quote with author attribution.`
+          }]
+        }],
+        systemInstruction: {
+          parts: [{
+            text: `Generate a single ${category} quote. Format: "Quote text" - Author\n\nRules:\n- Keep quotes concise (1-2 sentences)\n- Include author name\n- Match the ${category} theme perfectly\n- Be inspiring and meaningful`
+          }]
+        },
+        generationConfig: {
+          temperature: 0.9
+        }
+      };
+      
+      const result = await genAI.models.generateContent(request);
+      return result.text || '"The only way to do great work is to love what you do." - Steve Jobs';
+    } catch (fallbackError) {
+      console.error('Fallback model also failed:', fallbackError);
+      return '"The only way to do great work is to love what you do." - Steve Jobs';
     }
-  });
-  
-  const result = await chat.sendMessage({
-    message: `Generate one ${category} quote with author attribution.`
-  });
-  
-  return result.text || '"The only way to do great work is to love what you do." - Steve Jobs';
+  }
 }
 
 export function scheduleDailyQuote(client, userId, config) {
