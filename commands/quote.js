@@ -1,6 +1,7 @@
 import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ChannelSelectMenuBuilder, ChannelType } from 'discord.js';
 import { state, saveStateToFile, genAI } from '../botManager.js';
 import * as db from '../database.js';
+import { getUserTime } from './timezone.js';
 
 const QUOTE_MODEL = 'gemini-2.5-flash-lite';
 const FALLBACK_MODEL = 'gemini-2.5-flash';
@@ -87,6 +88,11 @@ export async function handleQuoteActionSelect(interaction) {
 }
 
 async function sendQuoteNow(interaction) {
+  // Acknowledge the interaction first to prevent timeout
+  await interaction.deferUpdate();
+  // Requirement: Delete the menu immediately upon click
+  await interaction.deleteReply().catch(() => {});
+
   const userId = interaction.user.id;
   
   if (!state.quoteUsage) {
@@ -114,20 +120,21 @@ async function sendQuoteNow(interaction) {
     const timeUntilReset = usage.lastReset + ONE_DAY - now;
     const hoursLeft = Math.ceil(timeUntilReset / (60 * 60 * 1000));
     
-    const embed = new EmbedBuilder()
-      .setColor(0xFF5555)
-      .setTitle('❌ Daily Limit Reached')
-      .setDescription(`You've used all ${MAX_QUOTES_PER_DAY} instant quotes for today.\n\n**Resets in:** ${hoursLeft} hour${hoursLeft > 1 ? 's' : ''}\n\n*Scheduled quotes don't count toward this limit.*`);
-    
-    // Keep this ephemeral as it's an error
-    return interaction.update({
-      embeds: [embed],
-      components: []
-    });
+    // Since we deleted the ephemeral message, we can't reply to it.
+    // We shouldn't send a public error message for a limit reached, so we might just return or send a DM if possible.
+    // However, silently failing is bad UX. Sending a DM is a safe fallback.
+    try {
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ Daily Limit Reached')
+        .setDescription(`You've used all ${MAX_QUOTES_PER_DAY} instant quotes for today.\n\n**Resets in:** ${hoursLeft} hour${hoursLeft > 1 ? 's' : ''}\n\n*Scheduled quotes don't count toward this limit.*`);
+      
+      await interaction.user.send({ embeds: [errorEmbed] });
+    } catch (e) {
+      console.error('Could not send limit reached DM', e);
+    }
+    return;
   }
-  
-  // Acknowledge the interaction first to prevent timeout
-  await interaction.deferUpdate();
 
   const quote = await generateQuote('inspirational');
   
@@ -148,17 +155,8 @@ async function sendQuoteNow(interaction) {
     await interaction.channel.send({
       embeds: [embed]
     });
-    
-    // Requirement: Original private menu should be deleted or cleaned up
-    await interaction.deleteReply().catch(() => {});
   } catch (error) {
     console.error('Error sending public quote:', error);
-    // Fallback if public send fails (e.g. perms), show ephemeral
-    await interaction.editReply({
-      content: 'Could not send public message. Here is your quote:',
-      embeds: [embed],
-      components: []
-    });
   }
 }
 
@@ -553,9 +551,12 @@ async function generateQuote(category) {
 }
 
 export function scheduleDailyQuote(client, quoteKey, config) {
+  const userId = quoteKey.split('_')[0];
+  
   const checkAndSend = async () => {
-    const now = new Date();
-    if (now.getHours() === config.hour && now.getMinutes() === config.minute) {
+    const userNow = getUserTime(userId);
+    
+    if (userNow.getHours() === config.hour && userNow.getMinutes() === config.minute) {
       await sendDailyQuote(client, quoteKey, config);
     }
   };
