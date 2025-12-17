@@ -297,19 +297,28 @@ class MemorySystem {
   }
 
   /**
-   * ✅ FIXED: Correct file upload API
+   * ✅ FIXED: Correct file upload API - returns fileData object for inline use
    */
   async uploadHistoryAsFile(text, filename, description) {
     try {
-      // Ensure temp directory exists
+      // For short texts, return inline data instead of file upload
+      if (text.length < 1000) {
+        return {
+          description,
+          text: text,  // Inline text
+          mimeType: 'text/plain'
+        };
+      }
+
+      // For longer texts, upload as file
       await fs.mkdir(TEMP_DIR, { recursive: true });
 
       const filePath = path.join(TEMP_DIR, filename);
       await fs.writeFile(filePath, text, 'utf8');
 
-      // ✅ CORRECT SDK: Use 'file' parameter with path string
+      // ✅ CORRECT SDK: Use 'path' parameter with file path string
       const uploadResult = await genAI.files.upload({
-        file: filePath,
+        path: filePath,
         config: {
           mimeType: 'text/plain',
           displayName: filename,
@@ -326,7 +335,12 @@ class MemorySystem {
       };
     } catch (error) {
       console.error('Failed to upload history file:', error.message);
-      return null;
+      // Fallback to inline text
+      return {
+        description,
+        text: text.slice(0, 10000),  // Truncate if needed
+        mimeType: 'text/plain'
+      };
     }
   }
 
@@ -354,7 +368,7 @@ class MemorySystem {
         return this.formatHistoryWithContext(historyArray);
       }
 
-      // For longer histories, use files with RAG
+      // For longer histories, use inline text or files with RAG
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
 
@@ -369,57 +383,74 @@ class MemorySystem {
         ? await this.compressOldMessages(oldMessages, model)
         : oldMessages.slice(-10);
 
-      // Create text files for history sections
-      const uploadedFiles = [];
+      // ✅ FIXED: Build history with proper parts structure
+      const fileHistory = [];
 
-      // Upload compressed/summary history
+      // Add compressed/summary history
       if (compressedOld.length > 0) {
         const summaryText = this.messagesToText(compressedOld);
         const summaryCount = oldMessages.length;
         const summaryFile = await this.uploadHistoryAsFile(
           summaryText,
           `history_summary_${historyId}_${Date.now()}.txt`,
-          `This was a summarized message for the last ${summaryCount} messages`
+          `Summarized ${summaryCount} older messages`
         );
-        if (summaryFile) uploadedFiles.push(summaryFile);
+        
+        if (summaryFile) {
+          const parts = [{ text: `[${summaryFile.description}]` }];
+          
+          // ✅ CRITICAL FIX: Add proper file part based on what was returned
+          if (summaryFile.fileUri) {
+            parts.push({
+              fileData: {
+                fileUri: summaryFile.fileUri,
+                mimeType: summaryFile.mimeType
+              }
+            });
+          } else if (summaryFile.text) {
+            parts.push({ text: summaryFile.text });
+          }
+          
+          fileHistory.push({
+            role: 'user',
+            parts: parts
+          });
+        }
       }
 
-      // Upload relevant context if any
+      // Add relevant context if any
       if (relevantContext.length > 0) {
         const contextText = this.messagesToText(relevantContext);
         const contextFile = await this.uploadHistoryAsFile(
           contextText,
           `relevant_context_${historyId}_${Date.now()}.txt`,
-          `Relevant conversation excerpts (${relevantContext.length} messages retrieved from memory)`
+          `${relevantContext.length} relevant messages from memory`
         );
-        if (contextFile) uploadedFiles.push(contextFile);
+        
+        if (contextFile) {
+          const parts = [{ text: `[${contextFile.description}]` }];
+          
+          // ✅ CRITICAL FIX: Add proper file part
+          if (contextFile.fileUri) {
+            parts.push({
+              fileData: {
+                fileUri: contextFile.fileUri,
+                mimeType: contextFile.mimeType
+              }
+            });
+          } else if (contextFile.text) {
+            parts.push({ text: contextFile.text });
+          }
+          
+          fileHistory.push({
+            role: 'user',
+            parts: parts
+          });
+        }
       }
 
-      // Upload recent messages
-      const recentText = this.messagesToText(recentMessages);
-      const recentFile = await this.uploadHistoryAsFile(
-        recentText,
-        `recent_messages_${historyId}_${Date.now()}.txt`,
-        `These are the last ${recentMessages.length} messages from the conversation`
-      );
-      if (recentFile) uploadedFiles.push(recentFile);
-
-      // Convert uploaded files to API format with descriptions
-      const fileHistory = [];
-      for (const file of uploadedFiles) {
-        fileHistory.push({
-          role: 'user',
-          parts: [
-            { text: `[${file.description}]` },
-            {
-              fileUri: file.fileUri,
-              mimeType: file.mimeType
-            }
-          ]
-        });
-      }
-
-      return fileHistory;
+      // Return formatted recent messages directly (no files needed for recent context)
+      return [...fileHistory, ...this.formatHistoryWithContext(recentMessages)];
       
     } catch (error) {
       console.error('History optimization failed:', error.message);
