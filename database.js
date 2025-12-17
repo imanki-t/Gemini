@@ -522,6 +522,15 @@ export async function updateReminder(reminderId, updates) {
   }
 }
 
+export async function deleteReminder(reminderId) {
+  try {
+    await db.collection(collections.reminders).deleteOne({ id: reminderId });
+  } catch (error) {
+    console.error('Error deleting reminder:', error);
+    throw error;
+  }
+}
+
 export async function saveDailyQuote(userId, config) {
   try {
     await db.collection(collections.dailyQuotes).updateOne(
@@ -742,8 +751,6 @@ export async function getAllServerDigests() {
   }
 }
 
-// ADD THESE FUNCTIONS TO database.js BEFORE THE getDB() FUNCTION
-
 export async function saveQuoteUsage(userId, usage) {
   try {
     await db.collection('quoteUsage').updateOne(
@@ -795,7 +802,6 @@ export async function getAllQuoteUsages() {
   }
 }
 
-// END OF ADDITIONS - These go right before export function getDB() {
 export function getDB() {
   return db;
 }
