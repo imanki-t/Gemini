@@ -3,16 +3,20 @@ import {
   handleBirthdayCommand, 
   handleBirthdayMonthSelect,
   handleBirthdayDaySelect,
+  handleBirthdayNameSelect,
   handleBirthdayPrefSelect,
+  handleBirthdayDeleteSelect,
   scheduleBirthdayChecks
 } from './birthday.js';
 
 import { 
   reminderCommand, 
   handleReminderCommand,
+  handleReminderActionSelect,
   handleReminderTypeSelect,
   handleReminderModal,
   handleReminderLocationSelect,
+  handleReminderDeleteSelect,
   initializeReminders
 } from './reminder.js';
 
@@ -68,7 +72,9 @@ import {
 import {
   timezoneCommand,
   handleTimezoneCommand,
-  handleTimezoneSelect
+  handleTimezoneSelect,
+  handleTimezoneNextPage,
+  handleTimezonePrevPage
 } from './timezone.js';
 
 export function initializeScheduledTasks(client) {
@@ -101,9 +107,13 @@ export async function handleSelectMenuInteraction(interaction) {
   const handlers = {
     'birthday_month': handleBirthdayMonthSelect,
     'birthday_day_': handleBirthdayDaySelect,
+    'birthday_name_': handleBirthdayNameSelect,
     'birthday_pref_': handleBirthdayPrefSelect,
+    'birthday_delete_select': handleBirthdayDeleteSelect,
+    'reminder_action': handleReminderActionSelect,
     'reminder_type': handleReminderTypeSelect,
     'reminder_location_': handleReminderLocationSelect,
+    'reminder_delete_select': handleReminderDeleteSelect,
     'quote_action': handleQuoteActionSelect,
     'quote_category': handleQuoteCategorySelect,
     'quote_time_': handleQuoteTimeSelect,
@@ -146,7 +156,10 @@ export async function handleButtonInteraction(interaction) {
     'wyr_option1_': handleWYRVote,
     'wyr_option2_': handleWYRVote,
     'wyr_results_': handleWYRResults,
-    'wyr_next_': handleWYRNext
+    'wyr_next_': handleWYRNext,
+    'timezone_next_page': handleTimezoneNextPage,
+    'timezone_prev_page': handleTimezonePrevPage,
+    'reminder_action_delete': showReminderDeleteFromButton
   };
 
   for (const [key, handler] of Object.entries(handlers)) {
@@ -155,6 +168,62 @@ export async function handleButtonInteraction(interaction) {
       return;
     }
   }
+}
+
+async function showReminderDeleteFromButton(interaction) {
+  const userId = interaction.user.id;
+  const { state } = await import('../botManager.js');
+  const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = await import('discord.js');
+  
+  const reminders = state.reminders?.[userId] || [];
+  const activeReminders = reminders.filter(r => r.active);
+  
+  if (activeReminders.length === 0) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('❌ No Reminders')
+      .setDescription('You don\'t have any active reminders to delete.');
+    
+    return interaction.update({
+      embeds: [embed],
+      components: []
+    });
+  }
+  
+  const embed = new EmbedBuilder()
+    .setColor(0xFF6B6B)
+    .setTitle('🗑️ Delete Reminder')
+    .setDescription('Select a reminder to delete:');
+
+  const deleteSelect = new StringSelectMenuBuilder()
+    .setCustomId('reminder_delete_select')
+    .setPlaceholder('Choose reminder to delete')
+    .addOptions(
+      activeReminders.slice(0, 25).map((reminder, index) => {
+        const formatReminderTime = (type, time) => {
+          if (type === 'once') return new Date(time.timestamp).toLocaleString();
+          if (type === 'daily') return `Every day at ${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`;
+          if (type === 'weekly') {
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            return `Every ${days[time.day]} at ${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`;
+          }
+          if (type === 'monthly') return `${time.day}th of every month at ${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`;
+        };
+        
+        return {
+          label: `${index + 1}. ${reminder.message.slice(0, 50)}`,
+          description: formatReminderTime(reminder.type, reminder.time).slice(0, 100),
+          value: reminder.id
+        };
+      })
+    );
+
+  const row = new ActionRowBuilder().addComponents(deleteSelect);
+
+  await interaction.update({
+    embeds: [embed],
+    components: [row]
+  });
 }
 
 export function processMessageRoulette(message) {
