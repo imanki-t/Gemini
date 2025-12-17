@@ -597,4 +597,15 @@ async function sendReminder(client, reminder) {
   }
 }
 
-export function initializeReminders(clien
+export function initializeReminders(client) {
+  if (!state.reminders) return;
+  
+  // Schedule all active reminders
+  for (const userId in state.reminders) {
+    for (const reminder of state.reminders[userId]) {
+      if (reminder.active) {
+        scheduleReminder(client, reminder);
+      }
+    }
+  }
+}
