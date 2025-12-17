@@ -59,11 +59,17 @@ export async function handleQuoteCommand(interaction) {
 
   const row = new ActionRowBuilder().addComponents(actionSelect);
 
+  // Requirement: Ephemeral Menu
   await interaction.reply({
     embeds: [embed],
     components: [row],
     flags: MessageFlags.Ephemeral
   });
+
+  // Requirement: Auto-delete after 3 minutes if unused
+  setTimeout(() => {
+    interaction.deleteReply().catch(() => {});
+  }, 3 * 60 * 1000);
 }
 
 export async function handleQuoteActionSelect(interaction) {
@@ -113,17 +119,16 @@ async function sendQuoteNow(interaction) {
       .setTitle('❌ Daily Limit Reached')
       .setDescription(`You've used all ${MAX_QUOTES_PER_DAY} instant quotes for today.\n\n**Resets in:** ${hoursLeft} hour${hoursLeft > 1 ? 's' : ''}\n\n*Scheduled quotes don't count toward this limit.*`);
     
+    // Keep this ephemeral as it's an error
     return interaction.update({
       embeds: [embed],
       components: []
     });
   }
   
-  await interaction.update({
-    embeds: [new EmbedBuilder().setColor(0x9B59B6).setDescription('✨ Generating your quote...')],
-    components: []
-  });
-  
+  // Acknowledge the interaction first to prevent timeout
+  await interaction.deferUpdate();
+
   const quote = await generateQuote('inspirational');
   
   usage.count++;
@@ -135,13 +140,26 @@ async function sendQuoteNow(interaction) {
     .setColor(0x9B59B6)
     .setTitle('💭 Quote of the Moment')
     .setDescription(quote)
-    .setFooter({ text: `${remainingQuotes} instant quote${remainingQuotes !== 1 ? 's' : ''} remaining today • Scheduled quotes don't count!` })
+    .setFooter({ text: `Requested by ${interaction.user.displayName} • ${remainingQuotes} left today` })
     .setTimestamp();
 
-  await interaction.editReply({
-    embeds: [embed],
-    components: []
-  });
+  // Requirement: Send as Normal (Public) message to the channel
+  try {
+    await interaction.channel.send({
+      embeds: [embed]
+    });
+    
+    // Requirement: Original private menu should be deleted or cleaned up
+    await interaction.deleteReply().catch(() => {});
+  } catch (error) {
+    console.error('Error sending public quote:', error);
+    // Fallback if public send fails (e.g. perms), show ephemeral
+    await interaction.editReply({
+      content: 'Could not send public message. Here is your quote:',
+      embeds: [embed],
+      components: []
+    });
+  }
 }
 
 async function showQuoteSetup(interaction) {
@@ -582,11 +600,4 @@ async function sendDailyQuote(client, quoteKey, config) {
 }
 
 export function initializeDailyQuotes(client) {
-  if (!state.dailyQuotes) return;
-  
-  for (const quoteKey in state.dailyQuotes) {
-    if (state.dailyQuotes[quoteKey].active) {
-      scheduleDailyQuote(client, quoteKey, state.dailyQuotes[quoteKey]);
-    }
-  }
-}
+    
