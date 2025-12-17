@@ -28,6 +28,7 @@ import {
   handleQuoteTimeSelect,
   handleQuoteLocationSelect,
   handleQuoteChannelSelect,
+  handleQuoteRemoveSelect,
   initializeDailyQuotes
 } from './quote.js';
 
@@ -119,6 +120,7 @@ export async function handleSelectMenuInteraction(interaction) {
     'quote_time_': handleQuoteTimeSelect,
     'quote_location_': handleQuoteLocationSelect,
     'quote_channel_': handleQuoteChannelSelect,
+    'quote_remove_select': handleQuoteRemoveSelect,
     'roulette_action': handleRouletteActionSelect,
     'roulette_rarity': handleRouletteRaritySelect,
     'game_select': handleGameSelect,
