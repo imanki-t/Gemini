@@ -1,6 +1,7 @@
 import { EmbedBuilder, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { state, saveStateToFile, genAI } from '../botManager.js';
 import * as db from '../database.js';
+import { getUserTime } from './timezone.js';
 
 const BIRTHDAY_MODEL = 'gemini-2.5-flash-lite';
 const FALLBACK_MODEL = 'gemini-2.5-flash';
@@ -266,7 +267,7 @@ export async function handleBirthdayPrefSelect(interaction) {
       day,
       preference,
       guildId: preference !== 'dm' ? guildId : null,
-      year: null,
+      year: null, // Tracks last wish year (null means never sent)
       nameType,
       ownerUsername: interaction.user.username
     };
@@ -555,30 +556,40 @@ async function sendError(interaction, message, isUpdate = false) {
 
 export function scheduleBirthdayChecks(client) {
   const checkBirthdays = async () => {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    
     if (!state.birthdays) return;
     
     for (const [key, data] of Object.entries(state.birthdays)) {
+      const userId = key.split('_')[0];
+      
+      // Calculate local time for this specific user
+      const userNow = getUserTime(userId);
+      const currentYear = userNow.getFullYear();
+      
+      // Get the local date components
+      const month = String(userNow.getMonth() + 1).padStart(2, '0');
+      const day = String(userNow.getDate()).padStart(2, '0');
+      
+      // Check if today is the birthday AND we haven't sent a wish for this year yet
       if (data.month === month && data.day === day) {
-        const userId = key.split('_')[0];
-        await sendBirthdayWish(client, userId, data);
+        if (data.year !== currentYear) {
+          await sendBirthdayWish(client, userId, data);
+          
+          // Update the year to prevent duplicate wishes
+          state.birthdays[key].year = currentYear;
+          // We save the state inside the loop to ensure year is persisted immediately
+          // Note: Since this runs hourly and birthdays are rare, performance impact is negligible
+          await db.saveBirthday(key, state.birthdays[key]);
+          await saveStateToFile();
+        }
       }
     }
   };
   
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const timeUntilMidnight = tomorrow - now;
+  // Run every hour to check for birthdays in different timezones
+  setInterval(checkBirthdays, 60 * 60 * 1000);
   
-  setTimeout(() => {
-    checkBirthdays();
-    setInterval(checkBirthdays, 24 * 60 * 60 * 1000);
-  }, timeUntilMidnight);
+  // Run once on startup
+  setTimeout(checkBirthdays, 5000);
 }
 
 async function sendBirthdayWish(client, userId, data) {
@@ -639,6 +650,5 @@ async function sendBirthdayWish(client, userId, data) {
     }
   } catch (error) {
     console.error('Error in sendBirthdayWish:', error);
-    // Fallback handling logic preserved from original
   }
 }
