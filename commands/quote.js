@@ -600,4 +600,11 @@ async function sendDailyQuote(client, quoteKey, config) {
 }
 
 export function initializeDailyQuotes(client) {
-    
+  if (!state.dailyQuotes) return;
+  
+  for (const quoteKey in state.dailyQuotes) {
+    if (state.dailyQuotes[quoteKey].active) {
+      scheduleDailyQuote(client, quoteKey, state.dailyQuotes[quoteKey]);
+    }
+  }
+}
