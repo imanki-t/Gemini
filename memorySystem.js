@@ -1,7 +1,14 @@
 import { genAI } from './botManager.js';
 import * as db from './database.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// ✅ CORRECT: Latest model (GA since July 2025)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TEMP_DIR = path.join(__dirname, 'temp');
+
+// ✅ CORRECT: Latest model
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 const MAX_CONTEXT_TOKENS = 30000;
@@ -18,13 +25,11 @@ class MemorySystem {
   }
 
   /**
-   * ✅ FIXED: Validation to prevent "requests must not be empty" error
-   * ✅ FIXED: Correct API call format for @google/genai SDK
+   * ✅ FIXED: Correct SDK usage for embeddings
    */
   async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
     // 1. Critical Validation
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      // console.warn('⚠️ Skipped embedding generation: Text is empty.');
       return null;
     }
 
@@ -34,14 +39,16 @@ class MemorySystem {
     }
 
     try {
+      // ✅ CORRECT SDK FORMAT
       const result = await genAI.models.embedContent({
         model: EMBEDDING_MODEL,
-        contents: text, 
+        contents: text,
         config: {
-          taskType: taskType,
+          taskType: taskType
         }
       });
       
+      // ✅ CORRECT: Access embeddings array
       const embedding = result.embeddings?.[0]?.values;
       
       if (!embedding || !Array.isArray(embedding)) {
@@ -111,25 +118,24 @@ class MemorySystem {
     if (messages.length <= 5) return messages;
 
     try {
-      const chat = genAI.chats.create({
-        model: model,
-        config: {
-          systemInstruction: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive.",
-          temperature: 0.3,
-          topP: 0.95
-        }
-      });
-
+      // ✅ CORRECT SDK FORMAT
       const conversationText = messages.map((msg, idx) => {
         const role = msg.role === 'user' ? 'User' : 'Assistant';
         const text = this.extractTextFromMessage(msg);
         return `${role}: ${text}`;
       }).join('\n\n');
 
-      const result = await chat.sendMessage({
-        message: `Summarize this conversation:\n\n${conversationText}`
-      });
+      const request = {
+        model: model,
+        contents: [{ role: 'user', parts: [{ text: `Summarize this conversation:\n\n${conversationText}` }] }],
+        systemInstruction: { parts: [{ text: "Summarize the following conversation history concisely while preserving key information, context, and important details. Keep the summary factual and comprehensive." }] },
+        generationConfig: {
+          temperature: 0.3,
+          topP: 0.95
+        }
+      };
 
+      const result = await genAI.models.generateContent(request);
       const summary = result.text || conversationText.slice(0, 500);
 
       return [{
@@ -141,14 +147,12 @@ class MemorySystem {
       }];
     } catch (error) {
       console.error('Compression failed:', error.message);
-      // Fallback: return the last few messages if compression fails
       return messages.slice(-3);
     }
   }
 
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
-      // Validation to prevent empty query embedding error
       if (!currentQuery || currentQuery.trim().length === 0) return [];
 
       const queryEmbedding = await this.generateEmbedding(currentQuery, 'RETRIEVAL_QUERY');
@@ -245,6 +249,101 @@ class MemorySystem {
     }
   }
 
+  /**
+   * Convert messages to readable text format for file upload
+   */
+  messagesToText(messages) {
+    let text = '';
+    let previousTimestamp = null;
+    const timeThresholdMs = 30 * 60 * 1000;
+
+    for (const entry of messages) {
+      // Add time context
+      if (previousTimestamp && entry.timestamp) {
+        const timeDiffMs = entry.timestamp - previousTimestamp;
+        if (timeDiffMs > timeThresholdMs) {
+          const durationString = this.formatDuration(timeDiffMs);
+          text += `\n[TIME ELAPSED: ${durationString} since the previous turn]\n`;
+        }
+      }
+      previousTimestamp = entry.timestamp;
+
+      // Add role
+      const role = entry.role === 'user' ? 'User' : 'Assistant';
+      text += `\n${role}`;
+
+      // Add user attribution if available
+      if (entry.role === 'user' && entry.username && entry.displayName) {
+        text += ` [${entry.displayName} (@${entry.username})]`;
+      }
+      text += ':\n';
+
+      // Add content
+      for (const part of entry.content) {
+        if (part.text !== undefined && part.text !== '') {
+          text += part.text + '\n';
+        } else if (part.fileUri) {
+          const mime = part.mimeType || 'unknown';
+          text += `[Attachment: Previous file (${mime}) - Content no longer available]\n`;
+        } else if (part.inlineData) {
+          text += `[Attachment: Previous inline image]\n`;
+        }
+      }
+
+      text += '\n';
+    }
+
+    return text;
+  }
+
+  /**
+   * ✅ FIXED: Correct file upload API - returns fileData object for inline use
+   */
+  async uploadHistoryAsFile(text, filename, description) {
+    try {
+      // For short texts, return inline data instead of file upload
+      if (text.length < 10000) {
+        return {
+          description,
+          text: text,  // Inline text
+          mimeType: 'text/plain'
+        };
+      }
+
+      // For longer texts, upload as file
+      await fs.mkdir(TEMP_DIR, { recursive: true });
+
+      const filePath = path.join(TEMP_DIR, filename);
+      await fs.writeFile(filePath, text, 'utf8');
+
+      // ✅ CORRECT SDK: Use 'path' parameter with file path string
+      const uploadResult = await genAI.files.upload({
+        path: filePath,
+        config: {
+          mimeType: 'text/plain',
+          displayName: filename,
+        }
+      });
+
+      // Clean up temp file
+      await fs.unlink(filePath).catch(() => {});
+
+      return {
+        description,
+        fileUri: uploadResult.uri,
+        mimeType: 'text/plain'
+      };
+    } catch (error) {
+      console.error('Failed to upload history file:', error.message);
+      // Fallback to inline text
+      return {
+        description,
+        text: text.slice(0, 10000),  // Truncate if needed
+        mimeType: 'text/plain'
+      };
+    }
+  }
+
   async getOptimizedHistory(historyId, currentQuery, model) {
     try {
       const allHistory = await db.getChatHistory(historyId);
@@ -264,11 +363,12 @@ class MemorySystem {
       // Trigger instant indexing check (non-blocking)
       this.checkAndIndexMessages(historyId, allHistory).catch(() => {});
 
+      // If history is short enough, return as-is (formatted for API)
       if (historyArray.length <= MAX_FULL_MESSAGES) {
         return this.formatHistoryWithContext(historyArray);
       }
 
-      // For longer histories, use RAG with compression
+      // For longer histories, use inline text or files with RAG
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
 
@@ -283,22 +383,74 @@ class MemorySystem {
         ? await this.compressOldMessages(oldMessages, model)
         : oldMessages.slice(-10);
 
-      const combined = [
-        ...compressedOld,
-        ...relevantContext,
-        ...recentMessages
-      ];
+      // ✅ FIXED: Build history with proper parts structure
+      const fileHistory = [];
 
-      // Remove duplicates while preserving order
-      const uniqueMessages = Array.from(
-        new Map(combined.map(msg => [
-          this.extractTextFromMessage(msg) + (msg.timestamp || ''),
-          msg
-        ])).values()
-      );
+      // Add compressed/summary history
+      if (compressedOld.length > 0) {
+        const summaryText = this.messagesToText(compressedOld);
+        const summaryCount = oldMessages.length;
+        const summaryFile = await this.uploadHistoryAsFile(
+          summaryText,
+          `history_summary_${historyId}_${Date.now()}.txt`,
+          `Summarized ${summaryCount} older messages`
+        );
+        
+        if (summaryFile) {
+          const parts = [{ text: `[${summaryFile.description}]` }];
+          
+          // ✅ CRITICAL FIX: Add proper file part based on what was returned
+          if (summaryFile.fileUri) {
+            parts.push({
+              fileData: {
+                fileUri: summaryFile.fileUri,
+                mimeType: summaryFile.mimeType
+              }
+            });
+          } else if (summaryFile.text) {
+            parts.push({ text: summaryFile.text });
+          }
+          
+          fileHistory.push({
+            role: 'user',
+            parts: parts
+          });
+        }
+      }
 
-      uniqueMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-      return this.formatHistoryWithContext(uniqueMessages);
+      // Add relevant context if any
+      if (relevantContext.length > 0) {
+        const contextText = this.messagesToText(relevantContext);
+        const contextFile = await this.uploadHistoryAsFile(
+          contextText,
+          `relevant_context_${historyId}_${Date.now()}.txt`,
+          `${relevantContext.length} relevant messages from memory`
+        );
+        
+        if (contextFile) {
+          const parts = [{ text: `[${contextFile.description}]` }];
+          
+          // ✅ CRITICAL FIX: Add proper file part
+          if (contextFile.fileUri) {
+            parts.push({
+              fileData: {
+                fileUri: contextFile.fileUri,
+                mimeType: contextFile.mimeType
+              }
+            });
+          } else if (contextFile.text) {
+            parts.push({ text: contextFile.text });
+          }
+          
+          fileHistory.push({
+            role: 'user',
+            parts: parts
+          });
+        }
+      }
+
+      // Return formatted recent messages directly (no files needed for recent context)
+      return [...fileHistory, ...this.formatHistoryWithContext(recentMessages)];
       
     } catch (error) {
       console.error('History optimization failed:', error.message);
@@ -345,8 +497,6 @@ class MemorySystem {
           apiEntry.parts.push({ text: finalText });
         } 
         // Handle Files (URIs) - STRIP for memory to prevent 403 Forbidden
-        // When using RAG or compressed memory, we cannot pass old URIs because they might be
-        // owned by a different API key (rotation) or have expired.
         else if (part.fileUri) {
            const mime = part.mimeType || 'unknown';
            apiEntry.parts.push({ text: `[Attachment: Previous file (${mime}) - Content no longer available to vision model]` });
