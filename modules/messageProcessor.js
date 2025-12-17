@@ -742,19 +742,27 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
         throw new Error('API returned undefined - check API keys');
       }
 
-      if (!result.stream) {
-        console.error('Invalid API result:', JSON.stringify(result, null, 2));
-        throw new Error('API response missing stream property');
-      }
+      // FIX: New SDK returns AsyncIterable directly, no result.stream property
+      // if (!result.stream) { ... } // Removed
 
       clearInterval(typingInterval);
 
-      for await (const chunk of result.stream) {
+      // FIX: Iterate result directly
+      for await (const chunk of result) {
         const chunkText = chunk.text || '';
+        
+        const codeOutput = chunk.codeExecutionResult?.output 
+          ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` 
+          : "";
+        const executableCode = chunk.executableCode 
+          ? `\n\`\`\`python\n${chunk.executableCode.code}\n\`\`\`\n` 
+          : "";
+          
+        const combinedText = chunkText + executableCode + codeOutput;
 
-        if (chunkText && chunkText !== '') {
-          finalResponse += chunkText;
-          tempResponse += chunkText;
+        if (combinedText && combinedText !== '') {
+          finalResponse += combinedText;
+          tempResponse += combinedText;
 
           const currentWordCount = tempResponse.trim().split(/\s+/).length;
 
