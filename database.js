@@ -742,6 +742,60 @@ export async function getAllServerDigests() {
   }
 }
 
+// ADD THESE FUNCTIONS TO database.js BEFORE THE getDB() FUNCTION
+
+export async function saveQuoteUsage(userId, usage) {
+  try {
+    await db.collection('quoteUsage').updateOne(
+      { userId },
+      { 
+        $set: { 
+          userId, 
+          count: usage.count,
+          lastReset: usage.lastReset,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving quote usage:', error);
+    throw error;
+  }
+}
+
+export async function getQuoteUsage(userId) {
+  try {
+    const doc = await db.collection('quoteUsage').findOne({ userId });
+    if (!doc) return null;
+    return {
+      count: doc.count,
+      lastReset: doc.lastReset
+    };
+  } catch (error) {
+    console.error('Error getting quote usage:', error);
+    return null;
+  }
+}
+
+export async function getAllQuoteUsages() {
+  try {
+    const docs = await db.collection('quoteUsage').find({}).toArray();
+    const result = {};
+    docs.forEach(doc => {
+      result[doc.userId] = {
+        count: doc.count,
+        lastReset: doc.lastReset
+      };
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting all quote usages:', error);
+    return {};
+  }
+}
+
+// END OF ADDITIONS - These go right before export function getDB() {
 export function getDB() {
   return db;
 }
