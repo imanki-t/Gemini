@@ -319,9 +319,9 @@ async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
       const filePath = path.join(TEMP_DIR, filename);
       await fs.writeFile(filePath, text, 'utf8');
 
-      // ✅ CORRECT SDK: Use 'path' parameter with file path string
+      // ✅ CORRECT SDK: Use 'file' parameter with file path string
       const uploadResult = await genAI.files.upload({
-        path: filePath,
+        file: filePath,
         config: {
           mimeType: 'text/plain',
           displayName: filename,
@@ -570,3 +570,5 @@ async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
 }
 
 export const memorySystem = new MemorySystem();
+
+        
