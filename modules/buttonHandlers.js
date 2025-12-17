@@ -63,4 +63,3 @@ export async function addDeleteButton(botMessage, msgId) {
     return botMessage;
   }
 }
-export { addDownloadButton, addDeleteButton };
