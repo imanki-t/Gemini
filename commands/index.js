@@ -129,8 +129,8 @@ export async function handleSelectMenuInteraction(interaction) {
     'tod_choice': handleTODChoice,
     'tds_choice': handleTDSChoice,
     'akinator_mode': handleAkinatorModeSelect,
-    'timezone_region': handleTimezoneSelect, // Added routing for region selection
-    'timezone_select': handleTimezoneSelect  // Kept routing for final selection
+    'timezone_region': handleTimezoneSelect,
+    'timezone_select': handleTimezoneSelect
   };
 
   for (const [key, handler] of Object.entries(handlers)) {
