@@ -220,7 +220,9 @@ client.on('interactionCreate', async (interaction) => {
       const newCommandButtons = [
         'tod_again', 'akinator_yes_', 'akinator_no_', 'akinator_maybe_',
         'akinator_correct_', 'akinator_wrong_', 'akinator_again',
-        'tds_again', 'nhie_next', 'wyr_option1', 'wyr_option2', 'wyr_next'
+        'tds_again', 'nhie_next', 'wyr_option1', 'wyr_option2', 'wyr_next',
+        'wyr_results_', 'timezone_next_page', 'timezone_prev_page', 
+        'timezone_custom', 'reminder_action_delete'
       ];
       
       const isNewCommandButton = newCommandButtons.some(prefix => 
@@ -233,18 +235,19 @@ client.on('interactionCreate', async (interaction) => {
         await handleButtonInteraction(interaction);
       }
     } else if (interaction.isModalSubmit()) {
-      if (interaction.customId.startsWith('reminder_modal_')) {
+      if (interaction.customId.startsWith('reminder_modal_') || interaction.customId === 'timezone_modal') {
         await handleNewModals(interaction);
       } else {
         await handleModalSubmit(interaction);
       }
     } else if (interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
       const newCommandMenus = [
-        'birthday_month', 'birthday_day_', 'birthday_pref_',
-        'reminder_type', 'reminder_location_',
-        'quote_action', 'quote_category', 'quote_time_', 'quote_location_', 'quote_channel_',
+        'birthday_month', 'birthday_day_', 'birthday_name_', 'birthday_pref_', 'birthday_delete_select',
+        'reminder_action', 'reminder_type', 'reminder_location_', 'reminder_delete_select',
+        'quote_action', 'quote_category', 'quote_time_', 'quote_location_', 'quote_channel_', 'quote_remove_select',
         'roulette_action', 'roulette_rarity',
-        'game_select', 'tod_choice', 'tds_choice'
+        'game_select', 'tod_choice', 'tds_choice', 'akinator_mode',
+        'timezone_region', 'timezone_select'
       ];
       
       const isNewCommandMenu = newCommandMenus.some(prefix => 
@@ -292,4 +295,4 @@ async function handleCommandInteraction(interaction) {
 }
 
 client.login(token);
-
+                                      
