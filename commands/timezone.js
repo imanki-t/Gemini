@@ -128,34 +128,59 @@ export async function handleTimezoneCommand(interaction) {
   
   const customButton = new ButtonBuilder()
     .setCustomId('timezone_custom')
-    .setLabel('Enter Custom Timezone')
+    .setLabel('Custom / Search')
     .setStyle(ButtonStyle.Secondary)
     .setEmoji('⌨️');
 
   const row1 = new ActionRowBuilder().addComponents(regionSelect);
   const row2 = new ActionRowBuilder().addComponents(customButton);
 
+  // Requirement: Ephemeral Menu
   await interaction.reply({
     embeds: [embed],
     components: [row1, row2],
     ephemeral: true
   });
+
+  // Requirement: Auto-delete after 3 minutes if unused
+  setTimeout(() => {
+    interaction.deleteReply().catch(() => {});
+  }, 3 * 60 * 1000);
 }
 
 // Region Selection Handler
-export async function handleTimezoneRegionSelect(interaction) {
-  const region = interaction.values[0];
-  await showTimezonePage(interaction, region, 0);
+export async function handleTimezoneSelect(interaction) {
+  // Check if this is a region selection or a timezone selection based on context
+  // BUT the index.js maps 'timezone_select' to this, and 'timezone_region' is not mapped there yet.
+  // Wait, in handleTimezoneCommand we set customId to 'timezone_region'.
+  // In showTimezonePage we set customId to 'timezone_select'.
+  // Let's look at index.js provided previously. It maps 'timezone_select' to handleTimezoneSelect.
+  // We need to handle 'timezone_region' too.
+  
+  if (interaction.customId === 'timezone_region') {
+     const region = interaction.values[0];
+     await showTimezonePage(interaction, region, 0);
+  } else if (interaction.customId === 'timezone_select') {
+     await handleFinalTimezoneSelect(interaction);
+  }
 }
 
-// Pagination Handler
-export async function handleTimezonePagination(interaction) {
+// Pagination Handler (Next/Prev buttons)
+export async function handleTimezoneNextPage(interaction) {
+  await handleTimezonePagination(interaction);
+}
+
+export async function handleTimezonePrevPage(interaction) {
+  await handleTimezonePagination(interaction);
+}
+
+async function handleTimezonePagination(interaction) {
   // customId format: timezone_page_REGION_PAGE
   const parts = interaction.customId.split('_');
   // parts[0] = timezone, parts[1] = page
   // The rest is the region name which might contain underscores
   const pageIndex = parseInt(parts.pop());
-  const region = parts.slice(2).join('_').replace(/_/g, ' '); // Reconstruct region name
+  const region = parts.slice(2).join(' ').replace(/_/g, ' '); // Reconstruct region name
   
   await showTimezonePage(interaction, region, pageIndex);
 }
@@ -177,7 +202,7 @@ async function showTimezonePage(interaction, region, page) {
     .setColor(0x5865F2)
     .setTitle(`🌍 ${region} Timezones`)
     .setDescription(`Select your specific timezone.\nPage ${page + 1}/${totalPages}`)
-    .setFooter({ text: 'Can\'t find yours? Use the "Enter Custom" button on the main menu.' });
+    .setFooter({ text: 'Can\'t find yours? Use the "Custom / Search" button.' });
 
   const timezoneSelect = new StringSelectMenuBuilder()
     .setCustomId('timezone_select')
@@ -191,7 +216,7 @@ async function showTimezonePage(interaction, region, page) {
   if (page > 0) {
     row2.addComponents(
       new ButtonBuilder()
-        .setCustomId(`timezone_page_${region.replace(/ /g, '_')}_${page - 1}`)
+        .setCustomId(`timezone_prev_page_${region.replace(/ /g, '_')}_${page - 1}`)
         .setLabel('Previous')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('◀️')
@@ -201,14 +226,14 @@ async function showTimezonePage(interaction, region, page) {
   if (page < totalPages - 1) {
     row2.addComponents(
       new ButtonBuilder()
-        .setCustomId(`timezone_page_${region.replace(/ /g, '_')}_${page + 1}`)
+        .setCustomId(`timezone_next_page_${region.replace(/ /g, '_')}_${page + 1}`)
         .setLabel('Next')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('➡️')
     );
   }
 
-  // Add Custom button here too for convenience
+  // Add Custom button
   row2.addComponents(
     new ButtonBuilder()
       .setCustomId('timezone_custom')
@@ -229,7 +254,7 @@ async function showTimezonePage(interaction, region, page) {
 }
 
 // Final Timezone Selection Handler
-export async function handleTimezoneSelect(interaction) {
+async function handleFinalTimezoneSelect(interaction) {
   const timezone = interaction.values[0];
   const userId = interaction.user.id;
   
@@ -388,4 +413,4 @@ export function formatTimeForUser(userId, date) {
   } catch (error) {
     return date.toLocaleString();
   }
-     }
+}
