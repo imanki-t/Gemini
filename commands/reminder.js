@@ -1,13 +1,83 @@
-import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { state, saveStateToFile, genAI } from '../botManager.js';
 import * as db from '../database.js';
 
+const REMINDER_MODEL = 'gemini-2.5-flash-lite';
+const FALLBACK_MODEL = 'gemini-2.5-flash';
+const MAX_REMINDERS_PER_USER = 10;
+
 export const reminderCommand = {
   name: 'reminder',
-  description: 'Set reminders for yourself'
+  description: 'Set reminders for yourself (max 10 reminders)'
 };
 
 export async function handleReminderCommand(interaction) {
+  const userId = interaction.user.id;
+  
+  // Check current reminder count
+  const currentReminders = state.reminders?.[userId] || [];
+  const activeReminders = currentReminders.filter(r => r.active);
+  
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('⏰ Reminder Setup')
+    .setDescription(`Choose an action:\n\n**Active Reminders:** ${activeReminders.length}/${MAX_REMINDERS_PER_USER}`);
+
+  const actionSelect = new StringSelectMenuBuilder()
+    .setCustomId('reminder_action')
+    .setPlaceholder('Select an action')
+    .addOptions(
+      { label: 'Add Reminder', value: 'add', description: 'Create a new reminder', emoji: '➕' },
+      { label: 'View Reminders', value: 'view', description: 'See all your reminders', emoji: '📋' },
+      { label: 'Delete Reminder', value: 'delete', description: 'Remove a reminder', emoji: '🗑️' }
+    );
+
+  const row = new ActionRowBuilder().addComponents(actionSelect);
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+    flags: MessageFlags.Ephemeral
+  });
+}
+
+export async function handleReminderActionSelect(interaction) {
+  const action = interaction.values[0];
+  
+  if (action === 'add') {
+    await showReminderTypeSelect(interaction);
+  } else if (action === 'view') {
+    await viewReminders(interaction);
+  } else if (action === 'delete') {
+    await showDeleteReminderMenu(interaction);
+  }
+}
+
+async function showReminderTypeSelect(interaction) {
+  const userId = interaction.user.id;
+  const currentReminders = state.reminders?.[userId] || [];
+  const activeReminders = currentReminders.filter(r => r.active);
+  
+  if (activeReminders.length >= MAX_REMINDERS_PER_USER) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('❌ Reminder Limit Reached')
+      .setDescription(`You have reached the maximum limit of ${MAX_REMINDERS_PER_USER} reminders.\n\nPlease delete some old reminders before creating new ones.`);
+    
+    const deleteButton = new ButtonBuilder()
+      .setCustomId('reminder_action_delete')
+      .setLabel('Delete Reminders')
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🗑️');
+    
+    const row = new ActionRowBuilder().addComponents(deleteButton);
+    
+    return interaction.update({
+      embeds: [embed],
+      components: [row]
+    });
+  }
+  
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle('⏰ Reminder Setup')
@@ -25,10 +95,9 @@ export async function handleReminderCommand(interaction) {
 
   const row = new ActionRowBuilder().addComponents(typeSelect);
 
-  await interaction.reply({
+  await interaction.update({
     embeds: [embed],
-    components: [row],
-    flags: MessageFlags.Ephemeral
+    components: [row]
   });
 }
 
@@ -78,10 +147,6 @@ export async function handleReminderTypeSelect(interaction) {
       .setRequired(true);
   }
 
-  const locationInput = new StringSelectMenuBuilder()
-    .setCustomId('reminder_location')
-    .setPlaceholder('Where should I send the reminder?');
-
   modal.addComponents(
     new ActionRowBuilder().addComponents(messageInput),
     new ActionRowBuilder().addComponents(timeInput)
@@ -106,12 +171,19 @@ export async function handleReminderModal(interaction) {
 
   const locationSelect = new StringSelectMenuBuilder()
     .setCustomId(`reminder_location_${type}_${Buffer.from(message).toString('base64').slice(0, 20)}_${Buffer.from(timeStr).toString('base64').slice(0, 20)}`)
-    .setPlaceholder('Choose notification location')
-    .addOptions(
+    .setPlaceholder('Choose notification location');
+  
+  if (guildId) {
+    locationSelect.addOptions(
       { label: 'DM Only', value: 'dm', description: 'Receive in direct messages', emoji: '📬' },
       { label: 'Server Only', value: 'server', description: 'Get notified in this server', emoji: '💬' },
       { label: 'Both', value: 'both', description: 'DM + Server notification', emoji: '📢' }
     );
+  } else {
+    locationSelect.addOptions(
+      { label: 'DM', value: 'dm', description: 'Receive in direct messages', emoji: '📬' }
+    );
+  }
 
   const row = new ActionRowBuilder().addComponents(locationSelect);
 
@@ -173,6 +245,20 @@ export async function handleReminderLocationSelect(interaction) {
       state.reminders[userId] = [];
     }
     
+    // Double-check limit before adding
+    const activeReminders = state.reminders[userId].filter(r => r.active);
+    if (activeReminders.length >= MAX_REMINDERS_PER_USER) {
+      const embed = new EmbedBuilder()
+        .setColor(0xFF5555)
+        .setTitle('❌ Reminder Limit Reached')
+        .setDescription(`You have reached the maximum limit of ${MAX_REMINDERS_PER_USER} reminders.\n\nPlease delete some old reminders before creating new ones.`);
+      
+      return interaction.update({
+        embeds: [embed],
+        components: []
+      });
+    }
+    
     const reminder = {
       id: `${userId}_${Date.now()}`,
       type,
@@ -197,12 +283,13 @@ export async function handleReminderLocationSelect(interaction) {
     }[location];
     
     const timeDisplay = formatReminderTime(type, parsedTime);
+    const activeCount = state.reminders[userId].filter(r => r.active).length;
     
     const embed = new EmbedBuilder()
       .setColor(0x00FF00)
       .setTitle('✅ Reminder Set!')
       .setDescription(`**Message:** ${message}\n**Type:** ${type}\n**Next trigger:** ${timeDisplay}\n**Location:** ${locationText}`)
-      .setFooter({ text: 'You can view all reminders with /reminder list' });
+      .setFooter({ text: `Active reminders: ${activeCount}/${MAX_REMINDERS_PER_USER}` });
 
     await interaction.update({
       embeds: [embed],
@@ -220,6 +307,139 @@ export async function handleReminderLocationSelect(interaction) {
       components: []
     });
   }
+}
+
+async function viewReminders(interaction) {
+  const userId = interaction.user.id;
+  const reminders = state.reminders?.[userId] || [];
+  const activeReminders = reminders.filter(r => r.active);
+  
+  if (activeReminders.length === 0) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('📋 No Active Reminders')
+      .setDescription('You don\'t have any active reminders.\n\nUse `/reminder` to create one!');
+    
+    return interaction.update({
+      embeds: [embed],
+      components: []
+    });
+  }
+  
+  const reminderList = activeReminders
+    .map((reminder, index) => {
+      const timeDisplay = formatReminderTime(reminder.type, reminder.time);
+      return `**${index + 1}.** ${reminder.message}\n⏰ ${timeDisplay}\n📍 ${reminder.location === 'dm' ? 'DMs' : reminder.location === 'both' ? 'DMs & Server' : 'Server'}`;
+    })
+    .join('\n\n');
+  
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('📋 Your Active Reminders')
+    .setDescription(reminderList)
+    .setFooter({ text: `${activeReminders.length}/${MAX_REMINDERS_PER_USER} reminders active` });
+
+  await interaction.update({
+    embeds: [embed],
+    components: []
+  });
+}
+
+async function showDeleteReminderMenu(interaction) {
+  const userId = interaction.user.id;
+  const reminders = state.reminders?.[userId] || [];
+  const activeReminders = reminders.filter(r => r.active);
+  
+  if (activeReminders.length === 0) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('❌ No Reminders')
+      .setDescription('You don\'t have any active reminders to delete.');
+    
+    return interaction.update({
+      embeds: [embed],
+      components: []
+    });
+  }
+  
+  const embed = new EmbedBuilder()
+    .setColor(0xFF6B6B)
+    .setTitle('🗑️ Delete Reminder')
+    .setDescription('Select a reminder to delete:');
+
+  const deleteSelect = new StringSelectMenuBuilder()
+    .setCustomId('reminder_delete_select')
+    .setPlaceholder('Choose reminder to delete')
+    .addOptions(
+      activeReminders.slice(0, 25).map((reminder, index) => ({
+        label: `${index + 1}. ${reminder.message.slice(0, 50)}`,
+        description: formatReminderTime(reminder.type, reminder.time).slice(0, 100),
+        value: reminder.id
+      }))
+    );
+
+  const row = new ActionRowBuilder().addComponents(deleteSelect);
+
+  await interaction.update({
+    embeds: [embed],
+    components: [row]
+  });
+}
+
+export async function handleReminderDeleteSelect(interaction) {
+  const reminderId = interaction.values[0];
+  const userId = interaction.user.id;
+  
+  if (!state.reminders?.[userId]) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('❌ Error')
+      .setDescription('Could not find your reminders.');
+    
+    return interaction.update({
+      embeds: [embed],
+      components: []
+    });
+  }
+  
+  const reminderIndex = state.reminders[userId].findIndex(r => r.id === reminderId);
+  
+  if (reminderIndex === -1) {
+    const embed = new EmbedBuilder()
+      .setColor(0xFF5555)
+      .setTitle('❌ Reminder Not Found')
+      .setDescription('Could not find that reminder.');
+    
+    return interaction.update({
+      embeds: [embed],
+      components: []
+    });
+  }
+  
+  const reminder = state.reminders[userId][reminderIndex];
+  state.reminders[userId].splice(reminderIndex, 1);
+  
+  // Clear interval if it exists
+  if (interaction.client.reminderIntervals?.has(reminderId)) {
+    clearInterval(interaction.client.reminderIntervals.get(reminderId));
+    interaction.client.reminderIntervals.delete(reminderId);
+  }
+  
+  await db.updateReminder(reminderId, { active: false });
+  await saveStateToFile();
+  
+  const activeCount = state.reminders[userId].filter(r => r.active).length;
+  
+  const embed = new EmbedBuilder()
+    .setColor(0x00FF00)
+    .setTitle('✅ Reminder Deleted')
+    .setDescription(`Deleted: **${reminder.message}**`)
+    .setFooter({ text: `Active reminders: ${activeCount}/${MAX_REMINDERS_PER_USER}` });
+
+  await interaction.update({
+    embeds: [embed],
+    components: []
+  });
 }
 
 function parseReminderTime(type, timeStr) {
@@ -377,15 +597,4 @@ async function sendReminder(client, reminder) {
   }
 }
 
-export function initializeReminders(client) {
-  if (!state.reminders) return;
-  
-  // Schedule all active reminders
-  for (const userId in state.reminders) {
-    for (const reminder of state.reminders[userId]) {
-      if (reminder.active) {
-        scheduleReminder(client, reminder);
-      }
-    }
-  }
-}
+export function initializeReminders(clien
