@@ -1,9 +1,8 @@
 import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle } from 'discord.js';
-import { state, saveStateToFile, genAI } from '../botManager.js';
+import { state, saveStateToFile } from '../botManager.js';
 import * as db from '../database.js';
+import { getUserTime } from './timezone.js';
 
-const REMINDER_MODEL = 'gemini-2.5-flash-lite';
-const FALLBACK_MODEL = 'gemini-2.5-flash';
 const MAX_REMINDERS_PER_USER = 10;
 
 export const reminderCommand = {
@@ -128,7 +127,7 @@ export async function handleReminderTypeSelect(interaction) {
       .setCustomId('reminder_message')
       .setLabel('What should I remind you about?')
       .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('e.g., Take medication, Study for exam, Water plants')
+      .setPlaceholder('e.g., Take medication, Study for exam')
       .setRequired(true)
       .setMaxLength(500);
 
@@ -136,30 +135,30 @@ export async function handleReminderTypeSelect(interaction) {
     if (type === 'once') {
       timeInput = new TextInputBuilder()
         .setCustomId('reminder_time')
-        .setLabel('When? (format: YYYY-MM-DD HH:MM)')
+        .setLabel('When? (YYYY-MM-DD HH:MM AM/PM)')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('e.g., 2024-12-25 14:30')
+        .setPlaceholder('e.g., 2024-12-25 02:30 PM')
         .setRequired(true);
     } else if (type === 'daily') {
       timeInput = new TextInputBuilder()
         .setCustomId('reminder_time')
-        .setLabel('What time each day? (24h format: HH:MM)')
+        .setLabel('What time? (HH:MM AM/PM)')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('e.g., 09:00, 14:30, 20:00')
+        .setPlaceholder('e.g., 09:00 AM, 14:30, 8:00 PM')
         .setRequired(true);
     } else if (type === 'weekly') {
       timeInput = new TextInputBuilder()
         .setCustomId('reminder_time')
-        .setLabel('Day and time? (format: Monday 09:00)')
+        .setLabel('Day and time? (Day HH:MM AM/PM)')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('e.g., Monday 09:00, Friday 17:00')
+        .setPlaceholder('e.g., Monday 09:00 AM, Friday 5:00 PM')
         .setRequired(true);
     } else if (type === 'monthly') {
       timeInput = new TextInputBuilder()
         .setCustomId('reminder_time')
-        .setLabel('Day and time? (format: 15 09:00)')
+        .setLabel('Day and time? (Day HH:MM AM/PM)')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('e.g., 1 09:00, 15 14:00 (day of month)')
+        .setPlaceholder('e.g., 1 09:00 AM, 15 2:00 PM')
         .setRequired(true);
     }
 
@@ -184,13 +183,11 @@ export async function handleReminderModal(interaction) {
     const userId = interaction.user.id;
     const guildId = interaction.guild?.id;
     
-    // Show location preference selector
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setTitle('⏰ Reminder Location')
       .setDescription(`**Reminder:** ${message}\n**Type:** ${type}\n**Time:** ${timeStr}\n\nWhere should I send this reminder?`);
 
-    // Use a unique ID for the next step that doesn't rely on massive encoded strings
     const uniqueStepId = `${userId}_${Date.now()}`;
     const locationSelect = new StringSelectMenuBuilder()
       .setCustomId(`reminder_location_${uniqueStepId}`)
@@ -210,18 +207,16 @@ export async function handleReminderModal(interaction) {
 
     const row = new ActionRowBuilder().addComponents(locationSelect);
 
-    // Store temporarily
     if (!interaction.client.tempReminderData) {
       interaction.client.tempReminderData = new Map();
     }
     
-    // Use the unique ID as the key to prevent race conditions with multiple setups
     interaction.client.tempReminderData.set(uniqueStepId, {
       type,
       message,
       timeStr,
       guildId,
-      userId // Store userId to verify ownership later
+      userId
     });
 
     await interaction.reply({
@@ -230,7 +225,6 @@ export async function handleReminderModal(interaction) {
       flags: MessageFlags.Ephemeral
     });
     
-    // Clean up temp data after 5 minutes
     setTimeout(() => {
       interaction.client.tempReminderData.delete(uniqueStepId);
     }, 5 * 60 * 1000);
@@ -242,11 +236,9 @@ export async function handleReminderModal(interaction) {
 
 export async function handleReminderLocationSelect(interaction) {
   try {
-    // Custom ID format: reminder_location_UNIQUESTEPID
     const uniqueStepId = interaction.customId.replace('reminder_location_', '');
     const userId = interaction.user.id;
     
-    // Get temp data directly using the ID from the customId
     const tempData = interaction.client.tempReminderData?.get(uniqueStepId);
     
     if (!tempData) {
@@ -261,15 +253,9 @@ export async function handleReminderLocationSelect(interaction) {
       });
     }
 
-    // Verify user ownership
     if (tempData.userId !== userId) {
-      const embed = new EmbedBuilder()
-        .setColor(0xFF5555)
-        .setTitle('❌ Error')
-        .setDescription('This interaction does not belong to you.');
-        
       return interaction.reply({
-        embeds: [embed],
+        content: 'This interaction does not belong to you.',
         flags: MessageFlags.Ephemeral
       });
     }
@@ -278,6 +264,8 @@ export async function handleReminderLocationSelect(interaction) {
     const location = interaction.values[0];
     
     try {
+      // Parse the time string into components (year, month, day, hour, minute)
+      // This parsing does NOT convert to UTC yet; it preserves the user's intended "wall clock" time.
       const parsedTime = parseReminderTime(type, timeStr);
       
       if (!state.reminders) {
@@ -288,13 +276,12 @@ export async function handleReminderLocationSelect(interaction) {
         state.reminders[userId] = [];
       }
       
-      // Double-check limit before adding
       const activeReminders = state.reminders[userId].filter(r => r.active);
       if (activeReminders.length >= MAX_REMINDERS_PER_USER) {
         const embed = new EmbedBuilder()
           .setColor(0xFF5555)
           .setTitle('❌ Reminder Limit Reached')
-          .setDescription(`You have reached the maximum limit of ${MAX_REMINDERS_PER_USER} reminders.\n\nPlease delete some old reminders before creating new ones.`);
+          .setDescription(`You have reached the maximum limit of ${MAX_REMINDERS_PER_USER} reminders.`);
         
         return interaction.update({
           embeds: [embed],
@@ -306,7 +293,7 @@ export async function handleReminderLocationSelect(interaction) {
         id: `${userId}_${Date.now()}`,
         type,
         message,
-        time: parsedTime,
+        time: parsedTime, // Stores components like { hour: 14, minute: 30 }
         location,
         guildId: location !== 'dm' ? guildId : null,
         active: true,
@@ -331,10 +318,9 @@ export async function handleReminderLocationSelect(interaction) {
       const embed = new EmbedBuilder()
         .setColor(0x00FF00)
         .setTitle('✅ Reminder Set!')
-        .setDescription(`**Message:** ${message}\n**Type:** ${type}\n**Next trigger:** ${timeDisplay}\n**Location:** ${locationText}`)
+        .setDescription(`**Message:** ${message}\n**Type:** ${type}\n**Trigger:** ${timeDisplay}\n**Location:** ${locationText}`)
         .setFooter({ text: `Active reminders: ${activeCount}/${MAX_REMINDERS_PER_USER}` });
 
-      // Clear temp data
       interaction.client.tempReminderData.delete(uniqueStepId);
 
       await interaction.update({
@@ -346,7 +332,7 @@ export async function handleReminderLocationSelect(interaction) {
       const embed = new EmbedBuilder()
         .setColor(0xFF5555)
         .setTitle('❌ Invalid Time Format')
-        .setDescription(`Could not parse the time: "${timeStr}"\n\n${parseError.message}\n\nPlease try again with the correct format.`);
+        .setDescription(`Could not parse the time: "${timeStr}"\n\n${parseError.message}\n\nCheck for correct AM/PM format.`);
 
       await interaction.update({
         embeds: [embed],
@@ -451,42 +437,29 @@ export async function handleReminderDeleteSelect(interaction) {
     const reminderId = interaction.values[0];
     const userId = interaction.user.id;
     
-    if (!state.reminders?.[userId]) {
-      const embed = new EmbedBuilder()
-        .setColor(0xFF5555)
-        .setTitle('❌ Error')
-        .setDescription('Could not find your reminders.');
-      
-      return interaction.update({
-        embeds: [embed],
-        components: []
-      });
-    }
+    const reminderIndex = state.reminders?.[userId]?.findIndex(r => r.id === reminderId);
     
-    const reminderIndex = state.reminders[userId].findIndex(r => r.id === reminderId);
-    
-    if (reminderIndex === -1) {
+    if (reminderIndex === undefined || reminderIndex === -1) {
       const embed = new EmbedBuilder()
         .setColor(0xFF5555)
         .setTitle('❌ Reminder Not Found')
         .setDescription('Could not find that reminder.');
-      
-      return interaction.update({
-        embeds: [embed],
-        components: []
-      });
+      return interaction.update({ embeds: [embed], components: [] });
     }
     
     const reminder = state.reminders[userId][reminderIndex];
+    
+    // Remove from state array entirely (hard delete from memory)
     state.reminders[userId].splice(reminderIndex, 1);
     
-    // Clear interval if it exists
+    // Clear interval if exists
     if (interaction.client.reminderIntervals?.has(reminderId)) {
       clearInterval(interaction.client.reminderIntervals.get(reminderId));
       interaction.client.reminderIntervals.delete(reminderId);
     }
     
-    await db.updateReminder(reminderId, { active: false });
+    // Delete from DB (hard delete)
+    await db.deleteReminder(reminderId);
     await saveStateToFile();
     
     const activeCount = state.reminders[userId].filter(r => r.active).length;
@@ -507,66 +480,91 @@ export async function handleReminderDeleteSelect(interaction) {
   }
 }
 
+// Updated to support AM/PM and 12-hour format
 function parseReminderTime(type, timeStr) {
+  // Helper to convert 12h to 24h
+  const to24Hour = (hour, ampm) => {
+    hour = parseInt(hour);
+    if (!ampm) return hour;
+    const isPM = ampm.toUpperCase() === 'PM';
+    if (isPM && hour < 12) return hour + 12;
+    if (!isPM && hour === 12) return 0;
+    return hour;
+  };
+
+  const ampmRegex = /\s*([AaPp][Mm])?$/;
+
   if (type === 'once') {
-    // Format: YYYY-MM-DD HH:MM
-    const match = timeStr.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-    if (!match) throw new Error('Format should be: YYYY-MM-DD HH:MM (e.g., 2024-12-25 14:30)');
+    // Format: YYYY-MM-DD HH:MM [AM/PM]
+    const match = timeStr.match(/(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/);
+    if (!match) throw new Error('Format: YYYY-MM-DD HH:MM (AM/PM) (e.g., 2024-12-25 02:30 PM)');
     
-    const [, year, month, day, hour, minute] = match;
-    const date = new Date(year, month - 1, day, hour, minute);
+    const [, year, month, day, hourStr, minute, ampm] = match;
+    const hour = to24Hour(hourStr, ampm);
     
-    if (date < new Date()) {
-      throw new Error('Time must be in the future!');
-    }
-    
-    return { timestamp: date.getTime() };
+    // Validate future time roughly (exact validation happens at runtime with timezone)
+    // We store components
+    return { 
+      year: parseInt(year), 
+      month: parseInt(month), 
+      day: parseInt(day), 
+      hour, 
+      minute: parseInt(minute) 
+    };
     
   } else if (type === 'daily') {
-    // Format: HH:MM
-    const match = timeStr.match(/(\d{2}):(\d{2})/);
-    if (!match) throw new Error('Format should be: HH:MM (e.g., 09:00, 14:30)');
+    // Format: HH:MM [AM/PM]
+    const match = timeStr.match(/(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/);
+    if (!match) throw new Error('Format: HH:MM (AM/PM) (e.g., 09:00 AM, 14:30)');
     
-    const [, hour, minute] = match;
-    return { hour: parseInt(hour), minute: parseInt(minute) };
+    const [, hourStr, minute, ampm] = match;
+    const hour = to24Hour(hourStr, ampm);
+    return { hour, minute: parseInt(minute) };
     
   } else if (type === 'weekly') {
-    // Format: Monday 09:00
-    const match = timeStr.match(/(\w+)\s+(\d{2}):(\d{2})/);
-    if (!match) throw new Error('Format should be: DayName HH:MM (e.g., Monday 09:00)');
+    // Format: Day HH:MM [AM/PM]
+    const match = timeStr.match(/(\w+)\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/);
+    if (!match) throw new Error('Format: DayName HH:MM (AM/PM) (e.g., Monday 09:00 AM)');
     
-    const [, dayName, hour, minute] = match;
+    const [, dayName, hourStr, minute, ampm] = match;
     const dayMap = { monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 0 };
     const day = dayMap[dayName.toLowerCase()];
     
-    if (day === undefined) throw new Error('Invalid day name. Use: Monday, Tuesday, etc.');
+    if (day === undefined) throw new Error('Invalid day. Use: Monday, Tuesday, etc.');
+    const hour = to24Hour(hourStr, ampm);
     
-    return { day, hour: parseInt(hour), minute: parseInt(minute) };
+    return { day, hour, minute: parseInt(minute) };
     
   } else if (type === 'monthly') {
-    // Format: 15 09:00
-    const match = timeStr.match(/(\d{1,2})\s+(\d{2}):(\d{2})/);
-    if (!match) throw new Error('Format should be: DD HH:MM (e.g., 15 09:00)');
+    // Format: DD HH:MM [AM/PM]
+    const match = timeStr.match(/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/);
+    if (!match) throw new Error('Format: DD HH:MM (AM/PM) (e.g., 15 09:00 AM)');
     
-    const [, day, hour, minute] = match;
-    if (parseInt(day) < 1 || parseInt(day) > 31) {
-      throw new Error('Day must be between 1 and 31');
-    }
+    const [, day, hourStr, minute, ampm] = match;
+    const hour = to24Hour(hourStr, ampm);
+
+    if (parseInt(day) < 1 || parseInt(day) > 31) throw new Error('Day must be 1-31');
     
-    return { day: parseInt(day), hour: parseInt(hour), minute: parseInt(minute) };
+    return { day: parseInt(day), hour, minute: parseInt(minute) };
   }
 }
 
-function formatReminderTime(type, parsedTime) {
+function formatReminderTime(type, t) {
+  const formatTime = (h, m) => {
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 || 12;
+    return `${hour12}:${String(m).padStart(2, '0')} ${ampm}`;
+  };
+
   if (type === 'once') {
-    return new Date(parsedTime.timestamp).toLocaleString();
+    return `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')} ${formatTime(t.hour, t.minute)}`;
   } else if (type === 'daily') {
-    return `Every day at ${String(parsedTime.hour).padStart(2, '0')}:${String(parsedTime.minute).padStart(2, '0')}`;
+    return `Every day at ${formatTime(t.hour, t.minute)}`;
   } else if (type === 'weekly') {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return `Every ${days[parsedTime.day]} at ${String(parsedTime.hour).padStart(2, '0')}:${String(parsedTime.minute).padStart(2, '0')}`;
+    return `Every ${days[t.day]} at ${formatTime(t.hour, t.minute)}`;
   } else if (type === 'monthly') {
-    return `${parsedTime.day}th of every month at ${String(parsedTime.hour).padStart(2, '0')}:${String(parsedTime.minute).padStart(2, '0')}`;
+    return `${t.day}th of every month at ${formatTime(t.hour, t.minute)}`;
   }
 }
 
@@ -574,44 +572,75 @@ function scheduleReminder(client, reminder) {
   const checkAndTrigger = async () => {
     if (!reminder.active) return;
     
-    const now = new Date();
+    const userId = reminder.id.split('_')[0];
+    
+    // CRITICAL: Get time in the USER'S timezone, not server time
+    const userNow = getUserTime(userId);
+    
     let shouldTrigger = false;
     
     if (reminder.type === 'once') {
-      if (now.getTime() >= reminder.time.timestamp) {
+      // Compare components because we stored them as "User Time Components"
+      const nowComponents = {
+        y: userNow.getFullYear(),
+        m: userNow.getMonth() + 1,
+        d: userNow.getDate(),
+        h: userNow.getHours(),
+        min: userNow.getMinutes()
+      };
+
+      // Check if current time matches OR is past the target time
+      // Construct comparable integers (YYYYMMDDHHMM)
+      const nowVal = nowComponents.y * 100000000 + nowComponents.m * 1000000 + nowComponents.d * 10000 + nowComponents.h * 100 + nowComponents.min;
+      const targetVal = reminder.time.year * 100000000 + reminder.time.month * 1000000 + reminder.time.day * 10000 + reminder.time.hour * 100 + reminder.time.minute;
+
+      if (nowVal >= targetVal) {
         shouldTrigger = true;
-        reminder.active = false; // Disable after triggering once
       }
     } else if (reminder.type === 'daily') {
-      if (now.getHours() === reminder.time.hour && now.getMinutes() === reminder.time.minute) {
+      if (userNow.getHours() === reminder.time.hour && userNow.getMinutes() === reminder.time.minute) {
         shouldTrigger = true;
       }
     } else if (reminder.type === 'weekly') {
-      if (now.getDay() === reminder.time.day && 
-          now.getHours() === reminder.time.hour && 
-          now.getMinutes() === reminder.time.minute) {
+      if (userNow.getDay() === reminder.time.day && 
+          userNow.getHours() === reminder.time.hour && 
+          userNow.getMinutes() === reminder.time.minute) {
         shouldTrigger = true;
       }
     } else if (reminder.type === 'monthly') {
-      if (now.getDate() === reminder.time.day && 
-          now.getHours() === reminder.time.hour && 
-          now.getMinutes() === reminder.time.minute) {
+      if (userNow.getDate() === reminder.time.day && 
+          userNow.getHours() === reminder.time.hour && 
+          userNow.getMinutes() === reminder.time.minute) {
         shouldTrigger = true;
       }
     }
     
     if (shouldTrigger) {
       await sendReminder(client, reminder);
-      if (!reminder.active) {
-        await db.updateReminder(reminder.id, { active: false });
+      
+      if (reminder.type === 'once') {
+        // Completely delete 'once' reminders after triggering
+        const rIndex = state.reminders[userId]?.findIndex(r => r.id === reminder.id);
+        if (rIndex !== -1) {
+          state.reminders[userId].splice(rIndex, 1);
+        }
+        
+        // Hard delete from DB
+        await db.deleteReminder(reminder.id);
+        await saveStateToFile();
+        
+        // Clear this specific interval
+        if (client.reminderIntervals?.has(reminder.id)) {
+          clearInterval(client.reminderIntervals.get(reminder.id));
+          client.reminderIntervals.delete(reminder.id);
+        }
       }
     }
   };
   
-  // Check every minute
-  const intervalId = setInterval(checkAndTrigger, 60 * 1000);
+  // Check every 45 seconds to avoid missing the minute mark due to execution drift
+  const intervalId = setInterval(checkAndTrigger, 45 * 1000);
   
-  // Store interval ID for cleanup
   if (!client.reminderIntervals) {
     client.reminderIntervals = new Map();
   }
@@ -665,7 +694,6 @@ async function sendReminder(client, reminder) {
 export function initializeReminders(client) {
   if (!state.reminders) return;
   
-  // Schedule all active reminders
   for (const userId in state.reminders) {
     for (const reminder of state.reminders[userId]) {
       if (reminder.active) {
@@ -694,4 +722,4 @@ async function sendError(interaction, message, isUpdate = false) {
   } catch (e) {
     console.error('Failed to send error message:', e);
   }
-}
+            }
