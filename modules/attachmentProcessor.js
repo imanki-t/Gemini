@@ -130,9 +130,9 @@ export async function processAttachment(attachment, userId, interactionId) {
               .run();
           });
           
-          // ✅ CORRECT SDK: Use 'path' not 'file'
+          // ✅ CORRECT SDK: Use 'file' not 'path'
           const uploadResult = await genAI.files.upload({
-            path: mp4FilePath,
+            file: mp4FilePath,
             config: {
               mimeType: 'video/mp4',
               displayName: sanitizedFileName.replace(/\.gif$/i, '.mp4'),
@@ -176,7 +176,7 @@ export async function processAttachment(attachment, userId, interactionId) {
               .toFile(pngFilePath);
             
             const uploadResult = await genAI.files.upload({
-              path: pngFilePath,
+              file: pngFilePath,
               config: {
                 mimeType: 'image/png',
                 displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
@@ -224,9 +224,9 @@ export async function processAttachment(attachment, userId, interactionId) {
         mimeType = mimeMap[fileExtension] || 'application/octet-stream';
       }
       
-      // ✅ CORRECT SDK: Use 'path' not 'file'
+      // ✅ CORRECT SDK: Use 'file' not 'path'
       const uploadResult = await genAI.files.upload({
-        path: filePath,
+        file: filePath,
         config: {
           mimeType: mimeType,
           displayName: sanitizedFileName,
@@ -282,7 +282,7 @@ export async function processAttachment(attachment, userId, interactionId) {
         .toFile(pngFilePath);
       
       const uploadResult = await genAI.files.upload({
-        path: pngFilePath,
+        file: pngFilePath,
         config: {
           mimeType: 'image/png',
           displayName: sanitizedFileName.replace(/\.[^.]+$/, '.png'),
@@ -327,7 +327,7 @@ export async function processAttachment(attachment, userId, interactionId) {
       });
       
       const uploadResult = await genAI.files.upload({
-        path: mp3FilePath,
+        file: mp3FilePath,
         config: {
           mimeType: 'audio/mpeg',
           displayName: sanitizedFileName.replace(/\.[^.]+$/, '.mp3'),
@@ -376,7 +376,7 @@ export async function processAttachment(attachment, userId, interactionId) {
       });
       
       const uploadResult = await genAI.files.upload({
-        path: mp4FilePath,
+        file: mp4FilePath,
         config: {
           mimeType: 'video/mp4',
           displayName: sanitizedFileName.replace(/\.[^.]+$/, '.mp4'),
@@ -428,7 +428,7 @@ export async function processAttachment(attachment, userId, interactionId) {
       await fs.writeFile(txtFilePath, fileContent, 'utf8');
       
       const uploadResult = await genAI.files.upload({
-        path: txtFilePath,
+        file: txtFilePath,
         config: {
           mimeType: 'text/plain',
           displayName: txtFileName,
@@ -476,4 +476,4 @@ function sanitizeFileName(fileName) {
     .replace(/[^a-z0-9.-]/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 100);
-              }
+}
