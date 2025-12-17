@@ -1056,4 +1056,5 @@ export async function handleComplimentCommand(interaction) {
      });
    }
  }
+
 }
