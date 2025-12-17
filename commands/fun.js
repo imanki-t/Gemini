@@ -1,6 +1,7 @@
-﻿import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } from 'discord.js';
+import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } from 'discord.js';
 import { state, saveStateToFile, genAI, TEMP_DIR } from '../botManager.js';
 import { memorySystem } from '../memorySystem.js';
+import * as db from '../database.js';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -311,7 +312,7 @@ export async function handleAnniversaryCommand(interaction) {
 
 export const digestCommand = {
  name: 'digest',
- description: 'Get a weekly digest (7-day cooldown, analyzes 75 messages/day with AI)'
+ description: 'Get a weekly digest (7-day cooldown, analyzes top ~100 relevant messages)'
 };
 
 export async function handleDigestCommand(interaction) {
@@ -320,7 +321,7 @@ export async function handleDigestCommand(interaction) {
  const isDM = !guildId;
  
  const COOLDOWN_DAYS = 7;
- const MESSAGES_PER_DAY = 75;
+ const TARGET_TOTAL_MESSAGES = 100;
  const DAYS_TO_ANALYZE = 7;
  const now = Date.now();
  const cooldownMs = COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
@@ -339,7 +340,7 @@ export async function handleDigestCommand(interaction) {
    const embed = new EmbedBuilder()
      .setColor(0xFFAA00)
      .setTitle('⏳ Digest on Cooldown')
-     .setDescription(`You can generate a new digest in **${daysLeft} day${daysLeft !== 1 ? 's' : ''}**.\n\nShowing your last digest:`)
+     .setDescription(`You can generate a new digest in **${daysLeft} day${daysLeft !== 1 ? 's' : ''}**.\n\nShowing your last digest summary:`)
      .addFields(
        { name: '📅 Generated', value: new Date(lastDigest.timestamp).toLocaleString(), inline: true },
        { name: '💬 Messages Analyzed', value: lastDigest.messageCount.toString(), inline: true },
@@ -362,131 +363,123 @@ export async function handleDigestCommand(interaction) {
  
  try {
    const historyId = isDM ? userId : guildId;
-   const historyObject = state.chatHistories?.[historyId] || {};
+   const sevenDaysAgo = now - (DAYS_TO_ANALYZE * 24 * 60 * 60 * 1000);
+   let selectedMessages = [];
+
+   // 1. Try Vector Search Selection using Memory Entries
+   // Fetch entries (potentially large limit to cover the week)
+   const memoryEntries = await db.getMemoryEntries(historyId, 1000);
    
-   if (Object.keys(historyObject).length === 0) {
-     const embed = new EmbedBuilder()
-       .setColor(0xFF5555)
-       .setTitle('❌ No History')
-       .setDescription(isDM 
-         ? 'No conversation history found in DMs with me.'
-         : 'No conversation history found for this server.\n\nMake sure server-wide chat history is enabled in settings!');
-     
-     return interaction.editReply({
-       embeds: [embed]
-     });
+   // Filter entries that fall within the analysis window and have embeddings
+   const relevantEntries = memoryEntries.filter(e => e.timestamp > sevenDaysAgo && e.embedding);
+
+   if (relevantEntries.length > 0) {
+     try {
+       const query = "Key events, important decisions, funny moments, and meaningful conversations from the week.";
+       const queryEmbedding = await memorySystem.generateEmbedding(query, 'RETRIEVAL_QUERY');
+
+       if (queryEmbedding) {
+         // Score entries by similarity to the summary query
+         const scoredEntries = relevantEntries.map(entry => ({
+           ...entry,
+           similarity: memorySystem.cosineSimilarity(queryEmbedding, entry.embedding)
+         }));
+
+         // Sort by relevance (highest score first)
+         scoredEntries.sort((a, b) => b.similarity - a.similarity);
+
+         // Select top entries until we reach the target message count
+         let currentCount = 0;
+         for (const entry of scoredEntries) {
+           if (currentCount >= TARGET_TOTAL_MESSAGES) break;
+           
+           if (entry.messages && Array.isArray(entry.messages)) {
+             selectedMessages.push(...entry.messages);
+             currentCount += entry.messages.length;
+           }
+         }
+       }
+     } catch (err) {
+       console.error("Vector search failed for digest, falling back to raw history:", err);
+     }
    }
-   
-   const oneDayMs = 24 * 60 * 60 * 1000;
-   const sevenDaysAgo = now - (DAYS_TO_ANALYZE * oneDayMs);
-   
-   const messagesByDay = {};
-   for (let i = 0; i < DAYS_TO_ANALYZE; i++) {
-     const dayStart = now - ((i + 1) * oneDayMs);
-     const dayEnd = now - (i * oneDayMs);
-     messagesByDay[i] = {
-       dayIndex: i,
-       dayLabel: new Date(dayEnd - oneDayMs/2).toLocaleDateString(),
-       messages: []
-     };
+
+   // 2. Fallback: If vector search yielded few results (no history indexed yet), use raw history
+   if (selectedMessages.length < 10) {
+     const historyObject = state.chatHistories?.[historyId] || {};
+     let allRawMessages = [];
      
      for (const messagesId in historyObject) {
        const messages = historyObject[messagesId];
        if (Array.isArray(messages)) {
          for (const msg of messages) {
-           if (msg.timestamp && msg.timestamp > dayStart && msg.timestamp <= dayEnd) {
+           if (msg.timestamp && msg.timestamp > sevenDaysAgo) {
+             // Basic text filter
              const text = msg.content?.map(c => c.text).filter(t => t).join(' ') || '';
-             if (text.length > 0) {
-               messagesByDay[i].messages.push({
-                 text,
-                 username: msg.username || 'User',
-                 displayName: msg.displayName || msg.username || 'User',
-                 timestamp: msg.timestamp,
-                 role: msg.role
-               });
+             if (text.trim().length > 0) {
+                allRawMessages.push({
+                    ...msg,
+                    text: text // Helper property
+                });
              }
            }
          }
        }
      }
      
-     messagesByDay[i].messages.sort((a, b) => a.timestamp - b.timestamp);
-     messagesByDay[i].messages = messagesByDay[i].messages.slice(-MESSAGES_PER_DAY);
+     // Sort by timestamp
+     allRawMessages.sort((a, b) => a.timestamp - b.timestamp);
+     
+     // Take the last N messages
+     selectedMessages = allRawMessages.slice(-TARGET_TOTAL_MESSAGES);
+   } else {
+     // If we used vector search, re-sort chronologically
+     selectedMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+     
+     // Trim if significantly over limit to keep token count reasonable
+     if (selectedMessages.length > TARGET_TOTAL_MESSAGES + 25) {
+         selectedMessages = selectedMessages.slice(0, TARGET_TOTAL_MESSAGES + 25);
+     }
    }
    
-   const totalMessages = Object.values(messagesByDay).reduce((sum, day) => sum + day.messages.length, 0);
-   
-   if (totalMessages === 0) {
+   if (selectedMessages.length === 0) {
      const embed = new EmbedBuilder()
        .setColor(0xFF5555)
        .setTitle('📊 No Recent Activity')
-       .setDescription('No conversations in the past 7 days.');
+       .setDescription('No relevant conversations found in the past 7 days to analyze.');
      
      return interaction.editReply({
        embeds: [embed]
      });
    }
-   
-   const dayAnalyses = [];
-   
-   for (const [dayNum, dayData] of Object.entries(messagesByDay)) {
-     if (dayData.messages.length === 0) continue;
-     
-     const dayText = dayData.messages
-       .map(m => `[${new Date(m.timestamp).toLocaleTimeString()}] ${m.displayName}: ${m.text}`)
-       .join('\n');
-     
-     const embedding = await memorySystem.generateEmbedding(dayText, 'RETRIEVAL_DOCUMENT');
-     
-     dayAnalyses.push({
-       dayIndex: parseInt(dayNum),
-       dayLabel: dayData.dayLabel,
-       messageCount: dayData.messages.length,
-       text: dayText,
-       embedding: embedding
-     });
-   }
-   
-   let fullConversationText = '';
-   const summariesByDay = [];
-   
-   for (const dayAnalysis of dayAnalyses) {
-     fullConversationText += `\n\n${'='.repeat(80)}\nDAY: ${dayAnalysis.dayLabel} (${dayAnalysis.messageCount} messages)\n${'='.repeat(80)}\n\n${dayAnalysis.text}\n`;
-     
-     try {
-       const dayQuery = `Summarize the key topics, decisions, and highlights from ${dayAnalysis.dayLabel}`;
-       const queryEmbedding = await memorySystem.generateEmbedding(dayQuery, 'RETRIEVAL_QUERY');
-       
-       const relevanceScore = queryEmbedding && dayAnalysis.embedding 
-         ? memorySystem.cosineSimilarity(queryEmbedding, dayAnalysis.embedding)
-         : 1.0;
-       
-       summariesByDay.push({
-         day: dayAnalysis.dayLabel,
-         messageCount: dayAnalysis.messageCount,
-         relevanceScore: relevanceScore,
-         preview: dayAnalysis.text.slice(0, 500)
-       });
-     } catch (error) {
-       console.error(`Error analyzing day ${dayAnalysis.dayLabel}:`, error);
-     }
-   }
+
+   // Format conversation text for LLM
+   const fullConversationText = selectedMessages.map(m => {
+        let text = '';
+        if (m.text) {
+             text = m.text;
+        } else {
+             text = m.content?.map(c => c.text).filter(t => t).join(' ') || '';
+        }
+        const name = m.displayName || m.username || 'User';
+        const time = new Date(m.timestamp || now).toLocaleString();
+        return `[${time}] ${name}: ${text}`;
+   }).join('\n');
    
    const fileName = `digest_${digestKey}_${Date.now()}.txt`;
    const filePath = path.join(TEMP_DIR, fileName);
    
-   const fileHeader = `${isDM ? 'DM' : 'Server'} Weekly Digest
+   const fileHeader = `${isDM ? 'DM' : 'Server'} Weekly Digest (Source Content)
 Generated: ${new Date(now).toLocaleString()}
 Period: Last ${DAYS_TO_ANALYZE} days
-Total Messages Analyzed: ${totalMessages}
-Messages Per Day Limit: ${MESSAGES_PER_DAY}
+Messages Analyzed: ${selectedMessages.length} (Target: ${TARGET_TOTAL_MESSAGES})
 
 ${'='.repeat(80)}
 `;
    
    await fs.writeFile(filePath, fileHeader + fullConversationText, 'utf8');
    
-   // Improved Upload Handling
+   // Upload to Gemini for processing
    let uploadResult = null;
    let useInline = false;
    
@@ -505,19 +498,18 @@ ${'='.repeat(80)}
    
    let aiSummary;
    try {
-     const promptText = `Analyze this ${DAYS_TO_ANALYZE}-day conversation history and create a CONCISE executive summary (max 300 words) covering:
+     const promptText = `Analyze this ${DAYS_TO_ANALYZE}-day conversation log (~${selectedMessages.length} messages) and create a CONCISE executive summary (max 400 words) covering:
 
 1. Top 3-5 most discussed topics
-2. Key decisions or action items
-3. Notable events or announcements
-4. Overall conversation themes
-5. Day-by-day breakdown of activity
+2. Key decisions, action items, or conclusions
+3. Notable events or funny moments
+4. Overall conversation vibe
+5. Brief timeline of key activity
 
-Be specific but brief. Focus on actionable insights.`;
+Be specific but brief. Focus on actionable insights and meaningful highlights.`;
 
      const parts = [];
      if (!useInline && uploadResult && uploadResult.uri) {
-       // FIX: Correct fileData structure
        parts.push({
          fileData: {
            fileUri: uploadResult.uri,
@@ -545,48 +537,23 @@ Be specific but brief. Focus on actionable insights.`;
        },
        generationConfig: {
          temperature: 0.3,
-         maxOutputTokens: 800
+         maxOutputTokens: 1000
        }
      };
      
      const result = await genAI.models.generateContent(request);
-     aiSummary = result.text || 'Analysis completed. See full details in attached file.';
+     aiSummary = result.text || 'Analysis completed.';
    } catch (error) {
      console.error('Error with flash-lite, trying fallback:', error);
      
      try {
-       const promptText = `Analyze this ${DAYS_TO_ANALYZE}-day conversation history and create a CONCISE executive summary (max 300 words) covering:
-
-1. Top 3-5 most discussed topics
-2. Key decisions or action items
-3. Notable events or announcements
-4. Overall conversation themes
-5. Day-by-day breakdown of activity
-
-Be specific but brief. Focus on actionable insights.`;
-
-       const parts = [];
-       if (!useInline && uploadResult && uploadResult.uri) {
-         // FIX: Correct fileData structure
-         parts.push({
-           fileData: {
-             fileUri: uploadResult.uri,
-             mimeType: 'text/plain'
-           }
-         });
-       } else {
-          parts.push({
-           text: (fileHeader + fullConversationText).slice(0, 500000)
-         });
-       }
-       parts.push({ text: promptText });
-
        const request = {
          model: FALLBACK_MODEL,
          contents: [{
            role: 'user',
-           parts: parts
+           parts: parts // reuse parts
          }],
+         // reuse system instruction
          systemInstruction: {
            parts: [{
              text: 'You are a conversation analyst creating executive summaries. Be concise, specific, and highlight actionable insights. Use bullet points and clear structure.'
@@ -594,76 +561,47 @@ Be specific but brief. Focus on actionable insights.`;
          },
          generationConfig: {
            temperature: 0.3,
-           maxOutputTokens: 800
+           maxOutputTokens: 1000
          }
        };
        
        const result = await genAI.models.generateContent(request);
-       aiSummary = result.text || 'Analysis completed. See full details in attached file.';
+       aiSummary = result.text || 'Analysis completed.';
      } catch (fallbackError) {
        console.error('Fallback model also failed:', fallbackError);
-       aiSummary = 'Unable to generate AI summary. Please review the detailed conversation file.';
+       aiSummary = 'Unable to generate AI summary.';
      }
    }
    
    state.userDigests[digestKey] = {
      timestamp: now,
-     messageCount: totalMessages,
+     messageCount: selectedMessages.length,
      summary: aiSummary,
      daysAnalyzed: DAYS_TO_ANALYZE
    };
    
    await saveStateToFile();
    
-   const userFileName = `${isDM ? 'DM' : interaction.guild?.name?.replace(/[^a-z0-9]/gi, '_') || 'server'}_weekly_digest.txt`;
-   const userFilePath = path.join(TEMP_DIR, userFileName);
-   
-   const fullReport = `Weekly Digest - ${isDM ? 'Direct Messages' : interaction.guild?.name || 'Server'}
-Generated: ${new Date(now).toLocaleString()}
-Period: Last ${DAYS_TO_ANALYZE} days
-Messages Analyzed: ${totalMessages} (max ${MESSAGES_PER_DAY} per day)
-
-${'='.repeat(80)}
-
-AI EXECUTIVE SUMMARY:
-
-${aiSummary}
-
-${'='.repeat(80)}
-
-DAILY BREAKDOWN:
-
-${summariesByDay.map(s => `📅 ${s.day}: ${s.messageCount} messages analyzed`).join('\n')}
-
-${'='.repeat(80)}
-
-FULL CONVERSATION LOG:
-
-${fullConversationText}`;
-   
-   await fs.writeFile(userFilePath, fullReport, 'utf8');
-   
-   const attachment = new AttachmentBuilder(userFilePath, { name: userFileName });
+   // Clean up local file (since we are NOT sending it to user)
+   await fs.unlink(filePath).catch(() => {});
    
    const embed = new EmbedBuilder()
      .setColor(0x5865F2)
      .setTitle('📊 Weekly Digest')
-     .setDescription(aiSummary.slice(0, 2000))
+     .setDescription(aiSummary.slice(0, 4000)) // Ensure fits in embed
      .addFields(
-       { name: '💬 Total Messages', value: `${totalMessages} (${MESSAGES_PER_DAY}/day limit)`, inline: true },
+       { name: '💬 Messages Analyzed', value: `${selectedMessages.length} (Relevant selection)`, inline: true },
        { name: '📅 Period', value: `Last ${DAYS_TO_ANALYZE} days`, inline: true },
        { name: '⏳ Next Digest', value: `${COOLDOWN_DAYS} days`, inline: true }
      )
-     .setFooter({ text: `${isDM ? 'DM Digest' : interaction.guild?.name + ' • Server Digest'} • AI-powered analysis` })
+     .setFooter({ text: `${isDM ? 'DM Digest' : interaction.guild?.name + ' • Server Digest'} • AI-powered relevance analysis` })
      .setTimestamp();
 
+   // Reply with ONLY the embed, no files attached
    await interaction.editReply({
      embeds: [embed],
-     files: [attachment]
+     files: [] // Explicitly empty
    });
-   
-   await fs.unlink(filePath).catch(() => {});
-   await fs.unlink(userFilePath).catch(() => {});
    
  } catch (error) {
    console.error('Digest generation error:', error);
@@ -677,9 +615,7 @@ ${fullConversationText}`;
      await interaction.editReply({
        embeds: [embed]
      });
-   } catch (editError) {
-     console.error('Failed to edit reply with error:', editError);
-   }
+   } catch (editError) {}
  }
 }
 
@@ -922,12 +858,12 @@ export async function handleComplimentCommand(interaction) {
      contents: [{
        role: 'user',
        parts: [{
-         text: `Generate a sincere compliment for someone named ${targetUser.username}`
+         text: `Generate a paragraph (6-7 lines) distinct, sincere, and creative compliments for someone named ${targetUser.username}`
        }]
      }],
      systemInstruction: {
        parts: [{
-         text: 'Generate a kind, genuine compliment (2-3 sentences). Be specific and heartfelt. Avoid generic phrases. Make it personal and meaningful.'
+         text: 'Generate some compliments. Write in a paragraph (6-7 lines). Be specific, heartfelt, and creative. Avoid generic phrases. Make them personal and meaningful.'
        }]
      },
      generationConfig: {
@@ -936,7 +872,7 @@ export async function handleComplimentCommand(interaction) {
    };
    
    const result = await genAI.models.generateContent(request);
-   const compliment = result.text || 'You\'re an amazing person who brings joy to those around you! Keep being awesome! 🌟';
+   const compliment = result.text || '• You\'re an amazing person!\n• You bring joy to those around you.\n• Your positivity is infectious.\n• Keep being awesome!';
    
    if (!state.complimentCounts) {
      state.complimentCounts = {};
@@ -946,21 +882,18 @@ export async function handleComplimentCommand(interaction) {
    usage.count++;
    await saveStateToFile();
    
-   const embed = new EmbedBuilder()
-     .setColor(0xFF69B4)
-     .setTitle('💝 You Received a Compliment!')
-     .setDescription(compliment)
-     .setFooter({ text: `You've received ${state.complimentCounts[targetUser.id]} compliment${state.complimentCounts[targetUser.id] > 1 ? 's' : ''}!` });
+   // Send as default message (content), not embed
+   const messageContent = `Someone sent you an anonymous compliment:\n\n${compliment}\n\n*You've received ${state.complimentCounts[targetUser.id]} compliment${state.complimentCounts[targetUser.id] > 1 ? 's' : ''}!*`;
 
    try {
-     await targetUser.send({ embeds: [embed] });
+     await targetUser.send({ content: messageContent });
      
      const remaining = MAX_COMPLIMENTS_PER_DAY - usage.count;
      
      const confirmEmbed = new EmbedBuilder()
        .setColor(0x00FF00)
        .setTitle('✅ Compliment Sent!')
-       .setDescription(`Your anonymous compliment has been sent to ${targetUser.username}! 💝`)
+       .setDescription(`Your anonymous compliment list has been sent to ${targetUser.username}! 💝`)
        .setFooter({ text: `${remaining} compliment${remaining !== 1 ? 's' : ''} remaining today` });
 
      await interaction.editReply({
@@ -987,12 +920,12 @@ export async function handleComplimentCommand(interaction) {
        contents: [{
          role: 'user',
          parts: [{
-           text: `Generate a sincere compliment for someone named ${targetUser.username}`
+           text: `Generate a list of 5-7 distinct, sincere, and creative compliments for someone named ${targetUser.username}`
          }]
        }],
        systemInstruction: {
          parts: [{
-           text: 'Generate a kind, genuine compliment (2-3 sentences). Be specific and heartfelt. Avoid generic phrases. Make it personal and meaningful.'
+           text: 'Generate a list of 5-7 distinct compliments. Use bullet points (•). Be specific, heartfelt, and creative. Avoid generic phrases. Make them personal and meaningful.'
          }]
        },
        generationConfig: {
@@ -1001,7 +934,7 @@ export async function handleComplimentCommand(interaction) {
      };
      
      const result = await genAI.models.generateContent(request);
-     const compliment = result.text || 'You\'re an amazing person who brings joy to those around you! Keep being awesome! 🌟';
+     const compliment = result.text || '• You\'re an amazing person!\n• You bring joy to those around you.\n• Your positivity is infectious.\n• Keep being awesome!';
      
      if (!state.complimentCounts) {
        state.complimentCounts = {};
@@ -1011,14 +944,11 @@ export async function handleComplimentCommand(interaction) {
      usage.count++;
      await saveStateToFile();
      
-     const embed = new EmbedBuilder()
-       .setColor(0xFF69B4)
-       .setTitle('💝 You Received a Compliment!')
-       .setDescription(compliment)
-       .setFooter({ text: `You've received ${state.complimentCounts[targetUser.id]} compliment${state.complimentCounts[targetUser.id] > 1 ? 's' : ''}!` });
+     // Send as default message (content), not embed
+     const messageContent = `Someone sent you an anonymous compliment ❤️:\n\n${compliment}\n\n*You've received ${state.complimentCounts[targetUser.id]} compliment${state.complimentCounts[targetUser.id] > 1 ? 's' : ''}!*`;
 
      try {
-       await targetUser.send({ embeds: [embed] });
+       await targetUser.send({ content: messageContent });
        
        const remaining = MAX_COMPLIMENTS_PER_DAY - usage.count;
        
@@ -1058,3 +988,5 @@ export async function handleComplimentCommand(interaction) {
  }
 
 }
+
+ 
