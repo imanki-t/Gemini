@@ -60,11 +60,14 @@ function switchToNextKey(error) {
       timestamp: new Date().toISOString()
     };
   }
+  console.log(`Switching API Key from index ${oldIdx} to ${currentKeyIdx} due to error.`);
 }
 
 async function withRetry(apiCall) {
   let attempts = 0;
-  const maxAttempts = apiKeys.length;
+  // We allow up to apiKeys.length retries so we can cycle through all keys if needed.
+  // If only 1 key, we try 3 times just in case it was a blip, but usually 429 persists.
+  const maxAttempts = Math.max(3, apiKeys.length);
 
   while (attempts < maxAttempts) {
     try {
@@ -81,12 +84,19 @@ async function withRetry(apiCall) {
       const stats = keyUsageStats.get(currentKeyIdx);
       stats.errors++;
 
+      console.warn(`API call failed (Key Index: ${currentKeyIdx}): ${error.message}`);
+      
+      // If error is not a quota error or server error, throwing might be better than rotating,
+      // but rotating is safer for 429/500/503.
       switchToNextKey(error);
       attempts++;
 
       if (attempts >= maxAttempts) {
         throw new Error(`All API keys failed. Last error: ${error.message}`);
       }
+      
+      // Small delay before retry to let the new key "settle" or just backoff slightly
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
 }
@@ -123,6 +133,16 @@ export const genAI = new Proxy({}, {
     return typeof value === 'function' ? value.bind(currentClient) : value;
   }
 });
+
+// Helper to create part from URI (standardized)
+export function createPartFromUri(fileUri, mimeType) {
+    return {
+        fileData: {
+            fileUri: fileUri,
+            mimeType: mimeType
+        }
+    };
+}
 
 export function getApiKeyStats() {
   const stats = [];
