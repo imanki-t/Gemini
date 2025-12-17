@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import { createWriteStream } from 'fs';
 import axios from 'axios';
 import ffmpeg from 'fluent-ffmpeg';
-import { genAI, TEMP_DIR } from '../botManager.js';
+import { genAI, TEMP_DIR, createPartFromUri } from '../botManager.js';
 import { delay } from '../tools/others.js';
 
 export async function processAttachment(attachment, userId, interactionId) {
@@ -130,7 +130,6 @@ export async function processAttachment(attachment, userId, interactionId) {
               .run();
           });
           
-          // ✅ CORRECT SDK: Use 'file' not 'path'
           const uploadResult = await genAI.files.upload({
             file: mp4FilePath,
             config: {
@@ -159,11 +158,19 @@ export async function processAttachment(attachment, userId, interactionId) {
           await fs.unlink(filePath).catch(() => {});
           await fs.unlink(mp4FilePath).catch(() => {});
           
-          // ✅ Return fileUri format
-          return {
-            fileUri: uploadResult.uri,
-            mimeType: uploadResult.mimeType
-          };
+          let metadata = '';
+          if (isAnimatedSticker) {
+            metadata = `[Animated Sticker converted to video: ${attachment.name} (video/mp4)]`;
+          } else if (isAnimatedEmoji) {
+            metadata = `[Animated Emoji (:${attachment.emojiName}:) converted to video (video/mp4)]`;
+          } else {
+            metadata = `[Animated GIF converted to video: ${sanitizedFileName} (video/mp4)]`;
+          }
+          
+          return [
+            { text: metadata },
+            createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+          ];
           
         } catch (gifError) {
           console.error('Error converting GIF to MP4:', gifError);
@@ -186,10 +193,19 @@ export async function processAttachment(attachment, userId, interactionId) {
             await fs.unlink(filePath).catch(() => {});
             await fs.unlink(pngFilePath).catch(() => {});
             
-            return {
-              fileUri: uploadResult.uri,
-              mimeType: uploadResult.mimeType
-            };
+            let fallbackMetadata = '';
+            if (isAnimatedSticker) {
+              fallbackMetadata = `[Static frame from Animated Sticker: ${attachment.name} (image/png)]`;
+            } else if (isAnimatedEmoji) {
+              fallbackMetadata = `[Static frame from Animated Emoji: :${attachment.emojiName}: (image/png)]`;
+            } else {
+              fallbackMetadata = `[Static frame from GIF: ${sanitizedFileName} (image/png)]`;
+            }
+            
+            return [
+              { text: fallbackMetadata },
+              createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+            ];
           } catch (fallbackError) {
             throw gifError;
           }
@@ -224,7 +240,6 @@ export async function processAttachment(attachment, userId, interactionId) {
         mimeType = mimeMap[fileExtension] || 'application/octet-stream';
       }
       
-      // ✅ CORRECT SDK: Use 'file' not 'path'
       const uploadResult = await genAI.files.upload({
         file: filePath,
         config: {
@@ -254,11 +269,28 @@ export async function processAttachment(attachment, userId, interactionId) {
 
       await fs.unlink(filePath).catch(() => {});
       
-      // ✅ Return ONLY fileUri format (no metadata text)
-      return {
-        fileUri: uploadResult.uri,
-        mimeType: uploadResult.mimeType
-      };
+      let fileTypeDescription = 'File';
+      if (apiUploadableTypes.images.extensions.includes(fileExtension) || 
+          apiUploadableTypes.images.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Image';
+      } else if (apiUploadableTypes.video.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.video.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Video';
+      } else if (apiUploadableTypes.audio.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.audio.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Audio';
+      } else if (apiUploadableTypes.uploadableDocs.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.uploadableDocs.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'PDF Document';
+      } else if (apiUploadableTypes.plainText.extensions.includes(fileExtension) || 
+                 apiUploadableTypes.plainText.mimeTypes.includes(mimeType)) {
+        fileTypeDescription = 'Text File';
+      }
+      
+      return [
+        { text: `[${fileTypeDescription} uploaded: ${sanitizedFileName} (${mimeType})]` },
+        createPartFromUri(uploadResult.uri, uploadResult.mimeType)
+      ];
       
     } catch (uploadError) {
       console.error(`Error uploading ${attachment.name} to API:`, uploadError);
@@ -292,10 +324,10 @@ export async function processAttachment(attachment, userId, interactionId) {
       await fs.unlink(filePath).catch(() => {});
       await fs.unlink(pngFilePath).catch(() => {});
       
-      return {
-        fileUri: uploadResult.uri,
-        mimeType: 'image/png'
-      };
+      return [
+        { text: `[Image converted from ${fileExtension.toUpperCase()} to PNG: ${attachment.name} (image/png)]` },
+        createPartFromUri(uploadResult.uri, 'image/png')
+      ];
       
     } catch (conversionError) {
       console.error(`Error converting image ${attachment.name}:`, conversionError);
@@ -337,10 +369,10 @@ export async function processAttachment(attachment, userId, interactionId) {
       await fs.unlink(filePath).catch(() => {});
       await fs.unlink(mp3FilePath).catch(() => {});
       
-      return {
-        fileUri: uploadResult.uri,
-        mimeType: 'audio/mpeg'
-      };
+      return [
+        { text: `[Audio converted from ${fileExtension.toUpperCase()} to MP3: ${attachment.name} (audio/mpeg)]` },
+        createPartFromUri(uploadResult.uri, 'audio/mpeg')
+      ];
       
     } catch (conversionError) {
       console.error(`Error converting audio ${attachment.name}:`, conversionError);
@@ -399,10 +431,10 @@ export async function processAttachment(attachment, userId, interactionId) {
       await fs.unlink(filePath).catch(() => {});
       await fs.unlink(mp4FilePath).catch(() => {});
       
-      return {
-        fileUri: uploadResult.uri,
-        mimeType: 'video/mp4'
-      };
+      return [
+        { text: `[Video converted from ${fileExtension.toUpperCase()} to MP4: ${attachment.name} (video/mp4)]` },
+        createPartFromUri(uploadResult.uri, 'video/mp4')
+      ];
       
     } catch (conversionError) {
       console.error(`Error converting video ${attachment.name}:`, conversionError);
@@ -437,10 +469,25 @@ export async function processAttachment(attachment, userId, interactionId) {
 
       await fs.unlink(txtFilePath).catch(() => {});
       
-      return {
-        fileUri: uploadResult.uri,
-        mimeType: 'text/plain'
-      };
+      let originalType = 'Document';
+      if (['.doc', '.docx', '.rtf'].includes(fileExtension)) {
+        originalType = 'Word Document';
+      } else if (['.xls', '.xlsx', '.csv', '.tsv'].includes(fileExtension)) {
+        originalType = 'Spreadsheet';
+      } else if (fileExtension === '.pptx') {
+        originalType = 'PowerPoint Presentation';
+      } else if (['.html', '.xml'].includes(fileExtension)) {
+        originalType = 'Markup Document';
+      } else if (['.py', '.java', '.js', '.css', '.json', '.sql', '.c', '.cpp', '.cs', '.php', '.rb', '.go'].includes(fileExtension)) {
+        originalType = 'Code File';
+      } else if (['.md', '.log', '.yml', '.yaml', '.ini', '.cfg', '.conf'].includes(fileExtension)) {
+        originalType = 'Text Configuration File';
+      }
+      
+      return [
+        { text: `[${originalType} extracted to text: ${attachment.name} (converted to text/plain)]` },
+        createPartFromUri(uploadResult.uri, 'text/plain')
+      ];
       
     } catch (extractionError) {
       console.error(`Error extracting text from ${attachment.name}:`, extractionError);
@@ -477,3 +524,4 @@ function sanitizeFileName(fileName) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 100);
 }
+export { processAttachment };
