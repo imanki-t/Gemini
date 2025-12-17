@@ -24,50 +24,53 @@ class MemorySystem {
     this.lastIndexedCount = new Map();
   }
 
-  /**
-   * ✅ FIXED: Correct SDK usage for embeddings
-   */
-  async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
-    // 1. Critical Validation
-    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+  // REPLACEMENT for generateEmbedding function in memorySystem.js
+// This fixes the embedding API calls to use the correct SDK structure
+
+/**
+ * ✅ FIXED: Correct SDK usage for embeddings with @google/genai
+ */
+async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
+  // 1. Critical Validation
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
+    return null;
+  }
+
+  const cacheKey = text.slice(0, 100) + taskType;
+  if (this.embeddingCache.has(cacheKey)) {
+    return this.embeddingCache.get(cacheKey);
+  }
+
+  try {
+    // ✅ CORRECT SDK FORMAT for @google/genai
+    const result = await genAI.models.embedContent({
+      model: EMBEDDING_MODEL,
+      contents: text,
+      config: {
+        taskType: taskType
+      }
+    });
+    
+    // ✅ CORRECT: Access embeddings array
+    const embedding = result.embeddings?.[0]?.values;
+    
+    if (!embedding || !Array.isArray(embedding)) {
       return null;
     }
 
-    const cacheKey = text.slice(0, 100) + taskType;
-    if (this.embeddingCache.has(cacheKey)) {
-      return this.embeddingCache.get(cacheKey);
+    this.embeddingCache.set(cacheKey, embedding);
+    
+    // Cache management
+    if (this.embeddingCache.size > 1000) {
+      const firstKey = this.embeddingCache.keys().next().value;
+      this.embeddingCache.delete(firstKey);
     }
-
-    try {
-      // ✅ CORRECT SDK FORMAT
-      const result = await genAI.models.embedContent({
-        model: EMBEDDING_MODEL,
-        contents: text,
-        config: {
-          taskType: taskType
-        }
-      });
-      
-      // ✅ CORRECT: Access embeddings array
-      const embedding = result.embeddings?.[0]?.values;
-      
-      if (!embedding || !Array.isArray(embedding)) {
-        return null;
-      }
-
-      this.embeddingCache.set(cacheKey, embedding);
-      
-      // Cache management
-      if (this.embeddingCache.size > 1000) {
-        const firstKey = this.embeddingCache.keys().next().value;
-        this.embeddingCache.delete(firstKey);
-      }
-      
-      return embedding;
-    } catch (error) {
-      console.error('Embedding generation failed:', error.message);
-      return null;
-    }
+    
+    return embedding;
+  } catch (error) {
+    console.error('Embedding generation failed:', error.message);
+    return null;
+  }
   }
 
   cosineSimilarity(a, b) {
