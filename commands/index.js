@@ -75,7 +75,9 @@ import {
   handleTimezoneCommand,
   handleTimezoneSelect,
   handleTimezoneNextPage,
-  handleTimezonePrevPage
+  handleTimezonePrevPage,
+  handleTimezoneCustomButton,
+  handleTimezoneCustomModal
 } from './timezone.js';
 
 export function initializeScheduledTasks(client) {
@@ -127,7 +129,8 @@ export async function handleSelectMenuInteraction(interaction) {
     'tod_choice': handleTODChoice,
     'tds_choice': handleTDSChoice,
     'akinator_mode': handleAkinatorModeSelect,
-    'timezone_select': handleTimezoneSelect
+    'timezone_region': handleTimezoneSelect, // Added routing for region selection
+    'timezone_select': handleTimezoneSelect  // Kept routing for final selection
   };
 
   for (const [key, handler] of Object.entries(handlers)) {
@@ -141,6 +144,8 @@ export async function handleSelectMenuInteraction(interaction) {
 export async function handleModalSubmission(interaction) {
   if (interaction.customId.startsWith('reminder_modal_')) {
     await handleReminderModal(interaction);
+  } else if (interaction.customId === 'timezone_modal') {
+    await handleTimezoneCustomModal(interaction);
   }
 }
 
@@ -161,6 +166,7 @@ export async function handleButtonInteraction(interaction) {
     'wyr_next_': handleWYRNext,
     'timezone_next_page': handleTimezoneNextPage,
     'timezone_prev_page': handleTimezonePrevPage,
+    'timezone_custom': handleTimezoneCustomButton,
     'reminder_action_delete': showReminderDeleteFromButton
   };
 
