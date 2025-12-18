@@ -778,12 +778,13 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       const request = {
         model: modelName,
         contents: [...history, { role: 'user', parts }],
-        systemInstruction: { text: systemInstruction }, // FIXED: Proper format
-        generationConfig,
+        config: {
+          systemInstruction: systemInstruction,  // Plain string format
+          ...generationConfig  // Merge generation config here
+        },
         safetySettings,
         tools
       };
-
       const result = await genAI.models.generateContentStream(request);
 
       if (!result) {
