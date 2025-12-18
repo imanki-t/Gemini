@@ -767,15 +767,16 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
       // Build request with proper config structure
       const request = {
-        model: modelName,
-        contents: [...history, { role: 'user', parts }],
-        config: {
-          systemInstruction: systemInstruction,  // Includes proper thinking config for model version
-          ...generationConfig  
-        },
-        safetySettings,
-        tools
-      };
+  model: modelName,
+  contents: [...history, { role: 'user', parts }],
+  config: {
+    systemInstruction: systemInstruction,
+    ...generationConfig,
+    tools: tools  // Add tools here
+  },
+  safetySettings
+  // Remove tools from here
+};
 
       const result = await genAI.models.generateContentStream(request);
 
