@@ -234,6 +234,7 @@ let starterUsage = {};
 let complimentUsage = {};
 let userDigests = {};
 let realive = {};
+let summaryUsage = {};
 
 export const state = {
   get chatHistories() {
@@ -382,6 +383,12 @@ export const state = {
   },
   set realive(v) {
     realive = v;
+  },
+  get summaryUsage() {
+    return summaryUsage;
+  },
+  set summaryUsage(v) {
+    summaryUsage = v;
   }
 };
 
@@ -472,6 +479,10 @@ export async function saveStateToFile() {
     for (const [guildId, config] of Object.entries(realive)) {
       savePromises.push(db.saveRealiveConfig(guildId, config));
     }
+    
+    for (const [userId, usage] of Object.entries(summaryUsage)) {
+      savePromises.push(db.saveSummaryUsage(userId, usage));
+    }
 
     savePromises.push(db.saveActiveUsersInChannels(activeUsersInChannels));
 
@@ -511,7 +522,8 @@ async function loadStateFromDB() {
       userTimezones,
       serverDigests,
       quoteUsage,
-      realive
+      realive,
+      summaryUsage
     ] = await Promise.all([
       db.getAllChatHistories(),
       db.getAllUserSettings(),
@@ -530,7 +542,8 @@ async function loadStateFromDB() {
       db.getAllUserTimezones(),
       db.getAllServerDigests(),
       db.getAllQuoteUsages(),
-      db.getAllRealiveConfigs()
+      db.getAllRealiveConfigs(),
+      db.getAllSummaryUsages()
     ]);
 
     alwaysRespondChannels = await db.getAllChannelSettings('alwaysRespond');
@@ -605,9 +618,17 @@ function scheduleDailyReset() {
         preserveAttachmentContext(chatHistories);
 
         const currentMs = Date.now();
+        
+        // Reset Image Usage
         for (const userId in imageUsage) {
           imageUsage[userId].count = 0;
           imageUsage[userId].lastReset = currentMs;
+        }
+
+        // Reset Summary Usage
+        for (const userId in summaryUsage) {
+          summaryUsage[userId].count = 0;
+          summaryUsage[userId].lastReset = currentMs;
         }
 
         await saveStateToFile();
@@ -841,6 +862,58 @@ export function incrementImageUsage(userId) {
 
   imageUsage[userId].count++;
   imageUsage[userId].lastRequest = now;
+}
+
+export function checkSummaryRateLimit(userId) {
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const LIMIT = 10;
+
+  if (!summaryUsage[userId]) {
+    summaryUsage[userId] = {
+      count: 0,
+      lastReset: now
+    };
+  }
+
+  const usage = summaryUsage[userId];
+
+  if (now - usage.lastReset > ONE_DAY) {
+    usage.count = 0;
+    usage.lastReset = now;
+  }
+
+  if (usage.count >= LIMIT) {
+    return {
+      allowed: false,
+      message: `🛑 You've reached your daily limit of ${LIMIT} summaries. Limits reset daily.`
+    };
+  }
+
+  return {
+    allowed: true
+  };
+}
+
+export function incrementSummaryUsage(userId) {
+  const now = Date.now();
+  if (!summaryUsage[userId]) {
+    summaryUsage[userId] = {
+      count: 0,
+      lastReset: now
+    };
+  }
+  
+  const usage = summaryUsage[userId];
+  
+  // If it's been more than a day, this is technically the first usage of the new day
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  if (now - usage.lastReset > ONE_DAY) {
+    usage.count = 0;
+    usage.lastReset = now;
+  }
+  
+  usage.count++;
 }
 
 process.on('SIGINT', async () => {
