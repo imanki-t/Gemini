@@ -1,5 +1,5 @@
 import { EmbedBuilder, MessageFlags } from 'discord.js';
-import { genAI, TEMP_DIR } from '../botManager.js';
+import { genAI, TEMP_DIR, checkSummaryRateLimit, incrementSummaryUsage } from '../botManager.js';
 import { fetchMessagesForSummary } from '../modules/utils.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -13,32 +13,19 @@ export const summaryCommand = {
 
 export async function handleSummaryCommand(interaction) {
   try {
+    // 1. Check Rate Limit
+    const limitCheck = checkSummaryRateLimit(interaction.user.id);
+    if (!limitCheck.allowed) {
+      return interaction.reply({
+        content: limitCheck.message,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
     const link = interaction.options.getString('link');
     const count = interaction.options.getInteger('count') || 50;
 
     await interaction.deferReply();
-
-    // The fetchMessagesForSummary utility handles permission checks and finding the message
-    // Pass interaction as the "message" context for checks (it has .channel, .guild, etc.)
-    // Note: utils.js expects a Message-like object or at least { guild, channel, author } for some logic
-    // We'll mock a simple message-like object or rely on interaction having compatible props
-    
-    // Actually, fetchMessagesForSummary uses client.guilds.cache.get(guildId) from the link
-    // It takes `message` just to check perms of the bot, or uses client.
-    // Let's pass the interaction, but we need to ensure the logic in utils.js works with it.
-    // utils.js calls: client.guilds.cache.get, channel.messages.fetch, etc.
-    // It returns an object with { success, content, messageCount, channelName, guildName }
-    
-    // We need to pass the "message" argument. In utils.js it's used for:
-    // This argument is actually unused in the current version of utils.js provided in the prompt context!
-    // It extracts guildId/channelId from the LINK.
-    // Wait, let's verify utils.js content from the prompt...
-    // The provided file content shows: `export async function fetchMessagesForSummary(message, messageLink, count = 1) { ... }`
-    // Inside it uses `client.guilds.cache.get(guildId)`... it does NOT use the `message` argument except maybe for logging?
-    // Actually, it doesn't use the `message` argument at all in the provided snippet.
-    // So passing interaction should be fine or null.
-    
-    // However, for safety, let's pass a dummy object if needed, but interaction works.
     
     const result = await fetchMessagesForSummary(interaction, link, count);
 
@@ -74,7 +61,6 @@ export async function handleSummaryCommand(interaction) {
 
     // Generate Summary
     const model = genAI.models; 
-    // We use the simpler generateContent interface via our wrapper
     
     const prompt = `Please analyze the attached conversation log from Discord.
     
@@ -118,6 +104,9 @@ export async function handleSummaryCommand(interaction) {
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
+
+    // 2. Increment Usage on Success
+    incrementSummaryUsage(interaction.user.id);
 
   } catch (error) {
     console.error('Error in handleSummaryCommand:', error);
