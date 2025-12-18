@@ -430,13 +430,18 @@ async function showUserSettings(interaction, isUpdate = false) {
   const showActionButtons = userSettings.showActionButtons === true;
   const embedColor = userSettings.embedColor || hexColour;
 
+  
   const modelSelect = new StringSelectMenuBuilder()
-    .setCustomId('user_model_select')
-    .setPlaceholder('Select AI Model')
-    .addOptions(
-      new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash').setDescription('Balanced and efficient model').setValue('gemini-2.5-flash').setEmoji('⚡').setDefault(selectedModel === 'gemini-2.5-flash'),
-      new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash Lite').setDescription('Lightweight and quick').setValue('gemini-2.5-flash-lite').setEmoji('💨').setDefault(selectedModel === 'gemini-2.5-flash-lite'),
-    );
+  .setCustomId('user_model_select')
+  .setPlaceholder('Select AI Model')
+  .addOptions(
+    new StringSelectMenuOptionBuilder()
+      .setLabel('Gemini 3.0 Flash')
+      .setDescription('Latest AI model - Pro-level intelligence at Flash speed')
+      .setValue('gemini-3-flash')
+      .setEmoji('⚡')
+      .setDefault(true)
+  );
 
   const responseFormatSelect = new StringSelectMenuBuilder()
     .setCustomId('user_response_format')
@@ -656,12 +661,16 @@ async function showServerSettings(interaction, isUpdate = false) {
   const embedColor = serverSettings.embedColor || hexColour;
 
   const modelSelect = new StringSelectMenuBuilder()
-    .setCustomId('server_model_select')
-    .setPlaceholder('Select AI Model')
-    .addOptions(
-      new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash').setDescription('Balanced and efficient model').setValue('gemini-2.5-flash').setEmoji('⚡').setDefault(selectedModel === 'gemini-2.5-flash'),
-      new StringSelectMenuOptionBuilder().setLabel('Gemini 2.5 Flash Lite').setDescription('Lightweight and quick').setValue('gemini-2.5-flash-lite').setEmoji('💨').setDefault(selectedModel === 'gemini-2.5-flash-lite'),
-    );
+  .setCustomId('server_model_select')
+  .setPlaceholder('Select AI Model')
+  .addOptions(
+    new StringSelectMenuOptionBuilder()
+      .setLabel('Gemini 3.0 Flash')
+      .setDescription('Latest AI model - Pro-level intelligence at Flash speed')
+      .setValue('gemini-3-flash')
+      .setEmoji('⚡')
+      .setDefault(true)
+  );
 
   const responseFormatSelect = new StringSelectMenuBuilder()
     .setCustomId('server_response_format')
