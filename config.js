@@ -84,7 +84,7 @@ Keep the tone warm, supportive, and bubbly throughout all interactions, making u
   ],
   
   defaultServerSettings: {
-    selectedModel: "gemini-2.5-flash",
+    selectedModel: "gemini-3-flash",
     responseFormat: "Normal",
     showActionButtons: false,
     continuousReply: false,
@@ -96,7 +96,7 @@ Keep the tone warm, supportive, and bubbly throughout all interactions, making u
   },
   
   defaultUserSettings: {
-    selectedModel: "gemini-2.5-flash",
+    selectedModel: "gemini-3-flash",
     responseFormat: "Normal",
     showActionButtons: false,
     continuousReply: true,
