@@ -1,7 +1,8 @@
-import { genAI } from './botManager.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { genAI, TEMP_DIR } from './botManager.js';
 import * as db from './database.js';
 
-// ✅ CORRECT: Latest model (GA since July 2025)
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 const MAX_CONTEXT_TOKENS = 30000;
@@ -17,14 +18,8 @@ class MemorySystem {
     this.lastIndexedCount = new Map();
   }
 
-  /**
-   * ✅ FIXED: Validation to prevent "requests must not be empty" error
-   * ✅ FIXED: Correct API call format for @google/genai SDK
-   */
   async generateEmbedding(text, taskType = 'RETRIEVAL_DOCUMENT') {
-    // 1. Critical Validation
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      // console.warn('⚠️ Skipped embedding generation: Text is empty.');
       return null;
     }
 
@@ -50,7 +45,6 @@ class MemorySystem {
 
       this.embeddingCache.set(cacheKey, embedding);
       
-      // Cache management
       if (this.embeddingCache.size > 1000) {
         const firstKey = this.embeddingCache.keys().next().value;
         this.embeddingCache.delete(firstKey);
@@ -141,14 +135,12 @@ class MemorySystem {
       }];
     } catch (error) {
       console.error('Compression failed:', error.message);
-      // Fallback: return the last few messages if compression fails
       return messages.slice(-3);
     }
   }
 
   async getRelevantContext(historyId, currentQuery, allHistory, maxRelevant = 5) {
     try {
-      // Validation to prevent empty query embedding error
       if (!currentQuery || currentQuery.trim().length === 0) return [];
 
       const queryEmbedding = await this.generateEmbedding(currentQuery, 'RETRIEVAL_QUERY');
@@ -261,14 +253,12 @@ class MemorySystem {
 
       if (historyArray.length === 0) return [];
 
-      // Trigger instant indexing check (non-blocking)
       this.checkAndIndexMessages(historyId, allHistory).catch(() => {});
 
       if (historyArray.length <= MAX_FULL_MESSAGES) {
         return this.formatHistoryWithContext(historyArray);
       }
 
-      // For longer histories, use RAG with compression
       const recentMessages = historyArray.slice(-MAX_FULL_MESSAGES);
       const oldMessages = historyArray.slice(0, -MAX_FULL_MESSAGES);
 
@@ -283,13 +273,83 @@ class MemorySystem {
         ? await this.compressOldMessages(oldMessages, model)
         : oldMessages.slice(-10);
 
+      let contextContent = '';
+      
+      if (compressedOld.length > 0) {
+        const isSummary = oldMessages.length > COMPRESSION_THRESHOLD;
+        const label = isSummary ? `Last ${oldMessages.length} messages summary` : `Previous conversation`;
+        
+        const text = compressedOld.map(msg => {
+          if (isSummary) return this.extractTextFromMessage(msg);
+          const role = msg.role === 'assistant' ? 'Model' : 'User';
+          return `${role}: ${this.extractTextFromMessage(msg)}`;
+        }).join('\n');
+        
+        if (text.trim()) {
+            contextContent += `${label}:\n${text}\n\n`;
+        }
+      }
+
+      if (relevantContext.length > 0) {
+        const ragText = relevantContext.map(msg => {
+          const role = msg.role === 'assistant' ? 'Model' : 'User';
+          const txt = this.extractTextFromMessage(msg);
+          return `${role}: ${txt}`;
+        }).join('\n');
+        
+        if (ragText.trim()) {
+            contextContent += `Relevant context:\n${ragText}`;
+        }
+      }
+
+      if (contextContent.length > 1500) {
+         // Include recent messages in the file content
+         const recentText = recentMessages.map(msg => {
+            const role = msg.role === 'assistant' ? 'Model' : 'User';
+            const txt = this.extractTextFromMessage(msg);
+            const name = msg.displayName || msg.username || '';
+            const header = name ? `${role} (${name})` : role;
+            return `${header}: ${txt}`;
+         }).join('\n\n');
+
+         if (recentText.trim()) {
+            contextContent += `\n\nRecent Conversation History:\n${recentText}`;
+         }
+
+         try {
+             const filename = `context_${historyId}_${Date.now()}.txt`;
+             const filePath = path.join(TEMP_DIR, filename);
+             
+             await fs.writeFile(filePath, contextContent);
+             
+             const uploadResult = await genAI.files.upload({
+                file: filePath,
+                config: { mimeType: 'text/plain', displayName: 'Conversation Context' }
+             });
+    
+             await fs.unlink(filePath).catch(() => {});
+    
+             const contextEntry = {
+                role: 'user',
+                parts: [
+                    { text: "System: The attached file contains the conversation summary, relevant historical context, and the most recent messages. Use this information to reply to the user." },
+                    { fileData: { mimeType: uploadResult.mimeType, fileUri: uploadResult.uri } }
+                ]
+             };
+    
+             // Return only the file entry, as recent messages are now inside the file
+             return [contextEntry];
+         } catch (fileError) {
+             console.error('Failed to create context file, falling back to inline text:', fileError);
+         }
+      }
+
       const combined = [
         ...compressedOld,
         ...relevantContext,
         ...recentMessages
       ];
 
-      // Remove duplicates while preserving order
       const uniqueMessages = Array.from(
         new Map(combined.map(msg => [
           this.extractTextFromMessage(msg) + (msg.timestamp || ''),
@@ -316,7 +376,6 @@ class MemorySystem {
         parts: []
       };
 
-      // 1. Add Time Context if needed
       if (previousTimestamp && entry.timestamp) {
         const timeDiffMs = entry.timestamp - previousTimestamp;
         if (timeDiffMs > timeThresholdMs) {
@@ -328,15 +387,12 @@ class MemorySystem {
       }
       previousTimestamp = entry.timestamp;
 
-      // 2. Process Content Parts
       let userInfoAdded = false;
 
       for (const part of entry.content) {
-        // Handle Text
         if (part.text !== undefined && part.text !== '') {
           let finalText = part.text;
           
-          // Add User Info to the FIRST text part only
           if (!userInfoAdded && entry.role === 'user' && entry.username && entry.displayName) {
             finalText = `[${entry.displayName} (@${entry.username})]: ${finalText}`;
             userInfoAdded = true;
@@ -344,9 +400,6 @@ class MemorySystem {
           
           apiEntry.parts.push({ text: finalText });
         } 
-        // Handle Files (URIs) - STRIP for memory to prevent 403 Forbidden
-        // When using RAG or compressed memory, we cannot pass old URIs because they might be
-        // owned by a different API key (rotation) or have expired.
         else if (part.fileUri) {
            const mime = part.mimeType || 'unknown';
            apiEntry.parts.push({ text: `[Attachment: Previous file (${mime}) - Content no longer available to vision model]` });
