@@ -81,6 +81,52 @@ const commands = [
   {
     name: "timezone",
     description: "Set your timezone for time-based features."
+  },
+  {
+    name: "summary",
+    description: "Summarize a conversation based on a message link",
+    options: [
+      {
+        name: "link",
+        description: "The message link to start the summary around",
+        type: 3,
+        required: true
+      },
+      {
+        name: "count",
+        description: "Number of messages to summarize",
+        type: 4,
+        required: false,
+        min_value: 1,
+        max_value: 100
+      }
+    ]
+  },
+  {
+    name: "realive",
+    description: "Periodically send messages to revive dead chats",
+    options: [
+      {
+        name: "action",
+        description: "Configure realive settings",
+        type: 3,
+        required: true,
+        choices: [
+          { name: "Enable", value: "enable" },
+          { name: "Disable", value: "disable" },
+          { name: "Set Interval", value: "interval" },
+          { name: "Status", value: "status" }
+        ]
+      },
+      {
+        name: "hours",
+        description: "Hours between interval messages.",
+        type: 4,
+        required: false,
+        min_value: 1,
+        max_value: 168
+      }
+    ]
   }
 ];
 
