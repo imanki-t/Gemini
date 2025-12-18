@@ -322,8 +322,15 @@ async function handleTextMessage(message) {
   let hasMedia = false;
 
   try {
-    messageContent = await extractFileText(message, messageContent);
+    const { finalPrompt, summaryParts } = await extractFileText(message, messageContent);
+    messageContent = finalPrompt;
     parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
+    
+    // Inject summary file parts if any
+    if (summaryParts && summaryParts.length > 0) {
+      parts.push(...summaryParts);
+    }
+    
     hasMedia = parts.some(part => part.fileUri || part.fileData || part.inlineData);
   } catch (error) {
     console.error('Error initializing message:', error);
@@ -521,9 +528,12 @@ function extractForwardedContent(message) {
 }
 
 async function extractFileText(message, messageContent) {
+  let finalPrompt = messageContent;
+  let summaryParts = [];
+
   // Extract Discord message links for summarization
   const discordLinkRegex = /https?:\/\/(?:www\.)?discord\.com\/channels\/\d+\/\d+\/\d+/g;
-  const messageLinks = messageContent.match(discordLinkRegex);
+  const messageLinks = finalPrompt.match(discordLinkRegex);
   
   if (messageLinks && messageLinks.length > 0) {
     const patterns = [
@@ -537,7 +547,7 @@ async function extractFileText(message, messageContent) {
     let requestedCount = 1;
     
     for (const pattern of patterns) {
-      const match = messageContent.match(pattern);
+      const match = finalPrompt.match(pattern);
       if (match && match[1]) {
         requestedCount = parseInt(match[1]);
         messageCount = Math.min(requestedCount, 100);
@@ -545,7 +555,7 @@ async function extractFileText(message, messageContent) {
       }
     }
     
-    if (messageCount === 1 && /messages/i.test(messageContent) && !/\b1\s+message/i.test(messageContent)) {
+    if (messageCount === 1 && /messages/i.test(finalPrompt) && !/\b1\s+message/i.test(finalPrompt)) {
       messageCount = 10;
       requestedCount = 10;
     }
@@ -569,20 +579,49 @@ async function extractFileText(message, messageContent) {
     const result = await fetchMessagesForSummary(message, messageLinks[0], messageCount);
     
     if (result.error) {
-      messageContent += `\n\n[Error: ${result.error}]`;
+      finalPrompt += `\n\n[Error: ${result.error}]`;
     } else if (result.success) {
-      const requestInfo = messageCount > 1 
-        ? `The user requested ${requestedCount} messages${requestedCount > 100 ? ' (capped at 100)' : ''} and I fetched ${result.messageCount} messages around the linked message.`
-        : '';
-      
-      messageContent += `\n\n[Discord Messages to Summarize from #${result.channelName} in ${result.guildName} (${result.messageCount} message(s))]:\n${requestInfo}\n\n${result.content}`;
+      // NEW LOGIC: Convert to file instead of direct text
+      try {
+        const fileName = `discord_summary_${Date.now()}.txt`;
+        const filePath = path.join(TEMP_DIR, fileName);
+        const fileContent = `Discord Messages Summary Context\nChannel: #${result.channelName}\nServer: ${result.guildName}\nMessages Fetched: ${result.messageCount}\n\n${result.content}`;
+        
+        await fs.writeFile(filePath, fileContent);
+        
+        const uploadResult = await genAI.files.upload({
+          file: filePath,
+          config: {
+            mimeType: 'text/plain',
+            displayName: 'Discord Summary Data'
+          }
+        });
+
+        await fs.unlink(filePath).catch(() => {});
+
+        summaryParts.push({
+          text: `[Context: Attached file contains ${result.messageCount} Discord messages to summarize from #${result.channelName} in ${result.guildName}]`
+        });
+        summaryParts.push({
+          fileData: {
+            fileUri: uploadResult.uri,
+            mimeType: uploadResult.mimeType
+          }
+        });
+
+        finalPrompt = finalPrompt.replace(messageLinks[0], `[Link Processed: ${messageLinks[0]}]`);
+      } catch (fileError) {
+        console.error('Failed to create summary file:', fileError);
+        // Fallback to inline if file upload fails
+        finalPrompt += `\n\n[Discord Messages to Summarize]:\n${result.content}`;
+      }
     }
   }
   
   // Extract text from uploaded files
   if (message.attachments.size > 0) {
     let attachments = Array.from(message.attachments.values());
-    messageContent = await processTextFiles(attachments, messageContent, '');
+    finalPrompt = await processTextFiles(attachments, finalPrompt, '');
   }
   
   // Extract text from forwarded file attachments
@@ -590,11 +629,11 @@ async function extractFileText(message, messageContent) {
     const snapshot = message.messageSnapshots.first();
     if (snapshot.attachments && snapshot.attachments.size > 0) {
       let forwardedAttachments = Array.from(snapshot.attachments.values());
-      messageContent = await processTextFiles(forwardedAttachments, messageContent, '[Forwarded] ');
+      finalPrompt = await processTextFiles(forwardedAttachments, finalPrompt, '[Forwarded] ');
     }
   }
   
-  return messageContent;
+  return { finalPrompt, summaryParts };
 }
 
 async function processTextFiles(attachments, messageContent, prefix = '') {
@@ -757,7 +796,7 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
         const executableCode = chunk.executableCode 
           ? `\n\`\`\`python\n${chunk.executableCode.code}\n\`\`\`\n` 
           : "";
-          
+            
         const combinedText = chunkText + executableCode + codeOutput;
 
         if (combinedText && combinedText !== '') {
@@ -874,4 +913,5 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       }
     }
   }
-}
+      }
+        
