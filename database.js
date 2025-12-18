@@ -22,7 +22,8 @@ const collections = {
   serverDigests: 'serverDigests',
   activeUsersInChannels: 'activeUsersInChannels', 
   userResponsePreference: 'userResponsePreference',
-  realive: 'realive'
+  realive: 'realive',
+  summaryUsage: 'summaryUsage' // Added for rate limiting
 };
 
 export async function connectDB() {
@@ -67,6 +68,7 @@ async function createIndexes() {
     await db.collection(collections.userTimezones).createIndex({ userId: 1 }, { unique: true });
     await db.collection(collections.serverDigests).createIndex({ guildId: 1 }, { unique: true });
     await db.collection(collections.realive).createIndex({ guildId: 1 }, { unique: true });
+    await db.collection(collections.summaryUsage).createIndex({ userId: 1 }, { unique: true });
     
     console.log('✅ Database indexes created');
   } catch (error) {
@@ -81,7 +83,7 @@ export async function closeDB() {
   }
 }
 
-// ... [Existing exports for User/Server Settings, Chat History, etc. kept as is] ...
+// ... [Existing exports] ...
 
 export async function saveUserSettings(userId, settings) {
   try {
@@ -834,6 +836,37 @@ export async function getAllRealiveConfigs() {
   }
 }
 
+// Added for Summary Rate Limiting
+export async function saveSummaryUsage(userId, usage) {
+  try {
+    await db.collection(collections.summaryUsage).updateOne(
+      { userId },
+      { $set: { userId, ...usage, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving summary usage:', error);
+    throw error;
+  }
+}
+
+export async function getAllSummaryUsages() {
+  try {
+    const usages = await db.collection(collections.summaryUsage).find({}).toArray();
+    const result = {};
+    usages.forEach(u => {
+      result[u.userId] = {
+        count: u.count,
+        lastReset: u.lastReset
+      };
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting summary usages:', error);
+    return {};
+  }
+}
+
 export function getDB() {
   return db;
-}
+                  }
