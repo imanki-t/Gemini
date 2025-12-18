@@ -1,4 +1,4 @@
-import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } from 'discord.js';
+import { EmbedBuilder, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, PermissionsBitField } from 'discord.js';
 import { state, saveStateToFile, genAI, TEMP_DIR } from '../botManager.js';
 import { memorySystem } from '../memorySystem.js';
 import * as db from '../database.js';
@@ -15,6 +15,19 @@ export const rouletteCommand = {
  description: 'Bot randomly reacts to messages in this channel'
 };
 
+// Helper to send permission errors
+function sendPermError(interaction) {
+  const embed = new EmbedBuilder()
+    .setColor(0xFF0000)
+    .setTitle('🚫 Permission Denied')
+    .setDescription('You need "Manage Server" permission to configure reaction roulette.');
+  
+  if (interaction.replied || interaction.deferred) {
+    return interaction.followUp({ embeds: [embed], ephemeral: true });
+  }
+  return interaction.reply({ embeds: [embed], ephemeral: true });
+}
+
 export async function handleRouletteCommand(interaction) {
  const channelId = interaction.channelId;
  const guildId = interaction.guild?.id;
@@ -29,6 +42,11 @@ export async function handleRouletteCommand(interaction) {
      embeds: [embed],
      ephemeral: true
    });
+ }
+
+ // Check for Manage Server permission
+ if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+   return sendPermError(interaction);
  }
  
  if (!state.roulette) {
@@ -61,6 +79,11 @@ export async function handleRouletteCommand(interaction) {
 }
 
 export async function handleRouletteActionSelect(interaction) {
+ // Check for Manage Server permission on interaction as well
+ if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+   return sendPermError(interaction);
+ }
+
  const action = interaction.values[0];
  const channelId = interaction.channelId;
  
@@ -129,6 +152,11 @@ export async function handleRouletteActionSelect(interaction) {
 }
 
 export async function handleRouletteRaritySelect(interaction) {
+ // Check for Manage Server permission
+ if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+   return sendPermError(interaction);
+ }
+
  const rarity = interaction.values[0];
  const channelId = interaction.channelId;
  
@@ -367,10 +395,7 @@ export async function handleDigestCommand(interaction) {
    let selectedMessages = [];
 
    // 1. Try Vector Search Selection using Memory Entries
-   // Fetch entries (potentially large limit to cover the week)
    const memoryEntries = await db.getMemoryEntries(historyId, 1000);
-   
-   // Filter entries that fall within the analysis window and have embeddings
    const relevantEntries = memoryEntries.filter(e => e.timestamp > sevenDaysAgo && e.embedding);
 
    if (relevantEntries.length > 0) {
@@ -379,16 +404,13 @@ export async function handleDigestCommand(interaction) {
        const queryEmbedding = await memorySystem.generateEmbedding(query, 'RETRIEVAL_QUERY');
 
        if (queryEmbedding) {
-         // Score entries by similarity to the summary query
          const scoredEntries = relevantEntries.map(entry => ({
            ...entry,
            similarity: memorySystem.cosineSimilarity(queryEmbedding, entry.embedding)
          }));
 
-         // Sort by relevance (highest score first)
          scoredEntries.sort((a, b) => b.similarity - a.similarity);
 
-         // Select top entries until we reach the target message count
          let currentCount = 0;
          for (const entry of scoredEntries) {
            if (currentCount >= TARGET_TOTAL_MESSAGES) break;
@@ -404,7 +426,6 @@ export async function handleDigestCommand(interaction) {
      }
    }
 
-   // 2. Fallback: If vector search yielded few results (no history indexed yet), use raw history
    if (selectedMessages.length < 10) {
      const historyObject = state.chatHistories?.[historyId] || {};
      let allRawMessages = [];
@@ -414,12 +435,11 @@ export async function handleDigestCommand(interaction) {
        if (Array.isArray(messages)) {
          for (const msg of messages) {
            if (msg.timestamp && msg.timestamp > sevenDaysAgo) {
-             // Basic text filter
              const text = msg.content?.map(c => c.text).filter(t => t).join(' ') || '';
              if (text.trim().length > 0) {
                 allRawMessages.push({
                     ...msg,
-                    text: text // Helper property
+                    text: text 
                 });
              }
            }
@@ -427,16 +447,11 @@ export async function handleDigestCommand(interaction) {
        }
      }
      
-     // Sort by timestamp
      allRawMessages.sort((a, b) => a.timestamp - b.timestamp);
-     
-     // Take the last N messages
      selectedMessages = allRawMessages.slice(-TARGET_TOTAL_MESSAGES);
    } else {
-     // If we used vector search, re-sort chronologically
      selectedMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
      
-     // Trim if significantly over limit to keep token count reasonable
      if (selectedMessages.length > TARGET_TOTAL_MESSAGES + 25) {
          selectedMessages = selectedMessages.slice(0, TARGET_TOTAL_MESSAGES + 25);
      }
@@ -453,7 +468,6 @@ export async function handleDigestCommand(interaction) {
      });
    }
 
-   // Format conversation text for LLM
    const fullConversationText = selectedMessages.map(m => {
         let text = '';
         if (m.text) {
@@ -479,7 +493,6 @@ ${'='.repeat(80)}
    
    await fs.writeFile(filePath, fileHeader + fullConversationText, 'utf8');
    
-   // Upload to Gemini for processing
    let uploadResult = null;
    let useInline = false;
    
@@ -517,9 +530,8 @@ Be specific but brief. Focus on actionable insights and meaningful highlights.`;
          }
        });
      } else {
-       // Fallback to inline text
        parts.push({
-         text: (fileHeader + fullConversationText).slice(0, 500000) // Safety cap
+         text: (fileHeader + fullConversationText).slice(0, 500000) 
        });
      }
      parts.push({ text: promptText });
@@ -551,9 +563,8 @@ Be specific but brief. Focus on actionable insights and meaningful highlights.`;
          model: FALLBACK_MODEL,
          contents: [{
            role: 'user',
-           parts: parts // reuse parts
+           parts: parts 
          }],
-         // reuse system instruction
          systemInstruction: {
            parts: [{
              text: 'You are a conversation analyst creating executive summaries. Be concise, specific, and highlight actionable insights. Use bullet points and clear structure.'
@@ -581,14 +592,12 @@ Be specific but brief. Focus on actionable insights and meaningful highlights.`;
    };
    
    await saveStateToFile();
-   
-   // Clean up local file (since we are NOT sending it to user)
    await fs.unlink(filePath).catch(() => {});
    
    const embed = new EmbedBuilder()
      .setColor(0x5865F2)
      .setTitle('📊 Weekly Digest')
-     .setDescription(aiSummary.slice(0, 4000)) // Ensure fits in embed
+     .setDescription(aiSummary.slice(0, 4000)) 
      .addFields(
        { name: '💬 Messages Analyzed', value: `${selectedMessages.length} (Relevant selection)`, inline: true },
        { name: '📅 Period', value: `Last ${DAYS_TO_ANALYZE} days`, inline: true },
@@ -597,10 +606,9 @@ Be specific but brief. Focus on actionable insights and meaningful highlights.`;
      .setFooter({ text: `${isDM ? 'DM Digest' : interaction.guild?.name + ' • Server Digest'} • AI-powered relevance analysis` })
      .setTimestamp();
 
-   // Reply with ONLY the embed, no files attached
    await interaction.editReply({
      embeds: [embed],
-     files: [] // Explicitly empty
+     files: [] 
    });
    
  } catch (error) {
@@ -882,7 +890,6 @@ export async function handleComplimentCommand(interaction) {
    usage.count++;
    await saveStateToFile();
    
-   // Send as default message (content), not embed
    const messageContent = `Someone sent you an anonymous compliment:\n\n${compliment}\n\n*You've received ${state.complimentCounts[targetUser.id]} compliment${state.complimentCounts[targetUser.id] > 1 ? 's' : ''}!*`;
 
    try {
@@ -944,7 +951,6 @@ export async function handleComplimentCommand(interaction) {
      usage.count++;
      await saveStateToFile();
      
-     // Send as default message (content), not embed
      const messageContent = `Someone sent you an anonymous compliment ❤️:\n\n${compliment}\n\n*You've received ${state.complimentCounts[targetUser.id]} compliment${state.complimentCounts[targetUser.id] > 1 ? 's' : ''}!*`;
 
      try {
@@ -986,7 +992,4 @@ export async function handleComplimentCommand(interaction) {
      });
    }
  }
-
 }
-
- 
