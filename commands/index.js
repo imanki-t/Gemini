@@ -75,10 +75,22 @@ import {
   handleTimezoneCustomModal
 } from './timezone.js';
 
+import {
+  summaryCommand,
+  handleSummaryCommand
+} from './summary.js';
+
+import {
+  realiveCommand,
+  handleRealiveCommand,
+  startRealiveLoop
+} from './realive.js';
+
 export function initializeScheduledTasks(client) {
   scheduleBirthdayChecks(client);
   initializeReminders(client);
   initializeDailyQuotes(client);
+  startRealiveLoop(client);
 }
 
 export async function handleCommandInteraction(interaction) {
@@ -92,7 +104,9 @@ export async function handleCommandInteraction(interaction) {
     starter: handleStarterCommand,
     compliment: handleComplimentCommand,
     game: handleGameCommand,
-    timezone: handleTimezoneCommand
+    timezone: handleTimezoneCommand,
+    summary: handleSummaryCommand,
+    realive: handleRealiveCommand
   };
 
   const handler = commandHandlers[interaction.commandName];
@@ -240,5 +254,7 @@ export {
   starterCommand,
   complimentCommand,
   gameCommand,
-  timezoneCommand
+  timezoneCommand,
+  summaryCommand,
+  realiveCommand
 };
