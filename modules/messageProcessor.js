@@ -8,10 +8,14 @@ import { delay } from '../tools/others.js';
 import { genAI, state, chatHistoryLock, updateChatHistory, saveStateToFile, TEMP_DIR, client } from '../botManager.js';
 import { memorySystem } from '../memorySystem.js';
 import config from '../config.js';
-import * as db from '../database.js'; // Added to support saving realive state
+import * as db from '../database.js';
 import { MODELS, safetySettings, generationConfig } from './config.js';
 import { updateEmbed, sendAsTextFile } from './responseHandler.js';
 
+/**
+ * Processes the queue of requests for a specific user to ensure sequential processing.
+ * @param {string} userId - The ID of the user whose queue is being processed.
+ */
 export async function processUserQueue(userId) {
   const userQueueData = state.requestQueues.get(userId);
   if (!userQueueData) return;
@@ -39,6 +43,10 @@ export async function processUserQueue(userId) {
   state.requestQueues.delete(userId);
 }
 
+/**
+ * Main function to handle incoming text messages.
+ * @param {Message} message - The Discord message object.
+ */
 async function handleTextMessage(message) {
   const botId = client.user.id;
   const userId = message.author.id;
@@ -49,23 +57,16 @@ async function handleTextMessage(message) {
   // Realive Feature: Track last active channel
   // -------------------------------------------------------------
   if (guildId && state.realive && state.realive[guildId]) {
-    // Only update if enabled, or maybe update always? 
-    // The requirement says "in the last channel in which conversation with bot was done".
-    // This implies we update it when the bot is actually triggered.
     const realiveConfig = state.realive[guildId];
     if (realiveConfig.enabled && realiveConfig.lastChannelId !== channelId) {
        realiveConfig.lastChannelId = channelId;
-       // We don't await save here to avoid latency in message reply
-       // We just update state. Background loop/saveStateToFile handles persistence eventually.
-       // But to be safe for restarts:
        db.saveRealiveConfig(guildId, realiveConfig).catch(e => console.error("Realive update failed", e));
     }
   }
-  // -------------------------------------------------------------
 
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Wait for GIF embeds to load
+  // Wait for GIF embeds to load (Discord sometimes delays them)
   const gifRegex = /https?:\/\/(?:www\.)?(tenor\.com|giphy\.com)/i;
   if (gifRegex.test(messageContent) && (!message.embeds || message.embeds.length === 0)) {
     await delay(1500);
@@ -78,7 +79,7 @@ async function handleTextMessage(message) {
   let repliedMessageText = '';
   let repliedAttachments = [];
 
-  // Process replied-to message
+  // Process replied-to message for context
   if (message.reference && message.reference.messageId) {
     try {
       const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
@@ -179,13 +180,9 @@ async function handleTextMessage(message) {
           if (!gifUrl.endsWith('.gif')) {
             directGifUrl = gifUrl + '.gif';
           }
-          const testResponse = await axios.head(directGifUrl, {
-            timeout: 3000
-          }).catch(() => null);
+          const testResponse = await axios.head(directGifUrl, { timeout: 3000 }).catch(() => null);
           if (!testResponse || testResponse.status !== 200) {
-            const response = await axios.get(gifUrl, {
-              timeout: 5000
-            });
+            const response = await axios.get(gifUrl, { timeout: 5000 });
             const htmlContent = response.data;
             const mp4Match = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.mp4)"/);
             const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.tenor\.com\/[^"]+\.gif)"/);
@@ -201,9 +198,7 @@ async function handleTextMessage(message) {
         }
       } else if (gifUrl.includes('giphy.com/gifs/')) {
         try {
-          const response = await axios.get(gifUrl, {
-            timeout: 5000
-          });
+          const response = await axios.get(gifUrl, { timeout: 5000 });
           const htmlContent = response.data;
           const gifMatch = htmlContent.match(/"url":"(https:\/\/media\.giphy\.com\/media\/[^"]+\/giphy\.gif)"/);
           if (gifMatch) {
@@ -291,12 +286,8 @@ async function handleTextMessage(message) {
   ];
 
   // Reject polls and auto-thread messages
-  if (message.poll) {
-    return;
-  }
-  if (message.type === 46) {
-    return;
-  }
+  if (message.poll) return;
+  if (message.type === 46) return;
 
   // Check if message has any meaningful content
   const hasAnyContent = messageContent.trim() !== '' ||
@@ -321,9 +312,7 @@ async function handleTextMessage(message) {
       .setColor(0x5865F2)
       .setTitle('💬 Empty Message')
       .setDescription("You didn't provide any content. What would you like to talk about?");
-    await message.reply({
-      embeds: [embed]
-    });
+    await message.reply({ embeds: [embed] });
     return;
   }
 
@@ -362,28 +351,42 @@ async function handleTextMessage(message) {
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
 
-  // Build system instructions
+  // --------------------------------------------------------------------------------
+  // PERSONALITY LOGIC (Rewritten to fix bug)
+  // --------------------------------------------------------------------------------
   let finalInstructions = config.coreSystemRules;
-  let customInstructions;
+  let customInstructions = null;
+
   if (guildId) {
-    if (state.channelWideChatHistory[channelId]) {
+    // 1. Channel specific (if exists)
+    if (state.channelWideChatHistory && state.channelWideChatHistory[channelId] && state.customInstructions && state.customInstructions[channelId]) {
       customInstructions = state.customInstructions[channelId];
-    } else if (serverSettings.customPersonality) {
+    }
+    // 2. Server specific
+    else if (serverSettings.customPersonality) {
       customInstructions = serverSettings.customPersonality;
-    } else if (effectiveSettings.customPersonality) {
-      customInstructions = effectiveSettings.customPersonality;
-    } else {
-      customInstructions = state.customInstructions[userId];
+    }
+    // 3. User specific (only if not overridden)
+    else if (!serverSettings.overrideUserSettings && userSettings.customPersonality) {
+      customInstructions = userSettings.customPersonality;
     }
   } else {
-    customInstructions = effectiveSettings.customPersonality || state.customInstructions[userId];
+    // DM: User specific
+    customInstructions = effectiveSettings.customPersonality || userSettings.customPersonality;
+  }
+
+  // Sanitize: If string is empty/whitespace, force fallback
+  if (customInstructions && typeof customInstructions === 'string' && customInstructions.trim().length === 0) {
+    customInstructions = null;
   }
 
   if (customInstructions) {
     finalInstructions += `\n\nADDITIONAL PERSONALITY:\n${customInstructions}`;
   } else {
+    // Fallback to default config
     finalInstructions += `\n\n${config.defaultPersonality}`;
   }
+  // --------------------------------------------------------------------------------
 
   // Add user context
   let infoStr = '';
@@ -412,17 +415,9 @@ async function handleTextMessage(message) {
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
 
-  const tools = [{
-      googleSearch: {}
-    },
-    {
-      urlContext: {}
-    }
-  ];
+  const tools = [{ googleSearch: {} }, { urlContext: {} }];
   if (!hasMedia) {
-    tools.push({
-      codeExecution: {}
-    });
+    tools.push({ codeExecution: {} });
   }
 
   // Get optimized conversation history
@@ -600,7 +595,6 @@ async function extractFileText(message, messageContent) {
     if (result.error) {
       finalPrompt += `\n\n[Error: ${result.error}]`;
     } else if (result.success) {
-      // NEW LOGIC: Convert to file instead of direct text
       try {
         const fileName = `discord_summary_${Date.now()}.txt`;
         const filePath = path.join(TEMP_DIR, fileName);
@@ -748,11 +742,9 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
   const shouldForceReply = () => {
     if (!continuousReply) return true;
-
     if (guildId && originalMessage.channel.lastMessageId !== originalMessage.id) {
       return true;
     }
-    
     return false;
   };
 
@@ -761,6 +753,7 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
     try {
       if (tempResponse.trim() === "") {
+        // do nothing
       } else if (responseFormat === 'Embedded') {
         updateEmbed(botMessage, tempResponse, originalMessage, groundingMetadata, urlContextMetadata, effectiveSettings);
       } else {
@@ -927,4 +920,4 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       }
     }
   }
-}
+      }
