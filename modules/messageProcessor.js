@@ -9,7 +9,7 @@ import { genAI, state, chatHistoryLock, updateChatHistory, saveStateToFile, TEMP
 import { memorySystem } from '../memorySystem.js';
 import config from '../config.js';
 import * as db from '../database.js';
-import { MODELS, safetySettings, generationConfig } from './config.js';
+import { MODELS, safetySettings, getGenerationConfig, RATE_LIMIT_ERRORS, MODEL_FALLBACK_CHAIN } from './config.js';
 import { updateEmbed, sendAsTextFile } from './responseHandler.js';
 
 export async function processUserQueue(userId) {
@@ -45,7 +45,6 @@ async function handleTextMessage(message) {
   const guildId = message.guild?.id;
   const channelId = message.channel.id;
   
-  // Realive Feature: Track last active channel
   if (guildId && state.realive && state.realive[guildId]) {
     const realiveConfig = state.realive[guildId];
     if (realiveConfig.enabled && realiveConfig.lastChannelId !== channelId) {
@@ -56,7 +55,6 @@ async function handleTextMessage(message) {
 
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
-  // Wait for GIF embeds to load
   const gifRegex = /https?:\/\/(?:www\.)?(tenor\.com|giphy\.com)/i;
   if (gifRegex.test(messageContent) && (!message.embeds || message.embeds.length === 0)) {
     await delay(1500);
@@ -69,7 +67,6 @@ async function handleTextMessage(message) {
   let repliedMessageText = '';
   let repliedAttachments = [];
 
-  // Process replied-to message
   if (message.reference && message.reference.messageId) {
     try {
       const repliedMsg = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
@@ -117,7 +114,6 @@ async function handleTextMessage(message) {
     messageContent = `${repliedMessageText}[User's Response]:\n${userText}`;
   }
 
-  // Extract GIF links from content and embeds
   const gifLinks = [];
   const tenorGiphyRegex = /https?:\/\/(?:www\.)?(tenor\.com\/view\/[^\s]+|giphy\.com\/gifs\/[^\s]+|media\.tenor\.com\/[^\s]+\.gif|media\.giphy\.com\/media\/[^\s]+\/giphy\.gif)/gi;
   let gifMatch;
@@ -148,7 +144,6 @@ async function handleTextMessage(message) {
     }
   }
 
-  // Process GIF links into attachments
   const gifLinkAttachments = [];
   for (const gifUrl of gifLinks) {
     try {
@@ -222,7 +217,6 @@ async function handleTextMessage(message) {
     }
   }
 
-  // Extract forwarded content
   const { forwardedText, forwardedAttachments, forwardedStickers } = extractForwardedContent(message);
 
   if (forwardedText) {
@@ -233,7 +227,6 @@ async function handleTextMessage(message) {
     }
   }
 
-  // Process stickers
   const currentStickers = message.stickers ? Array.from(message.stickers.values()) : [];
   const allStickers = [...currentStickers, ...forwardedStickers];
 
@@ -249,7 +242,6 @@ async function handleTextMessage(message) {
     }
   }
 
-  // Process custom emojis
   const customEmojis = extractCustomEmojis(messageContent);
   const limitedEmojis = customEmojis.slice(0, 5);
   const exceededEmojis = customEmojis.slice(5);
@@ -281,15 +273,10 @@ async function handleTextMessage(message) {
     ...gifLinkAttachments
   ];
 
-  // Reject polls and auto-thread messages
-  if (message.poll) {
-    return;
-  }
-  if (message.type === 46) {
+  if (message.poll || message.type === 46) {
     return;
   }
 
-  // Check if message has any meaningful content
   const hasAnyContent = messageContent.trim() !== '' ||
     (allAttachments.length > 0 && allAttachments.some(att => {
       const contentType = (att.contentType || "").toLowerCase();
@@ -318,7 +305,6 @@ async function handleTextMessage(message) {
     return;
   }
 
-  // Start typing indicator
   message.channel.sendTyping();
   const typingInterval = setInterval(() => {
     message.channel.sendTyping();
@@ -336,7 +322,6 @@ async function handleTextMessage(message) {
     messageContent = finalPrompt;
     parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
     
-    // Inject summary file parts if any
     if (summaryParts && summaryParts.length > 0) {
       parts.push(...summaryParts);
     }
@@ -348,12 +333,10 @@ async function handleTextMessage(message) {
     return;
   }
 
-  // Get effective settings
   const userSettings = state.userSettings[userId] || {};
   const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
   const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
 
-  // Build system instructions - FIXED FORMAT
   let finalInstructions = config.coreSystemRules;
   
   let customInstructions;
@@ -377,7 +360,6 @@ async function handleTextMessage(message) {
     finalInstructions += `\n\n${config.defaultPersonality}`;
   }
 
-  // Add user context
   let infoStr = '';
   if (guildId) {
     const userInfo = {
@@ -395,12 +377,10 @@ async function handleTextMessage(message) {
 
   finalInstructions += infoStr;
 
-  // Determine history ID
   const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : false;
   const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
   const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
-  // Get model and tools
   const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
   const modelName = MODELS[selectedModel];
 
@@ -417,14 +397,13 @@ async function handleTextMessage(message) {
     });
   }
 
-  // Get optimized conversation history
   const optimizedHistory = await memorySystem.getOptimizedHistory(
     historyId,
     messageContent,
     modelName
   );
 
-  await handleModelResponse(botMessage, modelName, finalInstructions, generationConfig, safetySettings, tools, optimizedHistory, parts, message, typingInterval, historyId, effectiveSettings);
+  await handleModelResponse(botMessage, modelName, finalInstructions, null, safetySettings, tools, optimizedHistory, parts, message, typingInterval, historyId, effectiveSettings);
 }
 
 function extractCustomEmojis(content) {
@@ -542,7 +521,6 @@ async function extractFileText(message, messageContent) {
   let finalPrompt = messageContent;
   let summaryParts = [];
 
-  // Extract Discord message links for summarization
   const discordLinkRegex = /https?:\/\/(?:www\.)?discord\.com\/channels\/\d+\/\d+\/\d+/g;
   const messageLinks = finalPrompt.match(discordLinkRegex);
   
@@ -627,13 +605,11 @@ async function extractFileText(message, messageContent) {
     }
   }
   
-  // Extract text from uploaded files
   if (message.attachments.size > 0) {
     let attachments = Array.from(message.attachments.values());
     finalPrompt = await processTextFiles(attachments, finalPrompt, '');
   }
   
-  // Extract text from forwarded file attachments
   if (message.messageSnapshots && message.messageSnapshots.size > 0) {
     const snapshot = message.messageSnapshots.first();
     if (snapshot.attachments && snapshot.attachments.size > 0) {
@@ -717,7 +693,7 @@ async function processPromptAndMediaAttachments(prompt, message, attachments = n
   return parts;
 }
 
-async function handleModelResponse(initialBotMessage, modelName, systemInstruction, generationConfig, safetySettings, tools, history, parts, originalMessage, typingInterval, historyId, effectiveSettings) {
+async function handleModelResponse(initialBotMessage, modelName, systemInstruction, baseGenerationConfig, safetySettings, tools, history, parts, originalMessage, typingInterval, historyId, effectiveSettings) {
   const userId = originalMessage.author.id;
   const guildId = originalMessage.guild?.id;
   const responseFormat = effectiveSettings.responseFormat || 'Normal';
@@ -725,7 +701,18 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
   const continuousReply = effectiveSettings.continuousReply ?? true;
   
   const maxCharacterLimit = responseFormat === 'Embedded' ? 3900 : 1900;
+
+  // Model fallback tracking
+  let currentModelIndex = MODEL_FALLBACK_CHAIN.indexOf(modelName);
+  if (currentModelIndex === -1) {
+    // If the selected model is not in fallback chain, start from beginning
+    currentModelIndex = 0;
+    modelName = MODEL_FALLBACK_CHAIN[0];
+  }
+  
   let attempts = 3;
+  let modelAttempts = 0;
+  const maxModelAttempts = MODEL_FALLBACK_CHAIN.length;
 
   const WORD_THRESHOLD = 150;
 
@@ -738,11 +725,9 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
   const shouldForceReply = () => {
     if (!continuousReply) return true;
-
     if (guildId && originalMessage.channel.lastMessageId !== originalMessage.id) {
       return true;
     }
-    
     return false;
   };
 
@@ -764,7 +749,8 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
     updateTimeout = null;
   };
 
-  while (attempts > 0) {
+  // Main retry loop with model fallback
+  while (modelAttempts < maxModelAttempts && attempts > 0) {
     try {
       let finalResponse = '';
       let isLargeResponse = false;
@@ -774,17 +760,23 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
         content: parts
       });
 
-      // CRITICAL FIX: systemInstruction should be plain text, not wrapped in parts array
+      // Get appropriate generation config for current model
+      const generationConfig = getGenerationConfig(modelName);
+      
+      console.log(`🤖 Using model: ${modelName} (attempt ${modelAttempts + 1}/${maxModelAttempts})`);
+
+      // Build request with proper config structure
       const request = {
         model: modelName,
         contents: [...history, { role: 'user', parts }],
         config: {
-          systemInstruction: systemInstruction,  // Plain string format
-          ...generationConfig  // Merge generation config here
+          systemInstruction: systemInstruction,  // Includes proper thinking config for model version
+          ...generationConfig  
         },
         safetySettings,
         tools
       };
+
       const result = await genAI.models.generateContentStream(request);
 
       if (!result) {
@@ -851,6 +843,7 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
       clearTimeout(updateTimeout);
 
+      // Success! Exit retry loops
       let wasShortResponse = false;
       
       if (!botMessage && finalResponse) {
@@ -896,19 +889,44 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
           await saveStateToFile();
         });
       }
+      
+      // Success - break out of both loops
       break;
 
     } catch (error) {
-      console.error('Generation attempt failed:', error);
+      console.error(`Generation failed with ${modelName}:`, error);
       attempts--;
       clearInterval(typingInterval);
       clearTimeout(updateTimeout);
 
-      if (attempts === 0) {
+      // Check if it's a rate limit error
+      const isRateLimitError = RATE_LIMIT_ERRORS.some(code => 
+        error.message?.includes(code) || 
+        error.status === code || 
+        error.code?.includes(code)
+      );
+
+      if (isRateLimitError) {
+        console.log(`⚠️ Rate limit hit on ${modelName}, attempting fallback...`);
+        
+        // Move to next model in fallback chain
+        currentModelIndex++;
+        if (currentModelIndex < MODEL_FALLBACK_CHAIN.length) {
+          modelName = MODEL_FALLBACK_CHAIN[currentModelIndex];
+          modelAttempts++;
+          attempts = 3; // Reset attempts for new model
+          console.log(`🔄 Falling back to ${modelName}`);
+          await delay(2000);
+          continue; // Try with fallback model
+        }
+      }
+
+      // If not rate limit or no more fallbacks available
+      if (attempts === 0 && modelAttempts >= maxModelAttempts - 1) {
         const embed = new EmbedBuilder()
           .setColor(0xFF0000)
           .setTitle('❌ Generation Failed')
-          .setDescription('All generation attempts failed. Please try again later.');
+          .setDescription(`All models failed. Last error: ${error.message || 'Unknown error'}\n\nTried: ${MODEL_FALLBACK_CHAIN.slice(0, modelAttempts + 1).join(', ')}`);
         try {
           if (shouldForceReply()) await originalMessage.reply({ embeds: [embed] });
           else await originalMessage.channel.send({ embeds: [embed] });
