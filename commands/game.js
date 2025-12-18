@@ -36,7 +36,7 @@ export async function handleGameCommand(interaction) {
       .setPlaceholder('Select a game')
       .addOptions(
         { label: 'Truth, Dare, or Situation', value: 'tds', description: 'Truth, Dare, or Hypothetical Scenarios', emoji: '🎭' },
-        { label: 'Akinator', value: 'akinator', description: 'I\'ll guess who you\'re thinking of!', emoji: '🔮' },
+        // { label: 'Akinator', value: 'akinator', description: 'I\'ll guess who you\'re thinking of!', emoji: '🔮' }, // Disabled due to API limits
         { label: 'Never Have I Ever', value: 'nhie', description: 'Share experiences', emoji: '🙈' },
         { label: 'Would You Rather', value: 'wyr', description: 'Difficult choices', emoji: '🤔' }
       );
@@ -67,9 +67,9 @@ export async function handleGameSelect(interaction) {
     // Route to appropriate game starter
     if (game === 'tds' || game === 'truth_dare') {
       await handleTDS(interaction);
-    } else if (game === 'akinator') {
+    } /* else if (game === 'akinator') {
       await showAkinatorModeSelection(interaction);
-    } else if (game === 'nhie') {
+    } */ else if (game === 'nhie') {
       await handleNHIE(interaction);
     } else if (game === 'wyr') {
       await handleWYR(interaction);
@@ -620,4 +620,4 @@ async function handleGameError(interaction, message, isEdit = false, isReply = f
   } catch (e) {
     // Ignore update errors
   }
-      }
+                      }
