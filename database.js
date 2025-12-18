@@ -21,7 +21,8 @@ const collections = {
   userTimezones: 'userTimezones',
   serverDigests: 'serverDigests',
   activeUsersInChannels: 'activeUsersInChannels', 
-  userResponsePreference: 'userResponsePreference'
+  userResponsePreference: 'userResponsePreference',
+  realive: 'realive'
 };
 
 export async function connectDB() {
@@ -65,6 +66,7 @@ async function createIndexes() {
     await db.collection(collections.compliments).createIndex({ userId: 1 }, { unique: true });
     await db.collection(collections.userTimezones).createIndex({ userId: 1 }, { unique: true });
     await db.collection(collections.serverDigests).createIndex({ guildId: 1 }, { unique: true });
+    await db.collection(collections.realive).createIndex({ guildId: 1 }, { unique: true });
     
     console.log('✅ Database indexes created');
   } catch (error) {
@@ -78,6 +80,8 @@ export async function closeDB() {
     console.log('MongoDB connection closed');
   }
 }
+
+// ... [Existing exports for User/Server Settings, Chat History, etc. kept as is] ...
 
 export async function saveUserSettings(userId, settings) {
   try {
@@ -798,6 +802,34 @@ export async function getAllQuoteUsages() {
     return result;
   } catch (error) {
     console.error('Error getting all quote usages:', error);
+    return {};
+  }
+}
+
+export async function saveRealiveConfig(guildId, config) {
+  try {
+    await db.collection(collections.realive).updateOne(
+      { guildId },
+      { $set: { guildId, ...config, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error('Error saving realive config:', error);
+    throw error;
+  }
+}
+
+export async function getAllRealiveConfigs() {
+  try {
+    const configs = await db.collection(collections.realive).find({}).toArray();
+    const result = {};
+    configs.forEach(config => {
+      const { guildId, _id, updatedAt, ...rest } = config;
+      result[guildId] = rest;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error getting realive configs:', error);
     return {};
   }
 }
