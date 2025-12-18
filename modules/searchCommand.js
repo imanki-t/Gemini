@@ -232,15 +232,16 @@ export async function executeSearchInteraction(interaction) {
         const generationConfig = getGenerationConfig(modelName);
         
         const request = {
-          model: modelName,
-          contents: [...history, { role: 'user', parts }],
-          config: {
-            systemInstruction: finalInstructions,  // Plain string format
-            ...generationConfig  // Merge generation config with proper thinking settings
-          },
-          safetySettings,
-          tools
-        };
+  model: modelName,
+  contents: [...history, { role: 'user', parts }],
+  config: {
+    systemInstruction: finalInstructions,
+    ...generationConfig,
+    tools: tools  // Add tools here
+  },
+  safetySettings
+  // Remove tools from here
+};
 
         const result = await genAI.models.generateContentStream(request);
 
