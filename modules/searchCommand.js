@@ -230,13 +230,15 @@ export async function executeSearchInteraction(interaction) {
 
         // CRITICAL FIX: systemInstruction format
         const request = {
-          model: modelName,
-          contents: [...history, { role: 'user', parts }],
-          systemInstruction: { text: finalInstructions }, // FIXED: Proper format with text wrapper
-          generationConfig,
-          safetySettings,
-          tools
-        };
+  model: modelName,
+  contents: [...history, { role: 'user', parts }],
+  config: {
+    systemInstruction: finalInstructions,  // ✅ Plain string, inside config
+    ...generationConfig  // ✅ Merge generation config
+  },
+  safetySettings,
+  tools
+};
 
         const result = await genAI.models.generateContentStream(request);
 
