@@ -3,7 +3,7 @@ import path from 'path';
 import { genAI, state, chatHistoryLock, updateChatHistory, saveStateToFile, checkImageRateLimit, incrementImageUsage, TEMP_DIR } from '../botManager.js';
 import { memorySystem } from '../memorySystem.js';
 import config from '../config.js';
-import { MODELS, safetySettings, generationConfig } from './config.js';
+import { MODELS, getGenerationConfig, safetySettings } from './config.js';
 import { updateEmbedForInteraction } from './responseHandler.js';
 import { initializeBlacklistForGuild } from './utils.js';
 
@@ -228,17 +228,19 @@ export async function executeSearchInteraction(interaction) {
           content: parts
         });
 
-        // CRITICAL FIX: systemInstruction format
+        // Get appropriate generation config for current model
+        const generationConfig = getGenerationConfig(modelName);
+        
         const request = {
-  model: modelName,
-  contents: [...history, { role: 'user', parts }],
-  config: {
-    systemInstruction: finalInstructions,  // ✅ Plain string, inside config
-    ...generationConfig  // ✅ Merge generation config
-  },
-  safetySettings,
-  tools
-};
+          model: modelName,
+          contents: [...history, { role: 'user', parts }],
+          config: {
+            systemInstruction: finalInstructions,  // Plain string format
+            ...generationConfig  // Merge generation config with proper thinking settings
+          },
+          safetySettings,
+          tools
+        };
 
         const result = await genAI.models.generateContentStream(request);
 
@@ -363,4 +365,4 @@ export async function executeSearchInteraction(interaction) {
       });
     }
   }
-}
+        }
