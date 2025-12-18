@@ -283,7 +283,9 @@ async function handleCommandInteraction(interaction) {
     starter: handleNewCommands,
     compliment: handleNewCommands,
     game: handleNewCommands,
-    timezone: handleNewCommands
+    timezone: handleNewCommands,
+    summary: handleNewCommands, // Added
+    realive: handleNewCommands  // Added
   };
 
   const handler = commandHandlers[interaction.commandName];
@@ -295,4 +297,3 @@ async function handleCommandInteraction(interaction) {
 }
 
 client.login(token);
-                                      
