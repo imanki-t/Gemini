@@ -8,6 +8,7 @@ import { delay } from '../tools/others.js';
 import { genAI, state, chatHistoryLock, updateChatHistory, saveStateToFile, TEMP_DIR, client } from '../botManager.js';
 import { memorySystem } from '../memorySystem.js';
 import config from '../config.js';
+import * as db from '../database.js'; // Added to support saving realive state
 import { MODELS, safetySettings, generationConfig } from './config.js';
 import { updateEmbed, sendAsTextFile } from './responseHandler.js';
 
@@ -44,6 +45,24 @@ async function handleTextMessage(message) {
   const guildId = message.guild?.id;
   const channelId = message.channel.id;
   
+  // -------------------------------------------------------------
+  // Realive Feature: Track last active channel
+  // -------------------------------------------------------------
+  if (guildId && state.realive && state.realive[guildId]) {
+    // Only update if enabled, or maybe update always? 
+    // The requirement says "in the last channel in which conversation with bot was done".
+    // This implies we update it when the bot is actually triggered.
+    const realiveConfig = state.realive[guildId];
+    if (realiveConfig.enabled && realiveConfig.lastChannelId !== channelId) {
+       realiveConfig.lastChannelId = channelId;
+       // We don't await save here to avoid latency in message reply
+       // We just update state. Background loop/saveStateToFile handles persistence eventually.
+       // But to be safe for restarts:
+       db.saveRealiveConfig(guildId, realiveConfig).catch(e => console.error("Realive update failed", e));
+    }
+  }
+  // -------------------------------------------------------------
+
   let messageContent = message.content.replace(new RegExp(`<@!?${botId}>`), '').trim();
 
   // Wait for GIF embeds to load
@@ -776,17 +795,12 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
       const result = await genAI.models.generateContentStream(request);
 
-      // Validate API response
       if (!result) {
         throw new Error('API returned undefined - check API keys');
       }
 
-      // FIX: New SDK returns AsyncIterable directly, no result.stream property
-      // if (!result.stream) { ... } // Removed
-
       clearInterval(typingInterval);
 
-      // FIX: Iterate result directly
       for await (const chunk of result) {
         const chunkText = chunk.text || '';
         
@@ -913,5 +927,4 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       }
     }
   }
-      }
-        
+}
