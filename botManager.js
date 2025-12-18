@@ -65,8 +65,6 @@ function switchToNextKey(error) {
 
 async function withRetry(apiCall) {
   let attempts = 0;
-  // We allow up to apiKeys.length retries so we can cycle through all keys if needed.
-  // If only 1 key, we try 3 times just in case it was a blip, but usually 429 persists.
   const maxAttempts = Math.max(3, apiKeys.length);
 
   while (attempts < maxAttempts) {
@@ -86,8 +84,6 @@ async function withRetry(apiCall) {
 
       console.warn(`API call failed (Key Index: ${currentKeyIdx}): ${error.message}`);
       
-      // If error is not a quota error or server error, throwing might be better than rotating,
-      // but rotating is safer for 429/500/503.
       switchToNextKey(error);
       attempts++;
 
@@ -95,7 +91,6 @@ async function withRetry(apiCall) {
         throw new Error(`All API keys failed. Last error: ${error.message}`);
       }
       
-      // Small delay before retry to let the new key "settle" or just backoff slightly
       await new Promise(r => setTimeout(r, 2000));
     }
   }
@@ -238,6 +233,7 @@ let quoteUsage = {};
 let starterUsage = {};
 let complimentUsage = {};
 let userDigests = {};
+let realive = {};
 
 export const state = {
   get chatHistories() {
@@ -380,6 +376,12 @@ export const state = {
   },
   set userDigests(v) {
     userDigests = v;
+  },
+  get realive() {
+    return realive;
+  },
+  set realive(v) {
+    realive = v;
   }
 };
 
@@ -467,6 +469,10 @@ export async function saveStateToFile() {
       savePromises.push(db.saveQuoteUsage(userId, usage));
     }
 
+    for (const [guildId, config] of Object.entries(realive)) {
+      savePromises.push(db.saveRealiveConfig(guildId, config));
+    }
+
     savePromises.push(db.saveActiveUsersInChannels(activeUsersInChannels));
 
     await Promise.all(savePromises);
@@ -504,7 +510,8 @@ async function loadStateFromDB() {
       complimentOptOut,
       userTimezones,
       serverDigests,
-      quoteUsage
+      quoteUsage,
+      realive
     ] = await Promise.all([
       db.getAllChatHistories(),
       db.getAllUserSettings(),
@@ -522,7 +529,8 @@ async function loadStateFromDB() {
       db.getAllComplimentOptOuts(),
       db.getAllUserTimezones(),
       db.getAllServerDigests(),
-      db.getAllQuoteUsages()
+      db.getAllQuoteUsages(),
+      db.getAllRealiveConfigs()
     ]);
 
     alwaysRespondChannels = await db.getAllChannelSettings('alwaysRespond');
@@ -626,6 +634,8 @@ export async function initialize() {
     throw error;
   }
 }
+
+// ... [Existing exports for history, limit checks etc. kept as is] ...
 
 export function getHistory(id, guildId = null) {
   const historyObject = chatHistories[id] || {};
