@@ -6,6 +6,9 @@ import {
   handleBirthdayNameSelect,
   handleBirthdayPrefSelect,
   handleBirthdayDeleteSelect,
+  handleBirthdayListPrev,
+  handleBirthdayListNext,
+  handleBirthdayListJump,
   scheduleBirthdayChecks
 } from './birthday.js';
 
@@ -122,6 +125,7 @@ export async function handleSelectMenuInteraction(interaction) {
     'birthday_name_': handleBirthdayNameSelect,
     'birthday_pref_': handleBirthdayPrefSelect,
     'birthday_delete_select': handleBirthdayDeleteSelect,
+    'birthday_list_jump_': handleBirthdayListJump,
     'reminder_action': handleReminderActionSelect,
     'reminder_type': handleReminderTypeSelect,
     'reminder_location_': handleReminderLocationSelect,
@@ -159,6 +163,8 @@ export async function handleModalSubmission(interaction) {
 
 export async function handleButtonInteraction(interaction) {
   const handlers = {
+    'birthday_list_prev_': handleBirthdayListPrev,
+    'birthday_list_next_': handleBirthdayListNext,
     'akinator_yes_': handleAkinatorAnswer,
     'akinator_no_': handleAkinatorAnswer,
     'akinator_dk_': handleAkinatorAnswer,
