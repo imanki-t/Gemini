@@ -303,6 +303,19 @@ class MemorySystem {
       }
 
       if (contextContent.length > 1500) {
+         // Include recent messages in the file content
+         const recentText = recentMessages.map(msg => {
+            const role = msg.role === 'assistant' ? 'Model' : 'User';
+            const txt = this.extractTextFromMessage(msg);
+            const name = msg.displayName || msg.username || '';
+            const header = name ? `${role} (${name})` : role;
+            return `${header}: ${txt}`;
+         }).join('\n\n');
+
+         if (recentText.trim()) {
+            contextContent += `\n\nRecent Conversation History:\n${recentText}`;
+         }
+
          try {
              const filename = `context_${historyId}_${Date.now()}.txt`;
              const filePath = path.join(TEMP_DIR, filename);
@@ -319,13 +332,13 @@ class MemorySystem {
              const contextEntry = {
                 role: 'user',
                 parts: [
-                    { text: "System: The attached file contains the conversation summary and relevant historical context." },
+                    { text: "System: The attached file contains the conversation summary, relevant historical context, and the most recent messages. Use this information to reply to the user." },
                     { fileData: { mimeType: uploadResult.mimeType, fileUri: uploadResult.uri } }
                 ]
              };
     
-             const recentFormatted = this.formatHistoryWithContext(recentMessages);
-             return [contextEntry, ...recentFormatted];
+             // Return only the file entry, as recent messages are now inside the file
+             return [contextEntry];
          } catch (fileError) {
              console.error('Failed to create context file, falling back to inline text:', fileError);
          }
