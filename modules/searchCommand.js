@@ -246,16 +246,16 @@ export async function executeSearchInteraction(interaction) {
         const result = await genAI.models.generateContentStream(request);
 
         for await (const chunk of result) {
-          const chunkText = chunk.text || '';
-          
-          const codeOutput = chunk.codeExecutionResult?.output 
-            ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` 
-            : "";
-          const executableCode = chunk.executableCode 
-            ? `\n\`\`\`python\n${chunk.executableCode.code}\n\`\`\`\n` 
-            : "";
-            
-          const combinedText = chunkText + executableCode + codeOutput;
+  const chunkText = chunk.text || '';
+  
+  const codeOutput = chunk.codeExecutionResult?.output 
+    ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` 
+    : "";
+  const executableCode = chunk.executableCode 
+    ? `\n\`\`\`python\n${chunk.executableCode.code}\n\`\`\`\n` 
+    : "";
+      
+  const combinedText = chunkText + executableCode + codeOutput;
 
           if (combinedText && combinedText !== '') {
             finalResponse += combinedText;
