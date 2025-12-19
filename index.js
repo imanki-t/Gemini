@@ -143,8 +143,19 @@ client.on('guildCreate', async (guild) => {
 
 client.on('messageCreate', async (message) => {
   try {
+    // Ignore bot messages
     if (message.author.bot) return;
+    
+    // Ignore command messages
     if (message.content.startsWith('!')) return;
+    
+    // ✨ NEW: Ignore Discord system messages
+    // This includes: member join, member boost, pin notifications, 
+    // channel follow, thread creation, role subscription, etc.
+    if (message.system) {
+      console.log(`🔕 Ignored system message type: ${message.type}`);
+      return;
+    }
 
     const isDM = message.channel.type === ChannelType.DM;
     const guildId = message.guild?.id;
@@ -284,8 +295,8 @@ async function handleCommandInteraction(interaction) {
     compliment: handleNewCommands,
     game: handleNewCommands,
     timezone: handleNewCommands,
-    summary: handleNewCommands, // Added
-    realive: handleNewCommands  // Added
+    summary: handleNewCommands,
+    realive: handleNewCommands
   };
 
   const handler = commandHandlers[interaction.commandName];
