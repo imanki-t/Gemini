@@ -1,3 +1,5 @@
+import { PermissionFlagsBits } from 'discord.js';
+
 const commands = [
   {
     name: "settings",
@@ -49,17 +51,18 @@ const commands = [
   {
     name: "roulette",
     description: "Bot randomly reacts to messages in this channel",
-    dm_permission: false // Hidden in DMs
+    dm_permission: false, // Server Only
+    default_member_permissions: PermissionFlagsBits.ManageGuild.toString() // Admin Only
   },
   {
     name: "anniversary",
     description: "View bot's server anniversary info",
-    dm_permission: false // Hidden in DMs
+    dm_permission: false // Server Only
   },
   {
     name: "digest",
     description: "Get a weekly digest.",
-    dm_permission: false // Hidden in DMs
+    dm_permission: false // Restricts visibility to Servers Only
   },
   {
     name: "starter",
@@ -88,7 +91,7 @@ const commands = [
   {
     name: "summary",
     description: "Summarize a conversation based on a message link",
-    dm_permission: false, // Hidden in DMs
+    dm_permission: false, // Server Only
     options: [
       {
         name: "link",
@@ -109,7 +112,8 @@ const commands = [
   {
     name: "realive",
     description: "Periodically send messages to revive dead chats",
-    dm_permission: false, // Hidden in DMs
+    dm_permission: false, // Server Only
+    default_member_permissions: PermissionFlagsBits.ManageGuild.toString(), // Admin Only
     options: [
       {
         name: "action",
