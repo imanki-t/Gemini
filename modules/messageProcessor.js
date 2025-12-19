@@ -786,17 +786,116 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
       clearInterval(typingInterval);
 
-      for await (const chunk of result) {
-        const chunkText = chunk.text || '';
+      // Fixed section for handleModelResponse function in modules/messageProcessor.js
+// Replace the streaming loop in handleModelResponse
+
+for await (const chunk of result) {
+  // Handle different part types properly
+  let chunkText = '';
+  let hasCodeExecution = false;
+  
+  // Check if chunk has candidates with parts
+  if (chunk.candidates && chunk.candidates[0]?.content?.parts) {
+    const parts = chunk.candidates[0].content.parts;
+    
+    for (const part of parts) {
+      // Handle regular text
+      if (part.text) {
+        chunkText += part.text;
+      }
+      
+      // Handle executable code
+      if (part.executableCode) {
+        hasCodeExecution = true;
+        const lang = part.executableCode.language || 'python';
+        const code = part.executableCode.code || '';
+        chunkText += `\n\n**🔧 Executing Code (${lang}):**\n\`\`\`${lang.toLowerCase()}\n${code}\n\`\`\`\n`;
+      }
+      
+      // Handle code execution result
+      if (part.codeExecutionResult) {
+        hasCodeExecution = true;
+        const outcome = part.codeExecutionResult.outcome || 'UNKNOWN';
+        const output = part.codeExecutionResult.output || 'No output';
         
-        const codeOutput = chunk.codeExecutionResult?.output 
-          ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` 
-          : "";
-        const executableCode = chunk.executableCode 
-          ? `\n\`\`\`python\n${chunk.executableCode.code}\n\`\`\`\n` 
-          : "";
-            
-        const combinedText = chunkText + executableCode + codeOutput;
+        if (outcome === 'OUTCOME_OK') {
+          chunkText += `\n**✅ Execution Result:**\n\`\`\`\n${output}\n\`\`\`\n`;
+        } else {
+          chunkText += `\n**❌ Execution Failed:**\n\`\`\`\n${output}\n\`\`\`\n`;
+        }
+      }
+    }
+  } else {
+    // Fallback to direct chunk properties (for backward compatibility)
+    chunkText = chunk.text || '';
+    
+    if (chunk.executableCode) {
+      hasCodeExecution = true;
+      const lang = chunk.executableCode.language || 'python';
+      const code = chunk.executableCode.code || '';
+      chunkText += `\n\n**🔧 Executing Code (${lang}):**\n\`\`\`${lang.toLowerCase()}\n${code}\n\`\`\`\n`;
+    }
+    
+    if (chunk.codeExecutionResult) {
+      hasCodeExecution = true;
+      const outcome = chunk.codeExecutionResult.outcome || 'UNKNOWN';
+      const output = chunk.codeExecutionResult.output || 'No output';
+      
+      if (outcome === 'OUTCOME_OK') {
+        chunkText += `\n**✅ Execution Result:**\n\`\`\`\n${output}\n\`\`\`\n`;
+      } else {
+        chunkText += `\n**❌ Execution Failed:**\n\`\`\`\n${output}\n\`\`\`\n`;
+      }
+    }
+  }
+
+  // Add the text to the response
+  if (chunkText && chunkText !== '') {
+    finalResponse += chunkText;
+    tempResponse += chunkText;
+
+    const currentWordCount = tempResponse.trim().split(/\s+/).length;
+
+    if (!botMessage && currentWordCount > WORD_THRESHOLD) {
+      try {
+        if (shouldForceReply()) {
+          botMessage = await originalMessage.reply({ content: tempResponse });
+        } else {
+          botMessage = await originalMessage.channel.send({ content: tempResponse });
+        }
+      } catch (createErr) {
+        console.error("Error creating initial message:", createErr);
+        throw createErr;
+      }
+    }
+
+    if (botMessage) {
+      if (finalResponse.length > maxCharacterLimit) {
+        if (!isLargeResponse) {
+          isLargeResponse = true;
+          const embed = new EmbedBuilder()
+            .setColor(0xFFAA00)
+            .setTitle('📄 Large Response')
+            .setDescription('The response is too large. It will be sent as a text file once completed.');
+
+          botMessage.edit({ content: ' ', embeds: [embed], components: [] }).catch(() => {});
+        }
+      } else if (!updateTimeout) {
+        updateTimeout = setTimeout(updateMessage, 800);
+      }
+    }
+  }
+
+  // Capture grounding metadata (search results)
+  if (chunk.candidates && chunk.candidates[0]?.groundingMetadata) {
+    groundingMetadata = chunk.candidates[0].groundingMetadata;
+  }
+  
+  // Capture URL context metadata
+  if (chunk.candidates && chunk.candidates[0]?.url_context_metadata) {
+    urlContextMetadata = chunk.candidates[0].url_context_metadata;
+  }
+  }
 
         if (combinedText && combinedText !== '') {
           finalResponse += combinedText;
