@@ -355,11 +355,11 @@ async function showMainSettings(interaction, isUpdate = false) {
     const row = new ActionRowBuilder().addComponents(...buttons);
 
     const embed = new EmbedBuilder()
-      .setColor(0x5865F2)
-      .setTitle('⚙️ Settings Dashboard')
+      .setColor(0xFFAA00)
+      .setTitle('Settings Dashboard')
       .setDescription('Choose a settings category to configure:')
       .addFields({
-        name: '👤 User Settings',
+        name: 'User Settings',
         value: 'Configure your personal bot preferences',
         inline: true
       })
@@ -367,7 +367,7 @@ async function showMainSettings(interaction, isUpdate = false) {
 
     if (hasManageServer) {
       embed.addFields({
-        name: '🏰 Server Settings',
+        name: 'Server Settings',
         value: 'Manage server-wide bot configuration',
         inline: true
       });
@@ -425,7 +425,7 @@ async function showUserSettings(interaction, isUpdate = false) {
     }
   }
 
-  const selectedModel = userSettings.selectedModel || 'gemini-2.5-flash';
+  const selectedModel = userSettings.selectedModel || 'gemini-3-flash';
   const responseFormat = userSettings.responseFormat || 'Normal';
   const showActionButtons = userSettings.showActionButtons === true;
   const embedColor = userSettings.embedColor || hexColour;
@@ -655,7 +655,7 @@ async function showServerSettings(interaction, isUpdate = false) {
 
   const guildId = interaction.guild.id;
   const serverSettings = state.serverSettings[guildId] || {};
-  const selectedModel = serverSettings.selectedModel || 'gemini-2.5-flash';
+  const selectedModel = serverSettings.selectedModel || 'gemini-3-flash';
   const responseFormat = serverSettings.responseFormat || 'Normal';
   const showActionButtons = serverSettings.showActionButtons === true;
   const embedColor = serverSettings.embedColor || hexColour;
