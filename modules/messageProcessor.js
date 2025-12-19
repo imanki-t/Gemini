@@ -787,17 +787,29 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       clearInterval(typingInterval);
 
       for await (const chunk of result) {
-        const chunkText = chunk.text || '';
-        
-        const codeOutput = chunk.codeExecutionResult?.output 
-          ? `\n\`\`\`py\n${chunk.codeExecutionResult.output}\n\`\`\`\n` 
-          : "";
-        const executableCode = chunk.executableCode 
-          ? `\n\`\`\`python\n${chunk.executableCode.code}\n\`\`\`\n` 
-          : "";
-            
-        const combinedText = chunkText + executableCode + codeOutput;
-
+  const chunkText = chunk.text || '';
+  
+  // Handle code execution result properly
+  let codeOutput = "";
+  if (chunk.codeExecutionResult) {
+    const outcome = chunk.codeExecutionResult.outcome || 'UNKNOWN';
+    const output = chunk.codeExecutionResult.output || '';
+    if (output) {
+      codeOutput = `\n**Code Execution (${outcome}):**\n\`\`\`\n${output}\n\`\`\`\n`;
+    }
+  }
+  
+  // Handle executable code properly
+  let executableCode = "";
+  if (chunk.executableCode) {
+    const language = chunk.executableCode.language || 'python';
+    const code = chunk.executableCode.code || '';
+    if (code) {
+      executableCode = `\n**Generated Code (${language}):**\n\`\`\`${language.toLowerCase()}\n${code}\n\`\`\`\n`;
+    }
+  }
+      
+  const combinedText = chunkText + executableCode + codeOutput;
         if (combinedText && combinedText !== '') {
           finalResponse += combinedText;
           tempResponse += combinedText;
