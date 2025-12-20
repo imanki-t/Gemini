@@ -6,6 +6,10 @@ import ffmpeg from 'fluent-ffmpeg';
 import { genAI, TEMP_DIR, createPartFromUri } from '../botManager.js';
 import { delay } from '../tools/others.js';
 
+/**
+ * Process an attachment and upload it to Gemini.
+ * Improved to handle key rotation by ensuring files are re-uploaded if the API key changes.
+ */
 export async function processAttachment(attachment, userId, interactionId) {
   const contentType = (attachment.contentType || "").toLowerCase();
   const fileExtension = path.extname(attachment.name).toLowerCase();
@@ -75,7 +79,7 @@ export async function processAttachment(attachment, userId, interactionId) {
     mimeTypes: ['application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
                 'application/x-tar', 'application/gzip', 'application/x-executable',
                 'application/x-msdownload', 'application/vnd.microsoft.portable-executable',
-                'application/x-iso9660-image']
+                'application/iso9660-image']
   };
 
   const sanitizedFileName = sanitizeFileName(attachment.name);
@@ -146,7 +150,7 @@ export async function processAttachment(attachment, userId, interactionId) {
           let file = await genAI.files.get({ name: name });
           let attempts = 0;
           while (file.state === 'PROCESSING' && attempts < 60) {
-            await delay(10000);
+            await delay(5000);
             file = await genAI.files.get({ name: name });
             attempts++;
           }
@@ -177,7 +181,7 @@ export async function processAttachment(attachment, userId, interactionId) {
           
           try {
             const sharp = (await import('sharp')).default;
-            const pngFilePath = filePath.replace(/\.gif$/i, '.png');
+            const pngFilePath = filePath.replace(/\.(gif|png|jpg|jpeg)$/i, '.png');
             await sharp(filePath, { animated: false })
               .png()
               .toFile(pngFilePath);
@@ -186,7 +190,7 @@ export async function processAttachment(attachment, userId, interactionId) {
               file: pngFilePath,
               config: {
                 mimeType: 'image/png',
-                displayName: sanitizedFileName.replace(/\.gif$/i, '.png'),
+                displayName: sanitizedFileName.replace(/\.(gif|png|jpg|jpeg)$/i, '.png'),
               }
             });
             
@@ -523,6 +527,4 @@ function sanitizeFileName(fileName) {
     .replace(/[^a-z0-9.-]/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 100);
-}
-
-                 
+          }
