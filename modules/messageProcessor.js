@@ -316,11 +316,12 @@ async function handleTextMessage(message) {
   let botMessage = null;
   let parts;
   let hasMedia = false;
+  let finalPromptForHistory = messageContent;
 
   try {
     const { finalPrompt, summaryParts } = await extractFileText(message, messageContent);
-    messageContent = finalPrompt;
-    parts = await processPromptAndMediaAttachments(messageContent, message, allAttachments);
+    finalPromptForHistory = finalPrompt;
+    parts = await processPromptAndMediaAttachments(finalPrompt, message, allAttachments);
     
     if (summaryParts && summaryParts.length > 0) {
       parts.push(...summaryParts);
@@ -399,11 +400,11 @@ async function handleTextMessage(message) {
 
   const optimizedHistory = await memorySystem.getOptimizedHistory(
     historyId,
-    messageContent,
+    finalPromptForHistory,
     modelName
   );
 
-  await handleModelResponse(botMessage, modelName, finalInstructions, null, safetySettings, tools, optimizedHistory, parts, message, typingInterval, historyId, effectiveSettings);
+  await handleModelResponse(botMessage, modelName, finalInstructions, null, safetySettings, tools, optimizedHistory, parts, message, typingInterval, historyId, effectiveSettings, finalPromptForHistory, allAttachments);
 }
 
 function extractCustomEmojis(content) {
@@ -693,7 +694,7 @@ async function processPromptAndMediaAttachments(prompt, message, attachments = n
   return parts;
 }
 
-async function handleModelResponse(initialBotMessage, modelName, systemInstruction, baseGenerationConfig, safetySettings, tools, history, parts, originalMessage, typingInterval, historyId, effectiveSettings) {
+async function handleModelResponse(initialBotMessage, modelName, systemInstruction, baseGenerationConfig, safetySettings, tools, history, parts, originalMessage, typingInterval, historyId, effectiveSettings, originalPrompt = '', allAttachments = []) {
   const userId = originalMessage.author.id;
   const guildId = originalMessage.guild?.id;
   const responseFormat = effectiveSettings.responseFormat || 'Normal';
@@ -767,16 +768,15 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
 
       // Build request with proper config structure
       const request = {
-  model: modelName,
-  contents: [...history, { role: 'user', parts }],
-  config: {
-    systemInstruction: systemInstruction,
-    ...generationConfig,
-    tools: tools  // Add tools here
-  },
-  safetySettings
-  // Remove tools from here
-};
+        model: modelName,
+        contents: [...history, { role: 'user', parts }],
+        config: {
+          systemInstruction: systemInstruction,
+          ...generationConfig,
+          tools: tools
+        },
+        safetySettings
+      };
 
       const result = await genAI.models.generateContentStream(request);
 
@@ -787,29 +787,29 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       clearInterval(typingInterval);
 
       for await (const chunk of result) {
-  const chunkText = chunk.text || '';
-  
-  // Handle code execution result properly
-  let codeOutput = "";
-  if (chunk.codeExecutionResult) {
-    const outcome = chunk.codeExecutionResult.outcome || 'UNKNOWN';
-    const output = chunk.codeExecutionResult.output || '';
-    if (output) {
-      codeOutput = `\n**Code Execution (${outcome}):**\n\`\`\`\n${output}\n\`\`\`\n`;
-    }
-  }
-  
-  // Handle executable code properly
-  let executableCode = "";
-  if (chunk.executableCode) {
-    const language = chunk.executableCode.language || 'python';
-    const code = chunk.executableCode.code || '';
-    if (code) {
-      executableCode = `\n**Generated Code (${language}):**\n\`\`\`${language.toLowerCase()}\n${code}\n\`\`\`\n`;
-    }
-  }
-      
-  const combinedText = chunkText + executableCode + codeOutput;
+        const chunkText = chunk.text || '';
+        
+        // Handle code execution result properly
+        let codeOutput = "";
+        if (chunk.codeExecutionResult) {
+          const outcome = chunk.codeExecutionResult.outcome || 'UNKNOWN';
+          const output = chunk.codeExecutionResult.output || '';
+          if (output) {
+            codeOutput = `\n**Code Execution (${outcome}):**\n\`\`\`\n${output}\n\`\`\`\n`;
+          }
+        }
+        
+        // Handle executable code properly
+        let executableCode = "";
+        if (chunk.executableCode) {
+          const language = chunk.executableCode.language || 'python';
+          const code = chunk.executableCode.code || '';
+          if (code) {
+            executableCode = `\n**Generated Code (${language}):**\n\`\`\`${language.toLowerCase()}\n${code}\n\`\`\`\n`;
+          }
+        }
+            
+        const combinedText = chunkText + executableCode + codeOutput;
         if (combinedText && combinedText !== '') {
           finalResponse += combinedText;
           tempResponse += combinedText;
@@ -911,6 +911,28 @@ async function handleModelResponse(initialBotMessage, modelName, systemInstructi
       attempts--;
       clearInterval(typingInterval);
       clearTimeout(updateTimeout);
+
+      // --- AUTO-REUPLOAD FIX ---
+      // If we get a 403 Permission Denied related to a File, it means the API key was rotated
+      // and the new key cannot access the old key's fileUri. We must re-upload.
+      const isFilePermissionError = error.message?.includes('PERMISSION_DENIED') && (error.message?.includes('File') || error.message?.includes('access the File'));
+
+      if (isFilePermissionError && attempts > 0) {
+        console.log(`🔄 [FIX] Detected file permission error. Re-processing attachments with current API key...`);
+        try {
+          const { finalPrompt, summaryParts } = await extractFileText(originalMessage, originalPrompt);
+          let updatedParts = await processPromptAndMediaAttachments(finalPrompt, originalMessage, allAttachments);
+          if (summaryParts && summaryParts.length > 0) {
+            updatedParts.push(...summaryParts);
+          }
+          parts = updatedParts; // Update parts array for the next retry attempt
+          attempts = 3; // Reset attempts for this model since we solved the input issue
+          await delay(1000);
+          continue; // Immediately retry with new file IDs
+        } catch (reProcessErr) {
+          console.error("Failed to re-process attachments during recovery:", reProcessErr);
+        }
+      }
 
       // Check if it's a rate limit error
       const isRateLimitError = RATE_LIMIT_ERRORS.some(code => 
