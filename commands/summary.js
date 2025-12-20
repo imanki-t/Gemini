@@ -4,12 +4,20 @@ import { fetchMessagesForSummary } from '../modules/utils.js';
 import path from 'path';
 import fs from 'fs/promises';
 
-const SUMMARY_MODEL = 'gemini-2.5-flash';
+const SUMMARY_MODEL = 'gemini-2.5-flash'; // Optimized for video/text reasoning
 
 export const summaryCommand = {
   name: 'summary',
-  description: 'Summarize a conversation based on a message link'
+  description: 'Summarize a Discord conversation OR a YouTube video'
 };
+
+/**
+ * Validates if a string is a valid YouTube URL
+ */
+function isYouTubeUrl(url) {
+  const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/;
+  return ytRegex.test(url);
+}
 
 export async function handleSummaryCommand(interaction) {
   try {
@@ -22,17 +30,65 @@ export async function handleSummaryCommand(interaction) {
       });
     }
 
-    const link = interaction.options.getString('link');
+    const inputLink = interaction.options.getString('link');
     const count = interaction.options.getInteger('count') || 50;
 
     await interaction.deferReply();
-    
-    const result = await fetchMessagesForSummary(interaction, link, count);
+
+    // ---------------------------------------------------------
+    // Scenario A: YouTube Video Summarization
+    // ---------------------------------------------------------
+    if (isYouTubeUrl(inputLink)) {
+      try {
+        const result = await genAI.models.generateContent({
+          model: SUMMARY_MODEL,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: "Please provide a comprehensive, structured summary of this YouTube video. Highlight key points, main takeaways, and any important details. Use bullet points for readability." },
+                { fileData: { fileUri: inputLink, mimeType: 'video/mp4' } } // Gemini treats YT links as video files via URI
+              ]
+            }
+          ]
+        });
+
+        const summaryText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!summaryText) {
+          throw new Error("Gemini returned an empty response for the video.");
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0xFF0000) // YouTube Red
+          .setTitle('📺 Video Summary')
+          .setURL(inputLink)
+          .setDescription(summaryText.slice(0, 4000))
+          .setFooter({ text: `Summarized by Lumin • Gemini 2.0` })
+          .setTimestamp();
+
+        incrementSummaryUsage(interaction.user.id);
+        return interaction.editReply({ embeds: [embed] });
+
+      } catch (videoError) {
+        console.error('YouTube summary failed:', videoError);
+        const errorEmbed = new EmbedBuilder()
+          .setColor(0xFF5555)
+          .setTitle('❌ Video Summary Failed')
+          .setDescription(`I couldn't summarize that video. Ensure the video has subtitles/transcripts available and isn't private or age-restricted.\n\n*Error: ${videoError.message}*`);
+        return interaction.editReply({ embeds: [errorEmbed] });
+      }
+    }
+
+    // ---------------------------------------------------------
+    // Scenario B: Discord Conversation Summarization
+    // ---------------------------------------------------------
+    const result = await fetchMessagesForSummary(interaction, inputLink, count);
 
     if (result.error) {
       const errorEmbed = new EmbedBuilder()
         .setColor(0xFF5555)
-        .setTitle('❌ Summary Failed')
+        .setTitle('❌ Discord Summary Failed')
         .setDescription(result.error);
       return interaction.editReply({ embeds: [errorEmbed] });
     }
@@ -53,65 +109,55 @@ export async function handleSummaryCommand(interaction) {
       file: filePath,
       config: {
         mimeType: 'text/plain',
-        displayName: 'Discord Conversation Log'
+        displayName: 'Discord Conversation Context'
       }
     });
 
-    await fs.unlink(filePath).catch(() => {});
+    const name = uploadResult.name;
+    let file = await genAI.files.get({ name });
+    let attempts = 0;
+    while (file.state === 'PROCESSING' && attempts < 10) {
+      await new Promise(r => setTimeout(r, 2000));
+      file = await genAI.files.get({ name });
+      attempts++;
+    }
 
-    // Generate Summary
-    const model = genAI.models; 
-    
-    const prompt = `Please analyze the attached conversation log from Discord.
-    
-    Provide a clear, structured summary of the discussion.
-    - Highlight key topics discussed.
-    - Identify active participants.
-    - Mention any decisions made or funny moments.
-    - Keep the tone helpful and concise.
-    
-    The log contains approximately ${result.messageCount} messages centered around the provided link.`;
-
-    const request = {
+    const response = await genAI.models.generateContent({
       model: SUMMARY_MODEL,
-      contents: [{
-        role: 'user',
-        parts: [
-          { text: prompt },
-          {
-            fileData: {
-              fileUri: uploadResult.uri,
-              mimeType: uploadResult.mimeType
-            }
-          }
-        ]
-      }]
-    };
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: "Analyze and summarize the Discord conversation in the attached file. Identify the main topics discussed, any decisions made, and the overall mood of the chat. Be concise and use bullet points." },
+            { fileData: { fileUri: uploadResult.uri, mimeType: uploadResult.mimeType } }
+          ]
+        }
+      ]
+    });
 
-    const genResult = await genAI.models.generateContent(request);
-    const summaryText = genResult.text || "Could not generate summary.";
+    const aiSummary = response.candidates?.[0]?.content?.parts?.[0]?.text || "I was unable to generate a summary.";
 
     const embed = new EmbedBuilder()
-      .setColor(0x00FF00)
-      .setTitle(`📝 Conversation Summary`)
-      .setDescription(summaryText.slice(0, 4096))
+      .setColor(0x5865F2) // Discord Blurple
+      .setTitle('📝 Conversation Summary')
+      .setDescription(aiSummary.slice(0, 4000))
       .addFields(
-        { name: '📍 Context', value: `[Jump to Start Message](${link})`, inline: true },
-        { name: '📊 Messages Analyzed', value: `${result.messageCount}`, inline: true },
-        { name: '📂 Channel', value: `#${result.channelName}`, inline: true }
+        { name: '📍 Context', value: `#${result.channelName} (${result.guildName})`, inline: true },
+        { name: '💬 Messages', value: result.messageCount.toString(), inline: true }
       )
-      .setFooter({ text: `Generated by ${interaction.user.displayName}` })
+      .setFooter({ text: 'Summarized by Lumin' })
       .setTimestamp();
 
+    await fs.unlink(filePath).catch(() => {});
+    incrementSummaryUsage(interaction.user.id);
     await interaction.editReply({ embeds: [embed] });
 
-    // 2. Increment Usage on Success
-    incrementSummaryUsage(interaction.user.id);
-
   } catch (error) {
-    console.error('Error in handleSummaryCommand:', error);
-    await interaction.editReply({ 
-      content: 'An error occurred while generating the summary.' 
-    }).catch(() => {});
+    console.error('Error in summary command:', error);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: '❌ An error occurred while processing the summary.', flags: MessageFlags.Ephemeral });
+    } else {
+      await interaction.editReply({ content: '❌ An unexpected error occurred. Please try again later.' });
+    }
   }
 }
