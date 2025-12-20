@@ -92,7 +92,7 @@ const commands = [
   {
     name: "summary",
     description: "Summarize a Discord conversation OR a YouTube video",
-    dm_permission: false,
+    dm_permission: true,
     options: [
       {
         name: "link",
