@@ -9,7 +9,7 @@ import { genAI, state, chatHistoryLock, updateChatHistory, saveStateToFile, TEMP
 import { memorySystem } from '../memorySystem.js';
 import config from '../config.js';
 import * as db from '../database.js';
-import { MODELS, safetySettings, getGenerationConfig, RATE_LIMIT_ERRORS, MODEL_FALLBACK_CHAIN } from './config.js';
+import { MODELS, safetySettings, getGenerationConfig, RATE_LIMIT_ERRORS, MODEL_FALLBACK_CHAIN, DEFAULT_MODEL } from './config.js';
 import { updateEmbed, sendAsTextFile } from './responseHandler.js';
 
 /**
@@ -400,7 +400,7 @@ const isServerChatHistoryEnabled = guildId ? serverSettings.serverChatHistory : 
 const isChannelChatHistoryEnabled = guildId ? state.channelWideChatHistory[channelId] : false;
 const historyId = isServerChatHistoryEnabled ? guildId : (isChannelChatHistoryEnabled ? channelId : userId);
 
-const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
+const selectedModel = effectiveSettings.selectedModel || DEFAULT_MODEL;
 const modelName = MODELS[selectedModel];
 
 const tools = [{
@@ -990,3 +990,4 @@ while (modelAttempts < maxModelAttempts && attempts > 0) {
   }
  }
 }
+
