@@ -54,7 +54,7 @@ export function getGenerationConfig(modelName) {
       temperature: 1.0,  // Gemini 3 is optimized for temp 1.0
       topP: 0.95,
       thinkingConfig: {
-        thinkingLevel: 'high'  // Options: 'minimal', 'low', 'medium', 'high'
+        thinkingLevel: 'medium'  // Options: 'minimal', 'low', 'medium', 'high'
       }
     };
   } else {
