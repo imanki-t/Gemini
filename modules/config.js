@@ -9,7 +9,7 @@ export const MODELS = {
 };
 
 // Centralized default model setting
-export const DEFAULT_MODEL = 'gemini-3-flash';
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 // Gemini 3.0 models that support thinking_level
 export const GEMINI_3_MODELS = [
