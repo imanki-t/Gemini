@@ -46,7 +46,7 @@ export async function handleSummaryCommand(interaction) {
             {
               role: 'user',
               parts: [
-                { text: "Please provide a comprehensive, structured summary of this YouTube video. Highlight key points, main takeaways, and any important details. Use bullet points for readability." },
+                { text: "Please provide a comprehensive, structured summary of this YouTube video. Highlight key points, main takeaways, and any important details. Use bullet points for readability. Make sure the summary is short and concise." },
                 { fileData: { fileUri: inputLink, mimeType: 'video/mp4' } } // Gemini treats YT links as video files via URI
               ]
             }
@@ -64,7 +64,7 @@ export async function handleSummaryCommand(interaction) {
           .setTitle('📺 Video Summary')
           .setURL(inputLink)
           .setDescription(summaryText.slice(0, 4000))
-          .setFooter({ text: `Summarized by Lumin • Gemini 2.0` })
+          .setFooter({ text: `Summarized by Lumin • Gemini 3.0` })
           .setTimestamp();
 
         incrementSummaryUsage(interaction.user.id);
@@ -128,7 +128,7 @@ export async function handleSummaryCommand(interaction) {
         {
           role: 'user',
           parts: [
-            { text: "Analyze and summarize the Discord conversation in the attached file. Identify the main topics discussed, any decisions made, and the overall mood of the chat. Be concise and use bullet points." },
+            { text: "Analyze and summarize the Discord conversation in the attached file. Identify the main topics discussed, any decisions made, and the overall mood of the chat. Be concise and use bullet points. Make the summary short and concise." },
             { fileData: { fileUri: uploadResult.uri, mimeType: uploadResult.mimeType } }
           ]
         }
