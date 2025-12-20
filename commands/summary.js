@@ -1,5 +1,5 @@
 import { EmbedBuilder, MessageFlags } from 'discord.js';
-import { genAI, TEMP_DIR, checkSummaryRateLimit, incrementSummaryUsage } from '../botManager.js';
+import { genAI, TEMP_DIR, checkSummaryRateLimit, incrementSummaryUsage, state, updateChatHistory, saveStateToFile, chatHistoryLock } from '../botManager.js';
 import { fetchMessagesForSummary } from '../modules/utils.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -68,6 +68,10 @@ export async function handleSummaryCommand(interaction) {
           .setTimestamp();
 
         incrementSummaryUsage(interaction.user.id);
+        
+        // Note: We intentionally DO NOT update chat history here to prevent 
+        // the summary from bloating future context.
+        
         return interaction.editReply({ embeds: [embed] });
 
       } catch (videoError) {
@@ -150,6 +154,9 @@ export async function handleSummaryCommand(interaction) {
 
     await fs.unlink(filePath).catch(() => {});
     incrementSummaryUsage(interaction.user.id);
+    
+    // Note: We intentionally DO NOT update chat history here.
+    
     await interaction.editReply({ embeds: [embed] });
 
   } catch (error) {
@@ -160,4 +167,4 @@ export async function handleSummaryCommand(interaction) {
       await interaction.editReply({ content: '❌ An unexpected error occurred. Please try again later.' });
     }
   }
-}
+      }
