@@ -1,4 +1,4 @@
-import { PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits, ApplicationCommandOptionType } from 'discord.js';
 
 const commands = [
   {
@@ -12,13 +12,13 @@ const commands = [
       {
         name: "prompt",
         description: "Your search query or prompt",
-        type: 3,
+        type: ApplicationCommandOptionType.String,
         required: false
       },
       {
         name: "file",
         description: "Attach a file",
-        type: 11,
+        type: ApplicationCommandOptionType.Attachment,
         required: false
       }
     ]
@@ -30,7 +30,7 @@ const commands = [
       {
         name: "action",
         description: "What do you want to do?",
-        type: 3,
+        type: ApplicationCommandOptionType.String,
         required: true,
         choices: [
           { name: "Set Birthday", value: "set" },
@@ -51,18 +51,18 @@ const commands = [
   {
     name: "roulette",
     description: "Bot randomly reacts to messages in this channel",
-    dm_permission: false, // Server Only
-    default_member_permissions: PermissionFlagsBits.ManageGuild.toString() // Admin Only
+    dm_permission: false,
+    default_member_permissions: PermissionFlagsBits.ManageGuild.toString()
   },
   {
     name: "anniversary",
     description: "View bot's server anniversary info",
-    dm_permission: false // Server Only
+    dm_permission: false
   },
   {
     name: "digest",
     description: "Get a weekly digest.",
-    dm_permission: false // Restricts visibility to Servers Only
+    dm_permission: false
   },
   {
     name: "starter",
@@ -71,11 +71,12 @@ const commands = [
   {
     name: "compliment",
     description: "Send an anonymous compliment to someone",
+    dm_permission: false, // Now restricted to Servers Only
     options: [
       {
         name: "user",
         description: "User to compliment",
-        type: 6,
+        type: ApplicationCommandOptionType.User,
         required: true
       }
     ]
@@ -91,18 +92,18 @@ const commands = [
   {
     name: "summary",
     description: "Summarize a conversation based on a message link",
-    dm_permission: false, // Server Only
+    dm_permission: false,
     options: [
       {
         name: "link",
         description: "The message link to start the summary around",
-        type: 3,
+        type: ApplicationCommandOptionType.String,
         required: true
       },
       {
         name: "count",
         description: "Number of messages to summarize",
-        type: 4,
+        type: ApplicationCommandOptionType.Integer,
         required: false,
         min_value: 1,
         max_value: 100
@@ -112,13 +113,13 @@ const commands = [
   {
     name: "realive",
     description: "Periodically send messages to revive dead chats",
-    dm_permission: false, // Server Only
-    default_member_permissions: PermissionFlagsBits.ManageGuild.toString(), // Admin Only
+    dm_permission: false,
+    default_member_permissions: PermissionFlagsBits.ManageGuild.toString(),
     options: [
       {
         name: "action",
         description: "Configure realive settings",
-        type: 3,
+        type: ApplicationCommandOptionType.String,
         required: true,
         choices: [
           { name: "Enable", value: "enable" },
@@ -130,7 +131,7 @@ const commands = [
       {
         name: "hours",
         description: "Hours between interval messages.",
-        type: 4,
+        type: ApplicationCommandOptionType.Integer,
         required: false,
         min_value: 1,
         max_value: 168
