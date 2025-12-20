@@ -28,6 +28,7 @@ export const client = new Client({
 const apiKeys = [];
 let keyIndex = 1;
 
+// Load all available keys from environment variables
 while (process.env[`GOOGLE_API_KEY${keyIndex}`]) {
   apiKeys.push(process.env[`GOOGLE_API_KEY${keyIndex}`]);
   keyIndex++;
@@ -40,6 +41,7 @@ if (apiKeys.length === 0 && process.env.GOOGLE_API_KEY) {
 let currentKeyIdx = 0;
 const keyUsageStats = new Map();
 const keyErrorTracking = new Map();
+const keyCooldowns = new Map(); // Track keys currently on 429 cooldown
 
 apiKeys.forEach((_, idx) => {
   keyUsageStats.set(idx, { requests: 0, lastUsed: null, errors: 0, successfulRequests: 0 });
@@ -48,9 +50,36 @@ apiKeys.forEach((_, idx) => {
 
 let currentClient = new GoogleGenAI({ apiKey: apiKeys[0] });
 
+/**
+ * Switches to the next available API key, skipping those on cooldown.
+ */
 function switchToNextKey(error) {
   const oldIdx = currentKeyIdx;
-  currentKeyIdx = (currentKeyIdx + 1) % apiKeys.length;
+  
+  // If it's a rate limit error, put the key on a 30-second cooldown
+  const isRateLimit = error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED');
+  if (isRateLimit) {
+    keyCooldowns.set(oldIdx, Date.now() + 30000);
+  }
+
+  // Find next key that isn't on cooldown
+  let found = false;
+  for (let i = 1; i <= apiKeys.length; i++) {
+    const nextIdx = (oldIdx + i) % apiKeys.length;
+    const cooldownUntil = keyCooldowns.get(nextIdx) || 0;
+    
+    if (Date.now() > cooldownUntil) {
+      currentKeyIdx = nextIdx;
+      found = true;
+      break;
+    }
+  }
+
+  // If all keys are on cooldown, just cycle normally but log a warning
+  if (!found) {
+    currentKeyIdx = (oldIdx + 1) % apiKeys.length;
+  }
+
   currentClient = new GoogleGenAI({ apiKey: apiKeys[currentKeyIdx] });
   
   const tracking = keyErrorTracking.get(oldIdx);
@@ -60,12 +89,15 @@ function switchToNextKey(error) {
       timestamp: new Date().toISOString()
     };
   }
-  console.log(`Switching API Key from index ${oldIdx} to ${currentKeyIdx} due to error.`);
 }
 
+/**
+ * Retries an API call with exponential backoff and key rotation.
+ */
 async function withRetry(apiCall) {
   let attempts = 0;
-  const maxAttempts = Math.max(3, apiKeys.length);
+  const maxAttempts = 5; // Recommended retry limit
+  const delays = [1000, 2000, 4000, 8000, 16000]; // Exponential backoff steps
 
   while (attempts < maxAttempts) {
     try {
@@ -82,16 +114,23 @@ async function withRetry(apiCall) {
       const stats = keyUsageStats.get(currentKeyIdx);
       stats.errors++;
 
-      console.warn(`API call failed (Key Index: ${currentKeyIdx}): ${error.message}`);
+      const isRateLimit = error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED');
+      
+      if (isRateLimit) {
+        console.warn(`⚠️ Rate Limit hit on Key Index ${currentKeyIdx}. Rotating...`);
+      } else {
+        console.warn(`❌ API call failed (Key Index: ${currentKeyIdx}): ${error.message}`);
+      }
       
       switchToNextKey(error);
       attempts++;
 
       if (attempts >= maxAttempts) {
-        throw new Error(`All API keys failed. Last error: ${error.message}`);
+        throw new Error(`Critical: All attempts failed after key rotation and backoff. Last error: ${error.message}`);
       }
       
-      await new Promise(r => setTimeout(r, 2000));
+      // Use exponential delay
+      await new Promise(r => setTimeout(r, delays[attempts - 1] || 2000));
     }
   }
 }
@@ -144,16 +183,19 @@ export function getApiKeyStats() {
   apiKeys.forEach((key, idx) => {
     const keyStats = keyUsageStats.get(idx);
     const tracking = keyErrorTracking.get(idx);
+    const cooldown = keyCooldowns.get(idx);
+    const isOnCooldown = cooldown && Date.now() < cooldown;
+
     stats.push({
       keyNumber: idx + 1,
       keyPreview: `${key.slice(0, 8)}...`,
       isCurrent: idx === currentKeyIdx,
+      status: isOnCooldown ? '🔴 Cooldown' : '🟢 Active',
       totalRequests: keyStats.requests,
       successfulRequests: keyStats.successfulRequests,
       errors: keyStats.errors,
       lastUsed: keyStats.lastUsed ? new Date(keyStats.lastUsed).toISOString() : 'Never',
-      lastError: tracking.lastError ? tracking.lastError.message : null,
-      lastErrorTimestamp: tracking.lastError ? tracking.lastError.timestamp : null
+      lastError: tracking.lastError ? tracking.lastError.message : null
     });
   });
   return {
@@ -165,8 +207,15 @@ export function getApiKeyStats() {
 
 setInterval(() => {
   const stats = getApiKeyStats();
-  console.log(JSON.stringify(stats, null, 2));
-}, 30 * 60 * 1000);
+  console.log('--- API Key Status Report ---');
+  console.table(stats.keys.map(k => ({
+    Index: k.keyNumber,
+    Status: k.status,
+    Ok: k.successfulRequests,
+    Err: k.errors,
+    Current: k.isCurrent ? '⭐' : ''
+  })));
+}, 15 * 60 * 1000); // More frequent reports for debugging
 
 export const token = process.env.DISCORD_BOT_TOKEN;
 
@@ -210,6 +259,7 @@ class Mutex {
 
 export const chatHistoryLock = new Mutex();
 
+// State variables
 let chatHistories = {};
 let activeUsersInChannels = {};
 let customInstructions = {};
@@ -237,159 +287,57 @@ let realive = {};
 let summaryUsage = {};
 
 export const state = {
-  get chatHistories() {
-    return chatHistories;
-  },
-  set chatHistories(v) {
-    chatHistories = v;
-  },
-  get activeUsersInChannels() {
-    return activeUsersInChannels;
-  },
-  set activeUsersInChannels(v) {
-    activeUsersInChannels = v;
-  },
-  get customInstructions() {
-    return customInstructions;
-  },
-  set customInstructions(v) {
-    customInstructions = v;
-  },
-  get serverSettings() {
-    return serverSettings;
-  },
-  set serverSettings(v) {
-    serverSettings = v;
-  },
-  get userSettings() {
-    return userSettings;
-  },
-  set userSettings(v) {
-    userSettings = v;
-  },
-  get userResponsePreference() {
-    return userResponsePreference;
-  },
-  set userResponsePreference(v) {
-    userResponsePreference = v;
-  },
-  get alwaysRespondChannels() {
-    return alwaysRespondChannels;
-  },
-  set alwaysRespondChannels(v) {
-    alwaysRespondChannels = v;
-  },
-  get channelWideChatHistory() {
-    return channelWideChatHistory;
-  },
-  set channelWideChatHistory(v) {
-    channelWideChatHistory = v;
-  },
-  get blacklistedUsers() {
-    return blacklistedUsers;
-  },
-  set blacklistedUsers(v) {
-    blacklistedUsers = v;
-  },
-  get continuousReplyChannels() {
-    return continuousReplyChannels;
-  },
-  set continuousReplyChannels(v) {
-    continuousReplyChannels = v;
-  },
-  get requestQueues() {
-    return requestQueues;
-  },
-  get imageUsage() {
-    return imageUsage;
-  },
-  set imageUsage(v) {
-    imageUsage = v;
-  },
-  get birthdays() {
-    return birthdays;
-  },
-  set birthdays(v) {
-    birthdays = v;
-  },
-  get reminders() {
-    return reminders;
-  },
-  set reminders(v) {
-    reminders = v;
-  },
-  get dailyQuotes() {
-    return dailyQuotes;
-  },
-  set dailyQuotes(v) {
-    dailyQuotes = v;
-  },
-  get roulette() {
-    return roulette;
-  },
-  set roulette(v) {
-    roulette = v;
-  },
-  get complimentCounts() {
-    return complimentCounts;
-  },
-  set complimentCounts(v) {
-    complimentCounts = v;
-  },
-  get complimentOptOut() {
-    return complimentOptOut;
-  },
-  set complimentOptOut(v) {
-    complimentOptOut = v;
-  },
-  get userTimezones() {
-    return userTimezones;
-  },
-  set userTimezones(v) {
-    userTimezones = v;
-  },
-  get serverDigests() {
-    return serverDigests;
-  },
-  set serverDigests(v) {
-    serverDigests = v;
-  },
-  get quoteUsage() {
-    return quoteUsage;
-  },
-  set quoteUsage(v) {
-    quoteUsage = v;
-  },
-  get starterUsage() {
-    return starterUsage;
-  },
-  set starterUsage(v) {
-    starterUsage = v;
-  },
-  get complimentUsage() {
-    return complimentUsage;
-  },
-  set complimentUsage(v) {
-    complimentUsage = v;
-  },
-  get userDigests() {
-    return userDigests;
-  },
-  set userDigests(v) {
-    userDigests = v;
-  },
-  get realive() {
-    return realive;
-  },
-  set realive(v) {
-    realive = v;
-  },
-  get summaryUsage() {
-    return summaryUsage;
-  },
-  set summaryUsage(v) {
-    summaryUsage = v;
-  }
+  get chatHistories() { return chatHistories; },
+  set chatHistories(v) { chatHistories = v; },
+  get activeUsersInChannels() { return activeUsersInChannels; },
+  set activeUsersInChannels(v) { activeUsersInChannels = v; },
+  get customInstructions() { return customInstructions; },
+  set customInstructions(v) { customInstructions = v; },
+  get serverSettings() { return serverSettings; },
+  set serverSettings(v) { serverSettings = v; },
+  get userSettings() { return userSettings; },
+  set userSettings(v) { userSettings = v; },
+  get userResponsePreference() { return userResponsePreference; },
+  set userResponsePreference(v) { userResponsePreference = v; },
+  get alwaysRespondChannels() { return alwaysRespondChannels; },
+  set alwaysRespondChannels(v) { alwaysRespondChannels = v; },
+  get channelWideChatHistory() { return channelWideChatHistory; },
+  set channelWideChatHistory(v) { channelWideChatHistory = v; },
+  get blacklistedUsers() { return blacklistedUsers; },
+  set blacklistedUsers(v) { blacklistedUsers = v; },
+  get continuousReplyChannels() { return continuousReplyChannels; },
+  set continuousReplyChannels(v) { continuousReplyChannels = v; },
+  get requestQueues() { return requestQueues; },
+  get imageUsage() { return imageUsage; },
+  set imageUsage(v) { imageUsage = v; },
+  get birthdays() { return birthdays; },
+  set birthdays(v) { birthdays = v; },
+  get reminders() { return reminders; },
+  set reminders(v) { reminders = v; },
+  get dailyQuotes() { return dailyQuotes; },
+  set dailyQuotes(v) { dailyQuotes = v; },
+  get roulette() { return roulette; },
+  set roulette(v) { roulette = v; },
+  get complimentCounts() { return complimentCounts; },
+  set complimentCounts(v) { complimentCounts = v; },
+  get complimentOptOut() { return complimentOptOut; },
+  set complimentOptOut(v) { complimentOptOut = v; },
+  get userTimezones() { return userTimezones; },
+  set userTimezones(v) { userTimezones = v; },
+  get serverDigests() { return serverDigests; },
+  set serverDigests(v) { serverDigests = v; },
+  get quoteUsage() { return quoteUsage; },
+  set quoteUsage(v) { quoteUsage = v; },
+  get starterUsage() { return starterUsage; },
+  set starterUsage(v) { starterUsage = v; },
+  get complimentUsage() { return complimentUsage; },
+  set complimentUsage(v) { complimentUsage = v; },
+  get userDigests() { return userDigests; },
+  set userDigests(v) { userDigests = v; },
+  get realive() { return realive; },
+  set realive(v) { realive = v; },
+  get summaryUsage() { return summaryUsage; },
+  set summaryUsage(v) { summaryUsage = v; }
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -619,13 +567,11 @@ function scheduleDailyReset() {
 
         const currentMs = Date.now();
         
-        // Reset Image Usage
         for (const userId in imageUsage) {
           imageUsage[userId].count = 0;
           imageUsage[userId].lastReset = currentMs;
         }
 
-        // Reset Summary Usage
         for (const userId in summaryUsage) {
           summaryUsage[userId].count = 0;
           summaryUsage[userId].lastReset = currentMs;
@@ -644,19 +590,15 @@ function scheduleDailyReset() {
 export async function initialize() {
   try {
     await db.connectDB();
-
     await loadStateFromDB();
-
     scheduleDailyReset();
-
+    console.log('--- Startup Stats ---');
     console.log(JSON.stringify(getApiKeyStats(), null, 2));
   } catch (error) {
     console.error('Error during initialization:', error);
     throw error;
   }
 }
-
-// ... [Existing exports for history, limit checks etc. kept as is] ...
 
 export function getHistory(id, guildId = null) {
   const historyObject = chatHistories[id] || {};
@@ -906,7 +848,6 @@ export function incrementSummaryUsage(userId) {
   
   const usage = summaryUsage[userId];
   
-  // If it's been more than a day, this is technically the first usage of the new day
   const ONE_DAY = 24 * 60 * 60 * 1000;
   if (now - usage.lastReset > ONE_DAY) {
     usage.count = 0;
@@ -919,6 +860,7 @@ export function incrementSummaryUsage(userId) {
 process.on('SIGINT', async () => {
   await saveStateToFile();
   await db.closeDB();
+  console.log('--- Shutdown Stats ---');
   console.log(JSON.stringify(getApiKeyStats(), null, 2));
   process.exit(0);
 });
@@ -926,6 +868,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   await saveStateToFile();
   await db.closeDB();
+  console.log('--- Shutdown Stats ---');
   console.log(JSON.stringify(getApiKeyStats(), null, 2));
   process.exit(0);
 });
