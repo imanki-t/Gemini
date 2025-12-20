@@ -8,6 +8,9 @@ export const MODELS = {
   'gemini-2.0-flash-lite': 'gemini-2.0-flash-lite'
 };
 
+// Centralized default model setting
+export const DEFAULT_MODEL = 'gemini-3-flash';
+
 // Gemini 3.0 models that support thinking_level
 export const GEMINI_3_MODELS = [
   'gemini-3-flash-preview',
@@ -54,7 +57,7 @@ export function getGenerationConfig(modelName) {
       temperature: 1.0,  // Gemini 3 is optimized for temp 1.0
       topP: 0.95,
       thinkingConfig: {
-        thinkingLevel: 'medium'  // Options: 'minimal', 'low', 'medium', 'high'
+        thinkingLevel: 'low'  // Options: 'minimal', 'low', 'medium', 'high'
       }
     };
   } else {
