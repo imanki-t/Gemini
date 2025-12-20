@@ -3,7 +3,7 @@ import path from 'path';
 import { genAI, state, chatHistoryLock, updateChatHistory, saveStateToFile, checkImageRateLimit, incrementImageUsage, TEMP_DIR } from '../botManager.js';
 import { memorySystem } from '../memorySystem.js';
 import config from '../config.js';
-import { MODELS, getGenerationConfig, safetySettings } from './config.js';
+import { MODELS, getGenerationConfig, safetySettings, DEFAULT_MODEL } from './config.js';
 import { updateEmbedForInteraction } from './responseHandler.js';
 import { initializeBlacklistForGuild } from './utils.js';
 
@@ -146,7 +146,7 @@ export async function executeSearchInteraction(interaction) {
     const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
     const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
 
-    const selectedModel = effectiveSettings.selectedModel || 'gemini-2.5-flash';
+    const selectedModel = effectiveSettings.selectedModel || DEFAULT_MODEL;
     const modelName = MODELS[selectedModel];
 
     let finalInstructions = config.coreSystemRules;
