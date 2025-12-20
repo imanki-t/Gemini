@@ -71,7 +71,7 @@ const commands = [
   {
     name: "compliment",
     description: "Send an anonymous compliment to someone",
-    dm_permission: false, // Now restricted to Servers Only
+    dm_permission: false,
     options: [
       {
         name: "user",
@@ -91,12 +91,12 @@ const commands = [
   },
   {
     name: "summary",
-    description: "Summarize a conversation based on a message link",
+    description: "Summarize a Discord conversation OR a YouTube video",
     dm_permission: false,
     options: [
       {
         name: "link",
-        description: "The message link to start the summary around",
+        description: "Message link OR YouTube URL",
         type: ApplicationCommandOptionType.String,
         required: true
       },
