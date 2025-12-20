@@ -182,12 +182,21 @@ client.on('messageCreate', async (message) => {
     const channelContinuousReply = state.continuousReplyChannels?.[channelId] || false;
 
     const shouldRespond = (
-      (isDM && config.workInDMs && (continuousReply || message.mentions.users.has(client.user.id))) ||
-      (guildId && (channelContinuousReply || continuousReply) && !message.mentions.users.has(client.user.id)) ||
-      state.alwaysRespondChannels[channelId] ||
-      (message.mentions.users.has(client.user.id) && !isDM) ||
-      state.activeUsersInChannels[channelId]?.[userId]
-    );
+  // DM: respond if DMs enabled and (continuous OR mentioned)
+  (isDM && config.workInDMs && (continuousReply || message.mentions.users.has(client.user.id))) ||
+  
+  // Guild + Mentioned: ALWAYS respond when bot is mentioned
+  (guildId && message.mentions.users.has(client.user.id)) ||
+  
+  // Guild + Not Mentioned: respond only if continuous reply enabled
+  (guildId && !message.mentions.users.has(client.user.id) && (channelContinuousReply || continuousReply)) ||
+  
+  // Special channel: always respond
+  state.alwaysRespondChannels[channelId] ||
+  
+  // Active conversation: respond to users in conversation
+  state.activeUsersInChannels[channelId]?.[userId]
+);
 
     if (shouldRespond) {
       if (!state.requestQueues.has(userId)) {
