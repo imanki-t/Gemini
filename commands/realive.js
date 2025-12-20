@@ -1,6 +1,8 @@
 import { EmbedBuilder, PermissionsBitField, MessageFlags } from 'discord.js';
 import { state, saveStateToFile, genAI } from '../botManager.js';
 import * as db from '../database.js';
+import { memorySystem } from '../memorySystem.js';
+import config from '../config.js';
 
 // Model for generating revival messages
 const REVIVAL_MODEL = 'gemini-2.5-flash-lite';
@@ -177,7 +179,7 @@ async function checkAndRevive(client) {
         // If last msg was 7 hours ago, I post.
         
         if (shouldRevive) {
-          await sendRevivalMessage(channel);
+          await sendRevivalMessage(channel, guildId);
           config.lastRun = now;
           await saveConfig(guildId, config);
         } else {
@@ -201,33 +203,70 @@ async function checkAndRevive(client) {
   }
 }
 
-async function sendRevivalMessage(channel) {
+async function sendRevivalMessage(channel, guildId) {
   try {
-    // Reuse generation logic similar to starter command
+    // Get recent server history for context
+    const history = await memorySystem.getOptimizedHistory(
+      guildId,
+      'generate conversation revival message',
+      REVIVAL_MODEL
+    );
+    
+    // Build contextual prompt based on history
+    let contextPrompt = 'Generate a casual, natural message to revive this dead chat. ';
+    
+    if (history && history.length > 0) {
+      contextPrompt += 'Reference recent conversation topics naturally. ';
+    } else {
+      contextPrompt += 'Since there\'s no recent history, create a general engaging question. ';
+    }
+    
+    contextPrompt += 'Keep it short, casual, and friendly - like you\'re genuinely wondering where everyone went. Examples: "duhh, where are all of you?", "sooo... did everyone disappear? 👀", "it\'s quiet here... too quiet 🤔"';
+    
+    // Create the system instruction for a natural, contextual revival
+    const systemInstruction = `${config.coreSystemRules}\n\n${config.defaultPersonality}\n\nYou're sending a message to revive a quiet Discord server. Be natural and casual - you're not announcing anything, just casually checking in or commenting on topics people were discussing. Reference recent conversations if available. Don't use quotes or formal greetings. Just be yourself wondering where everyone went or bringing up something interesting from recent chats.`;
+    
     const request = {
       model: REVIVAL_MODEL,
-      contents: [{
-        role: 'user',
-        parts: [{
-          text: 'Generate one unique, engaging conversation starter question to revive a dead chat. Keep it fun and short.'
-        }]
-      }],
-      systemInstruction: {
-        parts: [{
-          text: 'You are a friendly bot trying to revive a quiet discord server. Output ONE sentence only. No quotes.'
-        }]
-      },
-      generationConfig: {
-        temperature: 0.9
+      contents: [
+        ...history,
+        {
+          role: 'user',
+          parts: [{
+            text: contextPrompt
+          }]
+        }
+      ],
+      config: {
+        systemInstruction: systemInstruction,
+        temperature: 0.95,
+        topP: 0.95
       }
     };
     
     const result = await genAI.models.generateContent(request);
-    const starter = result.text || "It's quiet... too quiet. Who has a fun story from this week?";
+    let revivalMsg = result.text || "duhh, where are all of you? 👀";
     
-    await channel.send(starter);
+    // Clean up any formatting artifacts
+    revivalMsg = revivalMsg
+      .replace(/^["']|["']$/g, '') // Remove quotes
+      .replace(/^\*\*|\*\*$/g, '') // Remove bold
+      .trim();
+    
+    await channel.send(revivalMsg);
 
   } catch (error) {
     console.error('Error generating revival message:', error);
+    // Fallback to a simple casual message
+    const fallbacks = [
+      "duhh, where are all of you? 👀",
+      "sooo... did everyone disappear?",
+      "it's quiet here... too quiet 🤔",
+      "hellooo? anyone there? 🙃",
+      "*checks if server is still alive*",
+      "y'all ghosted the chat or what? 😭"
+    ];
+    const randomFallback = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    await channel.send(randomFallback);
   }
-      }
+}
