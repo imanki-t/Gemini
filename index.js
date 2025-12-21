@@ -149,10 +149,47 @@ client.on('messageCreate', async (message) => {
     // Ignore command messages
     if (message.content.startsWith('!')) return;
     
-    // ✨ NEW: Ignore Discord system messages
-    // This includes: member join, member boost, pin notifications, 
-    // channel follow, thread creation, role subscription, etc.
-    if (message.system) {
+    // ✨ FIXED: Comprehensive system message filtering
+    // Discord has many system message types that should be ignored
+    // Message type 0 = DEFAULT (normal messages)
+    // Message type 19 = REPLY (normal replies, should NOT be ignored)
+    const ignoredSystemTypes = [
+      1,  // RECIPIENT_ADD
+      2,  // RECIPIENT_REMOVE
+      3,  // CALL
+      4,  // CHANNEL_NAME_CHANGE
+      5,  // CHANNEL_ICON_CHANGE
+      6,  // CHANNEL_PINNED_MESSAGE
+      7,  // USER_JOIN (formerly GUILD_MEMBER_JOIN)
+      8,  // USER_PREMIUM_GUILD_SUBSCRIPTION (boosts)
+      9,  // USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_1
+      10, // USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_2
+      11, // USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_3
+      12, // CHANNEL_FOLLOW_ADD
+      14, // GUILD_DISCOVERY_DISQUALIFIED
+      15, // GUILD_DISCOVERY_REQUALIFIED
+      18, // THREAD_CREATED
+      20, // CHAT_INPUT_COMMAND
+      21, // THREAD_STARTER_MESSAGE
+      22, // GUILD_INVITE_REMINDER
+      23, // CONTEXT_MENU_COMMAND
+      24, // AUTO_MODERATION_ACTION
+      25, // ROLE_SUBSCRIPTION_PURCHASE
+      26, // INTERACTION_PREMIUM_UPSELL
+      27, // STAGE_START
+      28, // STAGE_END
+      29, // STAGE_SPEAKER
+      30, // STAGE_TOPIC
+      31, // GUILD_APPLICATION_PREMIUM_SUBSCRIPTION
+      36, // GUILD_INCIDENT_ALERT_MODE_ENABLED
+      37, // GUILD_INCIDENT_ALERT_MODE_DISABLED
+      38, // GUILD_INCIDENT_REPORT_RAID
+      39, // GUILD_INCIDENT_REPORT_FALSE_ALARM
+      46  // POLL_RESULT
+    ];
+    
+    // Ignore system messages (but allow normal messages type 0 and replies type 19)
+    if (ignoredSystemTypes.includes(message.type)) {
       console.log(`🔕 Ignored system message type: ${message.type}`);
       return;
     }
