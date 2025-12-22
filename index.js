@@ -19,19 +19,26 @@ import {
   processMessageRoulette
 } from './commands/index.js';
 
+const HOUR_IN_MS = 3600000;
+const DAY_IN_MS = 86400000;
+
+const IGNORED_MESSAGE_TYPES = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 18, 20, 21, 22, 23, 24, 25, 
+  26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
+];
+
 initialize().catch(console.error);
 
-setInterval(async () => {
+const cleanupTempFiles = async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
     const now = Date.now();
-    const ONE_HOUR = 60 * 60 * 1000;
     
     for (const file of files) {
       const filePath = path.join(TEMP_DIR, file);
       try {
         const stats = await fs.stat(filePath);
-        if (now - stats.mtimeMs > ONE_HOUR) {
+        if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
           console.log(`🧹 Cleaned: ${file}`);
         }
@@ -42,24 +49,30 @@ setInterval(async () => {
   } catch (error) {
     console.error('Cleanup error:', error);
   }
-}, 60 * 60 * 1000);
+};
+
+setInterval(cleanupTempFiles, HOUR_IN_MS);
 
 (async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
     const now = Date.now();
     let cleaned = 0;
+    
     for (const file of files) {
       const filePath = path.join(TEMP_DIR, file);
       try {
         const stats = await fs.stat(filePath);
-        if (now - stats.mtimeMs > 60 * 60 * 1000) {
+        if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
           cleaned++;
         }
       } catch (err) {}
     }
-    if (cleaned > 0) console.log(`🧹 Startup: Cleaned ${cleaned} old temp files`);
+    
+    if (cleaned > 0) {
+      console.log(`🧹 Startup: Cleaned ${cleaned} old temp files`);
+    }
   } catch (error) {}
 })();
 
@@ -91,19 +104,15 @@ const activities = config.activities.map(activity => ({
 }));
 
 let activityIndex = 0;
+
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
 
   const rest = new REST().setToken(token);
+  
   try {
     console.log('Started refreshing application (/) commands.');
-
-    await rest.put(
-      Routes.applicationCommands(client.user.id), {
-        body: commands
-      },
-    );
-
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
     console.error(error);
@@ -120,7 +129,8 @@ client.once('clientReady', async () => {
       activities: [activities[activityIndex]],
       status: 'idle',
     });
-  }, 30000);
+    console.log(`🔄 Activity changed to: ${activities[activityIndex].name}`);
+  }, DAY_IN_MS);
 
   initializeScheduledTasks(client);
 });
@@ -143,53 +153,9 @@ client.on('guildCreate', async (guild) => {
 
 client.on('messageCreate', async (message) => {
   try {
-    // Ignore bot messages
     if (message.author.bot) return;
-    
-    // Ignore command messages
     if (message.content.startsWith('!')) return;
-    
-    // ✨ FIXED: Comprehensive system message filtering
-    // Discord has many system message types that should be ignored
-    // Message type 0 = DEFAULT (normal messages)
-    // Message type 19 = REPLY (normal replies, should NOT be ignored)
-    const ignoredSystemTypes = [
-      1,  // RECIPIENT_ADD
-      2,  // RECIPIENT_REMOVE
-      3,  // CALL
-      4,  // CHANNEL_NAME_CHANGE
-      5,  // CHANNEL_ICON_CHANGE
-      6,  // CHANNEL_PINNED_MESSAGE
-      7,  // USER_JOIN (formerly GUILD_MEMBER_JOIN)
-      8,  // USER_PREMIUM_GUILD_SUBSCRIPTION (boosts)
-      9,  // USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_1
-      10, // USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_2
-      11, // USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_3
-      12, // CHANNEL_FOLLOW_ADD
-      14, // GUILD_DISCOVERY_DISQUALIFIED
-      15, // GUILD_DISCOVERY_REQUALIFIED
-      18, // THREAD_CREATED
-      20, // CHAT_INPUT_COMMAND
-      21, // THREAD_STARTER_MESSAGE
-      22, // GUILD_INVITE_REMINDER
-      23, // CONTEXT_MENU_COMMAND
-      24, // AUTO_MODERATION_ACTION
-      25, // ROLE_SUBSCRIPTION_PURCHASE
-      26, // INTERACTION_PREMIUM_UPSELL
-      27, // STAGE_START
-      28, // STAGE_END
-      29, // STAGE_SPEAKER
-      30, // STAGE_TOPIC
-      31, // GUILD_APPLICATION_PREMIUM_SUBSCRIPTION
-      36, // GUILD_INCIDENT_ALERT_MODE_ENABLED
-      37, // GUILD_INCIDENT_ALERT_MODE_DISABLED
-      38, // GUILD_INCIDENT_REPORT_RAID
-      39, // GUILD_INCIDENT_REPORT_FALSE_ALARM
-      46  // POLL_RESULT
-    ];
-    
-    // Ignore system messages (but allow normal messages type 0 and replies type 19)
-    if (ignoredSystemTypes.includes(message.type)) {
+    if (IGNORED_MESSAGE_TYPES.includes(message.type)) {
       console.log(`🔕 Ignored system message type: ${message.type}`);
       return;
     }
@@ -201,6 +167,7 @@ client.on('messageCreate', async (message) => {
 
     if (guildId) {
       initializeBlacklistForGuild(guildId);
+      
       if (state.blacklistedUsers[guildId]?.includes(userId)) {
         return;
       }
@@ -215,25 +182,15 @@ client.on('messageCreate', async (message) => {
     const serverSettings = guildId ? (state.serverSettings[guildId] || {}) : {};
     const effectiveSettings = serverSettings.overrideUserSettings ? serverSettings : userSettings;
     const continuousReply = effectiveSettings.continuousReply ?? true;
-    
     const channelContinuousReply = state.continuousReplyChannels?.[channelId] || false;
 
     const shouldRespond = (
-  // DM: respond if DMs enabled and (continuous OR mentioned)
-  (isDM && config.workInDMs && (continuousReply || message.mentions.users.has(client.user.id))) ||
-  
-  // Guild + Mentioned: ALWAYS respond when bot is mentioned
-  (guildId && message.mentions.users.has(client.user.id)) ||
-  
-  // Guild + Not Mentioned: respond only if continuous reply enabled
-  (guildId && !message.mentions.users.has(client.user.id) && (channelContinuousReply || continuousReply)) ||
-  
-  // Special channel: always respond
-  state.alwaysRespondChannels[channelId] ||
-  
-  // Active conversation: respond to users in conversation
-  state.activeUsersInChannels[channelId]?.[userId]
-);
+      (isDM && config.workInDMs && (continuousReply || message.mentions.users.has(client.user.id))) ||
+      (guildId && message.mentions.users.has(client.user.id)) ||
+      (guildId && !message.mentions.users.has(client.user.id) && (channelContinuousReply || continuousReply)) ||
+      state.alwaysRespondChannels[channelId] ||
+      state.activeUsersInChannels[channelId]?.[userId]
+    );
 
     if (shouldRespond) {
       if (!state.requestQueues.has(userId)) {
@@ -322,7 +279,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-async function handleCommandInteraction(interaction) {
+const handleCommandInteraction = async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const commandHandlers = {
@@ -346,11 +303,12 @@ async function handleCommandInteraction(interaction) {
   };
 
   const handler = commandHandlers[interaction.commandName];
+  
   if (handler) {
     await handler(interaction);
   } else {
     console.log(`Unknown command: ${interaction.commandName}`);
   }
-}
+};
 
 client.login(token);
