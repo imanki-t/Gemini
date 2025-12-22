@@ -223,8 +223,22 @@ async function sendRevivalMessage(channel, guildId) {
     
     contextPrompt += 'Keep it short, casual, and friendly - like you\'re genuinely wondering where everyone went. Examples: "duhh, where are all of you?", "sooo... did everyone disappear? 👀", "it\'s quiet here... too quiet 🤔"';
     
+    // Get server settings and custom personality
+    const serverSettings = state.serverSettings[guildId] || {};
+    let finalInstructions = config.coreSystemRules;
+    
+    // Check for custom personality
+    const customPersonality = serverSettings.customPersonality || state.customInstructions[guildId];
+    if (customPersonality) {
+      finalInstructions += `\n\nADDITIONAL PERSONALITY:\n${customPersonality}`;
+    } else {
+      finalInstructions += `\n\n${config.defaultPersonality}`;
+    }
+    
+    finalInstructions += '\n\nYou\'re sending a message to revive a quiet Discord server. Be natural and casual - you\'re not announcing anything, just casually checking in or commenting on topics people were discussing. Reference recent conversations if available. Don\'t use quotes or formal greetings. Just be yourself wondering where everyone went or bringing up something interesting from recent chats.';
+    
     // Create the system instruction for a natural, contextual revival
-    const systemInstruction = `${config.coreSystemRules}\n\n${config.defaultPersonality}\n\nYou're sending a message to revive a quiet Discord server. Be natural and casual - you're not announcing anything, just casually checking in or commenting on topics people were discussing. Reference recent conversations if available. Don't use quotes or formal greetings. Just be yourself wondering where everyone went or bringing up something interesting from recent chats.`;
+    const systemInstruction = finalInstructions;
     
     const request = {
       model: REVIVAL_MODEL,
