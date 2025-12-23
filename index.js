@@ -27,8 +27,41 @@ const IGNORED_MESSAGE_TYPES = [
   26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
 ];
 
-initialize().catch(console.error);
+// CRITICAL FIX: Validate token before starting
+if (!token) {
+  console.error('❌ CRITICAL ERROR: DISCORD_BOT_TOKEN is not set in environment variables!');
+  console.error('Please check your .env file and ensure DISCORD_BOT_TOKEN is set correctly.');
+  process.exit(1);
+}
 
+console.log('🔑 Token validation: OK (length:', token.length, ')');
+
+// Start Express server first (independent of bot)
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    bot: client.user?.tag || 'Connecting...',
+    uptime: process.uptime(),
+    botReady: !!client.user
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    botConnected: client.isReady()
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Express server running on port ${PORT}`);
+});
+
+// Cleanup temp files
 const cleanupTempFiles = async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -52,6 +85,7 @@ const cleanupTempFiles = async () => {
 
 setInterval(cleanupTempFiles, HOUR_IN_MS);
 
+// Initial cleanup
 (async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -69,28 +103,6 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
   } catch (error) {}
 })();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    bot: client.user?.tag || 'Starting...',
-    uptime: process.uptime()
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`Express server running on port ${PORT}`);
-});
-
 const activities = config.activities.map(activity => ({
   name: activity.name,
   type: ActivityType[activity.type]
@@ -98,17 +110,49 @@ const activities = config.activities.map(activity => ({
 
 let activityIndex = 0;
 
+// CRITICAL FIX: Proper initialization flow
+async function startBot() {
+  try {
+    console.log('🚀 Starting bot initialization...');
+    
+    // Step 1: Initialize database and load state
+    console.log('📦 Initializing database...');
+    await initialize();
+    console.log('✅ Database initialized');
+    
+    // Step 2: Login to Discord
+    console.log('🔐 Logging into Discord...');
+    await client.login(token);
+    console.log('✅ Login successful, waiting for ready event...');
+    
+  } catch (error) {
+    console.error('❌ CRITICAL ERROR during bot startup:', error);
+    
+    if (error.code === 'TokenInvalid') {
+      console.error('🔴 Invalid Discord token! Please check your DISCORD_BOT_TOKEN in .env');
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      console.error('🔴 Network error: Cannot connect to Discord API. Check your internet connection.');
+    } else if (error.message?.includes('MongoDB')) {
+      console.error('🔴 MongoDB connection failed. Check your MONGODB_URI in .env');
+    }
+    
+    process.exit(1);
+  }
+}
+
+// Discord client event handlers
 client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}!`);
+  console.log(`✅ Bot logged in as ${client.user.tag}!`);
+  console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
 
   const rest = new REST().setToken(token);
   
   try {
-    console.log('Started refreshing application (/) commands.');
+    console.log('🔄 Refreshing application (/) commands...');
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('Successfully reloaded application (/) commands.');
+    console.log('✅ Successfully reloaded application (/) commands.');
   } catch (error) {
-    console.error(error);
+    console.error('❌ Error registering slash commands:', error);
   }
 
   client.user.setPresence({
@@ -125,6 +169,29 @@ client.once('ready', async () => {
   }, DAY_IN_MS);
 
   initializeScheduledTasks(client);
+  
+  console.log('🎉 Bot is fully operational!');
+});
+
+// Add error handlers
+client.on('error', error => {
+  console.error('❌ Discord client error:', error);
+});
+
+client.on('shardError', error => {
+  console.error('❌ Shard error:', error);
+});
+
+client.on('warn', info => {
+  console.warn('⚠️ Warning:', info);
+});
+
+client.on('disconnect', () => {
+  console.warn('⚠️ Bot disconnected from Discord');
+});
+
+client.on('reconnecting', () => {
+  console.log('🔄 Reconnecting to Discord...');
 });
 
 client.on('guildCreate', async (guild) => {
@@ -296,4 +363,5 @@ const handleCommandInteraction = async (interaction) => {
   }
 };
 
-client.login(token).catch(e => console.error("Login Failed:", e));
+// CRITICAL FIX: Start the bot
+startBot();
