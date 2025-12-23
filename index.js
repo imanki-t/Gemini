@@ -21,56 +21,13 @@ import {
 
 const HOUR_IN_MS = 3600000;
 const DAY_IN_MS = 86400000;
-const STARTUP_TIMEOUT = 45000;
-const LOGIN_TIMEOUT = 30000;
 
 const IGNORED_MESSAGE_TYPES = [
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 18, 20, 21, 22, 23, 24, 25, 
   26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
 ];
 
-if (!token) {
-  console.error('❌ CRITICAL: DISCORD_BOT_TOKEN is not set in environment variables!');
-  process.exit(1);
-}
-
-console.log('🔑 Token validation: OK');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-let serverReady = false;
-let botReady = false;
-
-app.get('/', (req, res) => {
-  res.json({
-    status: botReady ? 'online' : 'initializing',
-    bot: client.user?.tag || 'Connecting...',
-    uptime: process.uptime(),
-    botReady: botReady,
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/health', (req, res) => {
-  const healthStatus = serverReady && botReady;
-  res.status(healthStatus ? 200 : 503).json({
-    status: healthStatus ? 'healthy' : 'initializing',
-    server: serverReady,
-    bot: botReady,
-    timestamp: new Date().toISOString(),
-    botConnected: client.isReady()
-  });
-});
-
-app.get('/ping', (req, res) => {
-  res.status(200).send('pong');
-});
-
-const server = app.listen(PORT, () => {
-  console.log(`✅ Express server running on port ${PORT}`);
-  serverReady = true;
-});
+initialize().catch(console.error);
 
 const cleanupTempFiles = async () => {
   try {
@@ -83,13 +40,14 @@ const cleanupTempFiles = async () => {
         const stats = await fs.stat(filePath);
         if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
+          console.log(`🧹 Cleaned: ${file}`);
         }
       } catch (err) {
         continue;
       }
     }
   } catch (error) {
-    console.error('Temp cleanup error:', error.message);
+    console.error('Cleanup error:', error);
   }
 };
 
@@ -99,6 +57,7 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
   try {
     const files = await fs.readdir(TEMP_DIR);
     const now = Date.now();
+    let cleaned = 0;
     
     for (const file of files) {
       const filePath = path.join(TEMP_DIR, file);
@@ -106,11 +65,38 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
         const stats = await fs.stat(filePath);
         if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
+          cleaned++;
         }
       } catch (err) {}
     }
+    
+    if (cleaned > 0) {
+      console.log(`🧹 Startup: Cleaned ${cleaned} old temp files`);
+    }
   } catch (error) {}
 })();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    bot: client.user?.tag || 'Starting...',
+    uptime: process.uptime()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`Express server running on port ${PORT}`);
+});
 
 const activities = config.activities.map(activity => ({
   name: activity.name,
@@ -119,85 +105,17 @@ const activities = config.activities.map(activity => ({
 
 let activityIndex = 0;
 
-async function startBot() {
-  const startTime = Date.now();
-  
-  try {
-    console.log('🚀 Starting bot initialization...');
-    
-    const initPromise = (async () => {
-      console.log('📦 Initializing database...');
-      await initialize();
-      console.log('✅ Database initialized');
-    })();
-    
-    const initTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Database initialization timeout')), 30000)
-    );
-    
-    await Promise.race([initPromise, initTimeout]);
-    
-    console.log('🔐 Logging into Discord...');
-    
-    const loginPromise = client.login(token);
-    const loginTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Discord login timeout after 30 seconds')), LOGIN_TIMEOUT)
-    );
-    
-    await Promise.race([loginPromise, loginTimeout]);
-    console.log('✅ Login successful, waiting for ready event...');
-    
-    const readyTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Ready event timeout')), 15000)
-    );
-    
-    const readyPromise = new Promise((resolve) => {
-      if (client.isReady()) {
-        resolve();
-      } else {
-        client.once('ready', resolve);
-      }
-    });
-    
-    await Promise.race([readyPromise, readyTimeout]);
-    
-    const elapsed = Date.now() - startTime;
-    console.log(`✅ Bot fully initialized in ${(elapsed / 1000).toFixed(2)}s`);
-    
-  } catch (error) {
-    console.error('❌ CRITICAL ERROR during bot startup:', error.message);
-    
-    if (error.message?.includes('timeout')) {
-      console.error('🔴 Startup timeout. Possible causes:');
-      console.error('  - Network connectivity issues on host platform');
-      console.error('  - Discord API connectivity problems');
-      console.error('  - MongoDB connection issues');
-      console.error('  - Firewall blocking WebSocket connections');
-    } else if (error.code === 'TokenInvalid') {
-      console.error('🔴 Invalid Discord token! Verify DISCORD_BOT_TOKEN in environment');
-    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      console.error('🔴 Network error: Cannot connect to Discord/MongoDB');
-    } else if (error.message?.includes('MongoDB')) {
-      console.error('🔴 MongoDB connection failed. Verify MONGODB_URI');
-    }
-    
-    console.error('Stack:', error.stack);
-    process.exit(1);
-  }
-}
-
-client.once('ready', async () => {
-  console.log(`✅ Bot logged in as ${client.user.tag}!`);
-  console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
+client.once('clientReady', async () => {
+  console.log(`Logged in as ${client.user.tag}!`);
 
   const rest = new REST().setToken(token);
   
   try {
-    console.log('🔄 Refreshing application (/) commands...');
+    console.log('Started refreshing application (/) commands.');
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('✅ Successfully reloaded application (/) commands.');
+    console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
-    console.error('❌ Error registering slash commands:', error.message);
+    console.error(error);
   }
 
   client.user.setPresence({
@@ -211,42 +129,10 @@ client.once('ready', async () => {
       activities: [activities[activityIndex]],
       status: 'idle',
     });
+    console.log(`🔄 Activity changed to: ${activities[activityIndex].name}`);
   }, DAY_IN_MS);
 
-  try {
-    initializeScheduledTasks(client);
-  } catch (error) {
-    console.error('Error initializing scheduled tasks:', error.message);
-  }
-  
-  botReady = true;
-  console.log('🎉 Bot is fully operational!');
-});
-
-client.on('error', error => {
-  console.error('❌ Discord client error:', error.message);
-});
-
-client.on('shardError', error => {
-  console.error('❌ Shard error:', error.message);
-});
-
-client.on('warn', info => {
-  console.warn('⚠️ Warning:', info);
-});
-
-client.on('disconnect', () => {
-  console.warn('⚠️ Bot disconnected from Discord');
-  botReady = false;
-});
-
-client.on('reconnecting', () => {
-  console.log('🔄 Reconnecting to Discord...');
-});
-
-client.on('resume', () => {
-  console.log('✅ Connection resumed');
-  botReady = true;
+  initializeScheduledTasks(client);
 });
 
 client.on('guildCreate', async (guild) => {
@@ -261,7 +147,7 @@ client.on('guildCreate', async (guild) => {
       await channel.send(`Glad to be in **${guild.name}** !!`);
     }
   } catch (error) {
-    console.error('Error sending guild join message:', error.message);
+    console.error('Error sending welcome message:', error);
   }
 });
 
@@ -269,7 +155,10 @@ client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
     if (message.content.startsWith('!')) return;
-    if (IGNORED_MESSAGE_TYPES.includes(message.type)) return;
+    if (IGNORED_MESSAGE_TYPES.includes(message.type)) {
+      console.log(`🔕 Ignored system message type: ${message.type}`);
+      return;
+    }
 
     const isDM = message.channel.type === ChannelType.DM;
     const guildId = message.guild?.id;
@@ -279,10 +168,14 @@ client.on('messageCreate', async (message) => {
     if (guildId) {
       initializeBlacklistForGuild(guildId);
       
-      if (state.blacklistedUsers[guildId]?.includes(userId)) return;
+      if (state.blacklistedUsers[guildId]?.includes(userId)) {
+        return;
+      }
 
       const allowedChannels = state.serverSettings[guildId]?.allowedChannels;
-      if (allowedChannels && allowedChannels.length > 0 && !allowedChannels.includes(channelId)) return;
+      if (allowedChannels && allowedChannels.length > 0 && !allowedChannels.includes(channelId)) {
+        return;
+      }
     }
 
     const userSettings = state.userSettings[userId] || {};
@@ -329,7 +222,7 @@ client.on('messageCreate', async (message) => {
     processMessageRoulette(message);
 
   } catch (error) {
-    console.error('Error processing message:', error.message);
+    console.error('Error processing the message:', error);
   }
 });
 
@@ -418,44 +311,4 @@ const handleCommandInteraction = async (interaction) => {
   }
 };
 
-const gracefulShutdown = async (signal) => {
-  console.log(`\n${signal} received. Starting graceful shutdown...`);
-  
-  try {
-    await saveStateToFile();
-    console.log('✅ State saved');
-  } catch (error) {
-    console.error('Error saving state:', error.message);
-  }
-  
-  try {
-    client.destroy();
-    console.log('✅ Discord client destroyed');
-  } catch (error) {
-    console.error('Error destroying client:', error.message);
-  }
-  
-  server.close(() => {
-    console.log('✅ HTTP server closed');
-    process.exit(0);
-  });
-  
-  setTimeout(() => {
-    console.error('⚠️ Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
-};
-
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  gracefulShutdown('UNCAUGHT_EXCEPTION');
-});
-
-startBot();
+client.login(token);
