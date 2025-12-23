@@ -21,47 +21,57 @@ import {
 
 const HOUR_IN_MS = 3600000;
 const DAY_IN_MS = 86400000;
+const STARTUP_TIMEOUT = 45000;
+const LOGIN_TIMEOUT = 30000;
 
 const IGNORED_MESSAGE_TYPES = [
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 18, 20, 21, 22, 23, 24, 25, 
   26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
 ];
 
-// CRITICAL FIX: Validate token before starting
 if (!token) {
-  console.error('❌ CRITICAL ERROR: DISCORD_BOT_TOKEN is not set in environment variables!');
-  console.error('Please check your .env file and ensure DISCORD_BOT_TOKEN is set correctly.');
+  console.error('❌ CRITICAL: DISCORD_BOT_TOKEN is not set in environment variables!');
   process.exit(1);
 }
 
-console.log('🔑 Token validation: OK (length:', token.length, ')');
+console.log('🔑 Token validation: OK');
 
-// Start Express server first (independent of bot)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let serverReady = false;
+let botReady = false;
+
 app.get('/', (req, res) => {
   res.json({
-    status: 'online',
+    status: botReady ? 'online' : 'initializing',
     bot: client.user?.tag || 'Connecting...',
     uptime: process.uptime(),
-    botReady: !!client.user
+    botReady: botReady,
+    timestamp: new Date().toISOString()
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
+  const healthStatus = serverReady && botReady;
+  res.status(healthStatus ? 200 : 503).json({
+    status: healthStatus ? 'healthy' : 'initializing',
+    server: serverReady,
+    bot: botReady,
     timestamp: new Date().toISOString(),
     botConnected: client.isReady()
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Express server running on port ${PORT}`);
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
 });
 
-// Cleanup temp files
+const server = app.listen(PORT, () => {
+  console.log(`✅ Express server running on port ${PORT}`);
+  serverReady = true;
+});
+
 const cleanupTempFiles = async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -79,13 +89,12 @@ const cleanupTempFiles = async () => {
       }
     }
   } catch (error) {
-    console.error(error);
+    console.error('Temp cleanup error:', error.message);
   }
 };
 
 setInterval(cleanupTempFiles, HOUR_IN_MS);
 
-// Initial cleanup
 (async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -110,37 +119,73 @@ const activities = config.activities.map(activity => ({
 
 let activityIndex = 0;
 
-// CRITICAL FIX: Proper initialization flow
 async function startBot() {
+  const startTime = Date.now();
+  
   try {
     console.log('🚀 Starting bot initialization...');
     
-    // Step 1: Initialize database and load state
-    console.log('📦 Initializing database...');
-    await initialize();
-    console.log('✅ Database initialized');
+    const initPromise = (async () => {
+      console.log('📦 Initializing database...');
+      await initialize();
+      console.log('✅ Database initialized');
+    })();
     
-    // Step 2: Login to Discord
+    const initTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Database initialization timeout')), 30000)
+    );
+    
+    await Promise.race([initPromise, initTimeout]);
+    
     console.log('🔐 Logging into Discord...');
-    await client.login(token);
+    
+    const loginPromise = client.login(token);
+    const loginTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Discord login timeout after 30 seconds')), LOGIN_TIMEOUT)
+    );
+    
+    await Promise.race([loginPromise, loginTimeout]);
     console.log('✅ Login successful, waiting for ready event...');
     
-  } catch (error) {
-    console.error('❌ CRITICAL ERROR during bot startup:', error);
+    const readyTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Ready event timeout')), 15000)
+    );
     
-    if (error.code === 'TokenInvalid') {
-      console.error('🔴 Invalid Discord token! Please check your DISCORD_BOT_TOKEN in .env');
+    const readyPromise = new Promise((resolve) => {
+      if (client.isReady()) {
+        resolve();
+      } else {
+        client.once('ready', resolve);
+      }
+    });
+    
+    await Promise.race([readyPromise, readyTimeout]);
+    
+    const elapsed = Date.now() - startTime;
+    console.log(`✅ Bot fully initialized in ${(elapsed / 1000).toFixed(2)}s`);
+    
+  } catch (error) {
+    console.error('❌ CRITICAL ERROR during bot startup:', error.message);
+    
+    if (error.message?.includes('timeout')) {
+      console.error('🔴 Startup timeout. Possible causes:');
+      console.error('  - Network connectivity issues on host platform');
+      console.error('  - Discord API connectivity problems');
+      console.error('  - MongoDB connection issues');
+      console.error('  - Firewall blocking WebSocket connections');
+    } else if (error.code === 'TokenInvalid') {
+      console.error('🔴 Invalid Discord token! Verify DISCORD_BOT_TOKEN in environment');
     } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      console.error('🔴 Network error: Cannot connect to Discord API. Check your internet connection.');
+      console.error('🔴 Network error: Cannot connect to Discord/MongoDB');
     } else if (error.message?.includes('MongoDB')) {
-      console.error('🔴 MongoDB connection failed. Check your MONGODB_URI in .env');
+      console.error('🔴 MongoDB connection failed. Verify MONGODB_URI');
     }
     
+    console.error('Stack:', error.stack);
     process.exit(1);
   }
 }
 
-// Discord client event handlers
 client.once('ready', async () => {
   console.log(`✅ Bot logged in as ${client.user.tag}!`);
   console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
@@ -152,7 +197,7 @@ client.once('ready', async () => {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log('✅ Successfully reloaded application (/) commands.');
   } catch (error) {
-    console.error('❌ Error registering slash commands:', error);
+    console.error('❌ Error registering slash commands:', error.message);
   }
 
   client.user.setPresence({
@@ -168,18 +213,22 @@ client.once('ready', async () => {
     });
   }, DAY_IN_MS);
 
-  initializeScheduledTasks(client);
+  try {
+    initializeScheduledTasks(client);
+  } catch (error) {
+    console.error('Error initializing scheduled tasks:', error.message);
+  }
   
+  botReady = true;
   console.log('🎉 Bot is fully operational!');
 });
 
-// Add error handlers
 client.on('error', error => {
-  console.error('❌ Discord client error:', error);
+  console.error('❌ Discord client error:', error.message);
 });
 
 client.on('shardError', error => {
-  console.error('❌ Shard error:', error);
+  console.error('❌ Shard error:', error.message);
 });
 
 client.on('warn', info => {
@@ -188,10 +237,16 @@ client.on('warn', info => {
 
 client.on('disconnect', () => {
   console.warn('⚠️ Bot disconnected from Discord');
+  botReady = false;
 });
 
 client.on('reconnecting', () => {
   console.log('🔄 Reconnecting to Discord...');
+});
+
+client.on('resume', () => {
+  console.log('✅ Connection resumed');
+  botReady = true;
 });
 
 client.on('guildCreate', async (guild) => {
@@ -206,7 +261,7 @@ client.on('guildCreate', async (guild) => {
       await channel.send(`Glad to be in **${guild.name}** !!`);
     }
   } catch (error) {
-    console.error(error);
+    console.error('Error sending guild join message:', error.message);
   }
 });
 
@@ -274,7 +329,7 @@ client.on('messageCreate', async (message) => {
     processMessageRoulette(message);
 
   } catch (error) {
-    console.error(error);
+    console.error('Error processing message:', error.message);
   }
 });
 
@@ -327,7 +382,7 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
   } catch (error) {
-    console.error(error);
+    console.error('Error handling interaction:', error.message);
   }
 });
 
@@ -363,44 +418,44 @@ const handleCommandInteraction = async (interaction) => {
   }
 };
 
-// CRITICAL FIX: Start the bot
-async function startBot() {
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
   try {
-    console.log('🚀 Starting bot initialization...');
-    
-    // Step 1: Initialize database and load state
-    console.log('📦 Initializing database...');
-    await initialize();
-    console.log('✅ Database initialized');
-    
-    // Step 2: Login to Discord WITH TIMEOUT
-    console.log('🔐 Logging into Discord...');
-    
-    // Add 30-second timeout
-    const loginPromise = client.login(token);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Discord login timeout after 30 seconds')), 30000)
-    );
-    
-    await Promise.race([loginPromise, timeoutPromise]);
-    console.log('✅ Login successful, waiting for ready event...');
-    
+    await saveStateToFile();
+    console.log('✅ State saved');
   } catch (error) {
-    console.error('❌ CRITICAL ERROR during bot startup:', error);
-    
-    // More specific error messages
-    if (error.message?.includes('timeout')) {
-      console.error('🔴 Discord login timed out. Possible causes:');
-      console.error('  - Network connectivity issues');
-      console.error('  - Discord API is down');
-      console.error('  - Firewall blocking WebSocket connections');
-    } else if (error.code === 'TokenInvalid') {
-      console.error('🔴 Invalid Discord token! Check DISCORD_BOT_TOKEN');
-    } else if (error.message?.includes('MongoDB')) {
-      console.error('🔴 MongoDB connection failed. Check MONGODB_URI');
-    }
-    
-    // Exit with error code so Render knows it failed
-    process.exit(1);
+    console.error('Error saving state:', error.message);
   }
-}
+  
+  try {
+    client.destroy();
+    console.log('✅ Discord client destroyed');
+  } catch (error) {
+    console.error('Error destroying client:', error.message);
+  }
+  
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
+  
+  setTimeout(() => {
+    console.error('⚠️ Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+startBot();
