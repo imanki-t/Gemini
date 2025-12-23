@@ -40,14 +40,13 @@ const cleanupTempFiles = async () => {
         const stats = await fs.stat(filePath);
         if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
-          console.log(`🧹 Cleaned: ${file}`);
         }
       } catch (err) {
         continue;
       }
     }
   } catch (error) {
-    console.error('Cleanup error:', error);
+    console.error(error);
   }
 };
 
@@ -57,7 +56,6 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
   try {
     const files = await fs.readdir(TEMP_DIR);
     const now = Date.now();
-    let cleaned = 0;
     
     for (const file of files) {
       const filePath = path.join(TEMP_DIR, file);
@@ -65,13 +63,8 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
         const stats = await fs.stat(filePath);
         if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
-          cleaned++;
         }
       } catch (err) {}
-    }
-    
-    if (cleaned > 0) {
-      console.log(`🧹 Startup: Cleaned ${cleaned} old temp files`);
     }
   } catch (error) {}
 })();
@@ -105,7 +98,7 @@ const activities = config.activities.map(activity => ({
 
 let activityIndex = 0;
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
 
   const rest = new REST().setToken(token);
@@ -129,7 +122,6 @@ client.once('clientReady', async () => {
       activities: [activities[activityIndex]],
       status: 'idle',
     });
-    console.log(`🔄 Activity changed to: ${activities[activityIndex].name}`);
   }, DAY_IN_MS);
 
   initializeScheduledTasks(client);
@@ -147,7 +139,7 @@ client.on('guildCreate', async (guild) => {
       await channel.send(`Glad to be in **${guild.name}** !!`);
     }
   } catch (error) {
-    console.error('Error sending welcome message:', error);
+    console.error(error);
   }
 });
 
@@ -155,10 +147,7 @@ client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
     if (message.content.startsWith('!')) return;
-    if (IGNORED_MESSAGE_TYPES.includes(message.type)) {
-      console.log(`🔕 Ignored system message type: ${message.type}`);
-      return;
-    }
+    if (IGNORED_MESSAGE_TYPES.includes(message.type)) return;
 
     const isDM = message.channel.type === ChannelType.DM;
     const guildId = message.guild?.id;
@@ -168,14 +157,10 @@ client.on('messageCreate', async (message) => {
     if (guildId) {
       initializeBlacklistForGuild(guildId);
       
-      if (state.blacklistedUsers[guildId]?.includes(userId)) {
-        return;
-      }
+      if (state.blacklistedUsers[guildId]?.includes(userId)) return;
 
       const allowedChannels = state.serverSettings[guildId]?.allowedChannels;
-      if (allowedChannels && allowedChannels.length > 0 && !allowedChannels.includes(channelId)) {
-        return;
-      }
+      if (allowedChannels && allowedChannels.length > 0 && !allowedChannels.includes(channelId)) return;
     }
 
     const userSettings = state.userSettings[userId] || {};
@@ -222,7 +207,7 @@ client.on('messageCreate', async (message) => {
     processMessageRoulette(message);
 
   } catch (error) {
-    console.error('Error processing the message:', error);
+    console.error(error);
   }
 });
 
@@ -275,7 +260,7 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
   } catch (error) {
-    console.error('Error handling interaction:', error.message);
+    console.error(error);
   }
 });
 
@@ -311,4 +296,4 @@ const handleCommandInteraction = async (interaction) => {
   }
 };
 
-client.login(token);
+client.login(token).catch(e => console.error("Login Failed:", e));
