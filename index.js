@@ -364,4 +364,43 @@ const handleCommandInteraction = async (interaction) => {
 };
 
 // CRITICAL FIX: Start the bot
-startBot();
+async function startBot() {
+  try {
+    console.log('🚀 Starting bot initialization...');
+    
+    // Step 1: Initialize database and load state
+    console.log('📦 Initializing database...');
+    await initialize();
+    console.log('✅ Database initialized');
+    
+    // Step 2: Login to Discord WITH TIMEOUT
+    console.log('🔐 Logging into Discord...');
+    
+    // Add 30-second timeout
+    const loginPromise = client.login(token);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Discord login timeout after 30 seconds')), 30000)
+    );
+    
+    await Promise.race([loginPromise, timeoutPromise]);
+    console.log('✅ Login successful, waiting for ready event...');
+    
+  } catch (error) {
+    console.error('❌ CRITICAL ERROR during bot startup:', error);
+    
+    // More specific error messages
+    if (error.message?.includes('timeout')) {
+      console.error('🔴 Discord login timed out. Possible causes:');
+      console.error('  - Network connectivity issues');
+      console.error('  - Discord API is down');
+      console.error('  - Firewall blocking WebSocket connections');
+    } else if (error.code === 'TokenInvalid') {
+      console.error('🔴 Invalid Discord token! Check DISCORD_BOT_TOKEN');
+    } else if (error.message?.includes('MongoDB')) {
+      console.error('🔴 MongoDB connection failed. Check MONGODB_URI');
+    }
+    
+    // Exit with error code so Render knows it failed
+    process.exit(1);
+  }
+}
