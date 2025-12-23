@@ -311,4 +311,18 @@ const handleCommandInteraction = async (interaction) => {
   }
 };
 
-client.login(token);
+// Add this RIGHT BEFORE client.login(token);
+console.log('🔍 DEBUG: About to login to Discord');
+console.log('🔍 Token exists:', !!token);
+console.log('🔍 Token length:', token?.length);
+console.log('🔍 Token preview:', token?.substring(0, 20) + '...');
+
+// Add error handling to the login
+client.login(token)
+  .then(() => console.log('✅ Login promise resolved'))
+  .catch(error => {
+    console.error('❌ LOGIN FAILED:', error);
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    process.exit(1);
+  });
