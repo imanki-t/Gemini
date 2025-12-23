@@ -27,7 +27,13 @@ const IGNORED_MESSAGE_TYPES = [
   26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
 ];
 
-initialize().catch(console.error);
+process.on('unhandledRejection', (reason, p) => {
+  console.error('❌ Unhandled Rejection at:', p, 'reason:', reason);
+});
+
+initialize()
+  .then(() => console.log('✅ Initialization complete'))
+  .catch(err => console.error('❌ Initialization failed:', err));
 
 const cleanupTempFiles = async () => {
   try {
@@ -311,4 +317,11 @@ const handleCommandInteraction = async (interaction) => {
   }
 };
 
-client.login(token);
+console.log(`🔑 Token check: ${token ? 'Present' : 'Missing'} (Length: ${token?.length})`);
+console.log('🚀 Attempting to log in...');
+client.login(token)
+  .then(() => console.log('✅ Login Promise Resolved'))
+  .catch(error => {
+    console.error('❌ Login Failed:', error);
+    console.error('Error Details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+  });
