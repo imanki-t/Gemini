@@ -27,10 +27,15 @@ const IGNORED_MESSAGE_TYPES = [
   26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
 ];
 
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+});
+
 process.on('unhandledRejection', (reason, p) => {
   console.error('❌ Unhandled Rejection at:', p, 'reason:', reason);
 });
 
+console.log('🔹 Checkpoint 1: Starting Initialization...');
 initialize()
   .then(() => console.log('✅ Initialization complete'))
   .catch(err => console.error('❌ Initialization failed:', err));
@@ -100,14 +105,24 @@ app.get('/health', (req, res) => {
   });
 });
 
+console.log('🔹 Checkpoint 2: Starting Express...');
 app.listen(PORT, () => {
   console.log(`Express server running on port ${PORT}`);
 });
+console.log('🔹 Checkpoint 3: Express Listen Called (Async)');
 
-const activities = config.activities.map(activity => ({
-  name: activity.name,
-  type: ActivityType[activity.type]
-}));
+console.log('🔹 Checkpoint 4: Preparing Activities...');
+if (!config.activities) {
+    console.error('❌ Config Activities is MISSING');
+}
+const activities = config.activities.map(activity => {
+    if (!ActivityType[activity.type]) console.warn(`⚠️ Invalid activity type: ${activity.type}`);
+    return {
+        name: activity.name,
+        type: ActivityType[activity.type]
+    };
+});
+console.log(`🔹 Checkpoint 5: Activities Prepared (${activities.length} items)`);
 
 let activityIndex = 0;
 
