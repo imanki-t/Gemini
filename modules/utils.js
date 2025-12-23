@@ -11,7 +11,7 @@ export function initializeBlacklistForGuild(guildId) {
     }
     if (!state.serverSettings[guildId]) {
       state.serverSettings[guildId] = {
-        selectedModel: 'gemini-2.5-flash',
+        selectedModel: 'gemini-3-flash',
         responseFormat: 'Normal',
         showActionButtons: false,
         continuousReply: false,
