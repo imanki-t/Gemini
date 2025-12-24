@@ -106,48 +106,59 @@ if (error) {
 }
 }
 
-/**
-* Retries an API call with exponential backoff and key rotation.
-*/
+// Replace the withRetry function in botManager.js (around line 50)
+
 async function withRetry(apiCall) {
-let attempts = 0;
-const maxAttempts = 5; 
-const delays = [1000, 2000, 4000, 8000, 16000];
+  let attempts = 0;
+  const maxAttempts = Math.max(3, apiKeys.length);
 
-while (attempts < maxAttempts) {
-  try {
-    const stats = keyUsageStats.get(currentKeyIdx);
-    stats.requests++;
-    stats.lastUsed = Date.now();
+  while (attempts < maxAttempts) {
+    try {
+      const stats = keyUsageStats.get(currentKeyIdx);
+      stats.requests++;
+      stats.lastUsed = Date.now();
 
-    const result = await apiCall();
+      const result = await apiCall();
 
-    stats.successfulRequests++;
-    return result;
+      stats.successfulRequests++;
+      return result;
 
-  } catch (error) {
-    const stats = keyUsageStats.get(currentKeyIdx);
-    stats.errors++;
+    } catch (error) {
+      const stats = keyUsageStats.get(currentKeyIdx);
+      stats.errors++;
 
-    const isRateLimit = error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED');
-    
-    if (isRateLimit) {
-      console.warn(`⚠️ Rate Limit hit on Key Index ${currentKeyIdx}. Rotating...`);
-    } else {
-      console.warn(`❌ API call failed (Key Index: ${currentKeyIdx}): ${error.message}`);
+      const errorMessage = error.message || '';
+      const is403Error = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+      const is429Error = errorMessage.includes('429') || errorMessage.includes('quota');
+      const is500Error = errorMessage.includes('500') || errorMessage.includes('503');
+
+      console.warn(`API call failed (Key Index: ${currentKeyIdx}): ${error.message}`);
+      
+      // Switch to next key immediately for quota/auth errors
+      switchToNextKey(error);
+      attempts++;
+
+      if (attempts >= maxAttempts) {
+        throw new Error(`All API keys failed. Last error: ${error.message}`);
+      }
+      
+      // Reduced delay based on error type
+      if (is403Error) {
+        // 403 errors: immediate retry with new key (no delay)
+        await new Promise(r => setTimeout(r, 100));
+      } else if (is429Error) {
+        // 429 quota errors: short delay
+        await new Promise(r => setTimeout(r, 100));
+      } else if (is500Error) {
+        // Server errors: slightly longer delay
+        await new Promise(r => setTimeout(r, 1000));
+      } else {
+        // Other errors: minimal delay
+        await new Promise(r => setTimeout(r, 300));
+      }
     }
-    
-    switchToNextKey(error);
-    attempts++;
-
-    if (attempts >= maxAttempts) {
-      throw new Error(`Critical: All attempts failed after key rotation and backoff. Last error: ${error.message}`);
-    }
-    
-    await new Promise(r => setTimeout(r, delays[attempts - 1] || 2000));
   }
-}
-}
+                     }
 
 export const genAI = new Proxy({}, {
 get(target, prop) {
@@ -888,3 +899,4 @@ process.exit(0);
 
 
 });
+
