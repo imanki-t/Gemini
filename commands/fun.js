@@ -1035,13 +1035,13 @@ export async function handleComplimentCommand(interaction) {
        contents: [{
          role: 'user',
          parts: [{
-           text: `Generate a list of 5-7 distinct, sincere, and creative compliments for someone named ${targetUser.username}`
+           text: `Generate a 6-7 lines distinct, sincere, and creative compliments for someone named ${targetUser.username}`
          }]
        }],
        config: {
          systemInstruction: {
            parts: [{
-             text: 'Generate a list of 5-7 distinct compliments. Use bullet points (•). Be specific, heartfelt, and creative. Avoid generic phrases. Make them personal and meaningful.'
+             text: 'Generate a 6-7 lines distinct compliments. Be specific, heartfelt, and creative. Avoid generic phrases. Make them personal and meaningful.'
            }]
          },
          temperature: 0.9
