@@ -734,7 +734,7 @@ try {
   }
   if (!state.serverSettings[guildId]) {
     state.serverSettings[guildId] = {
-      selectedModel: 'gemini-3-flash',
+      selectedModel: 'gemini-2.5-flash',
       responseFormat: 'Normal',
       showActionButtons: false,
       continuousReply: false,
@@ -885,5 +885,6 @@ await db.closeDB();
 console.log('--- Shutdown Stats ---');
 console.log(JSON.stringify(getApiKeyStats(), null, 2));
 process.exit(0);
+
 
 });
