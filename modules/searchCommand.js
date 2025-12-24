@@ -6,14 +6,16 @@ import config from '../config.js';
 import { MODELS, safetySettings, getGenerationConfig, RATE_LIMIT_ERRORS, DEFAULT_MODEL } from './config.js';
 import { initializeBlacklistForGuild } from './utils.js';
 
-const SEARCH_SYSTEM_PROMPT = `You are a helpful AI assistant performing web searches.
+// Build search-specific system prompt with core rules
+const SEARCH_SYSTEM_PROMPT = `${config.coreSystemRules}
 
-CRITICAL RULES:
+You are performing a web search to find current information.
+
+SEARCH INSTRUCTIONS:
 - You MUST use the googleSearch tool for every query
 - Provide accurate, well-sourced information from search results
 - Cite your sources when relevant
 - Be concise and informative
-- NEVER use LaTeX formatting - Discord doesn't support it
 - Current date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
 
 /**
@@ -489,4 +491,4 @@ async function sendAsTextFile(interaction, text) {
       components: []
     }).catch(() => {});
   }
-      }
+                                                      }
