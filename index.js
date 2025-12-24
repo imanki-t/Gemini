@@ -27,9 +27,10 @@ const IGNORED_MESSAGE_TYPES = [
   26, 27, 28, 29, 30, 31, 36, 37, 38, 39, 46
 ];
 
+// Initialize Database and State
 initialize().catch(console.error);
 
-// Conversion: Changed from const arrow function to async function
+// Clean up temp files periodically
 async function cleanupTempFiles() {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -54,6 +55,7 @@ async function cleanupTempFiles() {
 
 setInterval(cleanupTempFiles, HOUR_IN_MS);
 
+// Initial cleanup on startup
 (async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -77,6 +79,7 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
   } catch (error) {}
 })();
 
+// Express Server for Uptime Monitoring
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -99,6 +102,7 @@ app.listen(PORT, () => {
   console.log(`Express server running on port ${PORT}`);
 });
 
+// Bot Activities
 const activities = config.activities.map(activity => ({
   name: activity.name,
   type: ActivityType[activity.type]
@@ -227,60 +231,60 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+// Fixed Interaction Handler - Replaces Fragile Array Checks with Sequential Logic
 client.on('interactionCreate', async (interaction) => {
   try {
+    // 1. Handle Slash Commands
     if (interaction.isChatInputCommand()) {
       await handleCommandInteraction(interaction);
-    } else if (interaction.isButton()) {
-      const newCommandButtons = [
-        'tod_again', 'akinator_yes_', 'akinator_no_', 'akinator_maybe_',
-        'akinator_correct_', 'akinator_wrong_', 'akinator_again',
-        'tds_again', 'nhie_next', 'wyr_option1', 'wyr_option2', 'wyr_next',
-        'wyr_results_', 'timezone_next_page', 'timezone_prev_page', 
-        'timezone_custom', 'reminder_action_delete'
-      ];
+    } 
+    // 2. Handle Buttons
+    else if (interaction.isButton()) {
+      // Try the new command modules first
+      await handleNewButtons(interaction);
       
-      const isNewCommandButton = newCommandButtons.some(prefix => 
-        interaction.customId.startsWith(prefix)
-      );
-      
-      if (isNewCommandButton) {
-        await handleNewButtons(interaction);
-      } else {
+      // If not handled (not replied/deferred), try the settings handler
+      if (!interaction.replied && !interaction.deferred) {
         await handleButtonInteraction(interaction);
       }
-    } else if (interaction.isModalSubmit()) {
-      if (interaction.customId.startsWith('reminder_modal_') || interaction.customId === 'timezone_modal') {
-        await handleNewModals(interaction);
-      } else {
+    } 
+    // 3. Handle Modal Submits
+    else if (interaction.isModalSubmit()) {
+      // Try specific modal handlers first (reminders, timezone)
+      await handleNewModals(interaction);
+      
+      // Fallback to settings/generic modals
+      if (!interaction.replied && !interaction.deferred) {
         await handleModalSubmit(interaction);
       }
-    } else if (interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
-      const newCommandMenus = [
-        'birthday_month', 'birthday_day_', 'birthday_name_', 'birthday_pref_', 'birthday_delete_select',
-        'reminder_action', 'reminder_type', 'reminder_location_', 'reminder_delete_select',
-        'quote_action', 'quote_category', 'quote_time_', 'quote_location_', 'quote_channel_', 'quote_remove_select',
-        'roulette_action', 'roulette_rarity',
-        'game_select', 'tod_choice', 'tds_choice', 'akinator_mode',
-        'timezone_region', 'timezone_select'
-      ];
+    } 
+    // 4. Handle Select Menus
+    else if (interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
+      // Try command menus first
+      await handleNewSelectMenus(interaction);
       
-      const isNewCommandMenu = newCommandMenus.some(prefix => 
-        interaction.customId.startsWith(prefix)
-      );
-      
-      if (isNewCommandMenu) {
-        await handleNewSelectMenus(interaction);
-      } else {
+      // Fallback to settings menus
+      if (!interaction.replied && !interaction.deferred) {
         await handleSelectMenuInteraction(interaction);
       }
     }
   } catch (error) {
-    console.error('Error handling interaction:', error.message);
+    console.error('CRITICAL: Error handling interaction:', error);
+    
+    // Safety Net: Attempt to inform user if interaction crashed silently
+    try {
+      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: '❌ An unexpected error occurred while processing this request.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    } catch (e) {
+      // Ignore if reply fails (e.g. unknown interaction)
+    }
   }
 });
 
-// Conversion: Changed from const arrow function to async function
 async function handleCommandInteraction(interaction) {
   if (!interaction.isChatInputCommand()) return;
 
@@ -307,11 +311,17 @@ async function handleCommandInteraction(interaction) {
   const handler = commandHandlers[interaction.commandName];
   
   if (handler) {
-    await handler(interaction);
+    try {
+      await handler(interaction);
+    } catch (err) {
+      console.error(`Error in command ${interaction.commandName}:`, err);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: '❌ Command failed to execute.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
+    }
   } else {
     console.log(`Unknown command: ${interaction.commandName}`);
   }
 }
 
 client.login(token);
-        
