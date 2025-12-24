@@ -29,7 +29,8 @@ const IGNORED_MESSAGE_TYPES = [
 
 initialize().catch(console.error);
 
-const cleanupTempFiles = async () => {
+// Conversion: Changed from const arrow function to async function
+async function cleanupTempFiles() {
   try {
     const files = await fs.readdir(TEMP_DIR);
     const now = Date.now();
@@ -40,7 +41,7 @@ const cleanupTempFiles = async () => {
         const stats = await fs.stat(filePath);
         if (now - stats.mtimeMs > HOUR_IN_MS) {
           await fs.unlink(filePath);
-          console.log(`🧹 Cleaned: ${file}`);
+          console.log(`清 Cleaned: ${file}`);
         }
       } catch (err) {
         continue;
@@ -49,7 +50,7 @@ const cleanupTempFiles = async () => {
   } catch (error) {
     console.error('Cleanup error:', error);
   }
-};
+}
 
 setInterval(cleanupTempFiles, HOUR_IN_MS);
 
@@ -71,7 +72,7 @@ setInterval(cleanupTempFiles, HOUR_IN_MS);
     }
     
     if (cleaned > 0) {
-      console.log(`🧹 Startup: Cleaned ${cleaned} old temp files`);
+      console.log(`清 Startup: Cleaned ${cleaned} old temp files`);
     }
   } catch (error) {}
 })();
@@ -279,7 +280,8 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-const handleCommandInteraction = async (interaction) => {
+// Conversion: Changed from const arrow function to async function
+async function handleCommandInteraction(interaction) {
   if (!interaction.isChatInputCommand()) return;
 
   const commandHandlers = {
@@ -309,6 +311,7 @@ const handleCommandInteraction = async (interaction) => {
   } else {
     console.log(`Unknown command: ${interaction.commandName}`);
   }
-};
+}
 
 client.login(token);
+        
