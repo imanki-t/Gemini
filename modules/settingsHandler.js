@@ -425,7 +425,7 @@ async function showUserSettings(interaction, isUpdate = false) {
     }
   }
 
-  const selectedModel = userSettings.selectedModel || 'gemini-3-flash';
+  const selectedModel = userSettings.selectedModel || 'gemini-2.5-flash';
   const responseFormat = userSettings.responseFormat || 'Normal';
   const showActionButtons = userSettings.showActionButtons === true;
   const embedColor = userSettings.embedColor || hexColour;
@@ -655,7 +655,7 @@ async function showServerSettings(interaction, isUpdate = false) {
 
   const guildId = interaction.guild.id;
   const serverSettings = state.serverSettings[guildId] || {};
-  const selectedModel = serverSettings.selectedModel || 'gemini-3-flash';
+  const selectedModel = serverSettings.selectedModel || 'gemini-2.5-flash';
   const responseFormat = serverSettings.responseFormat || 'Normal';
   const showActionButtons = serverSettings.showActionButtons === true;
   const embedColor = serverSettings.embedColor || hexColour;
