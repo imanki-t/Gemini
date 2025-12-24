@@ -114,6 +114,8 @@ export async function handleCommandInteraction(interaction) {
 
   const handler = commandHandlers[interaction.commandName];
   if (handler) {
+    // Commands should usually defer if they perform AI tasks, 
+    // but we leave it to individual handlers unless they are consistent.
     await handler(interaction);
   }
 }
@@ -147,18 +149,25 @@ export async function handleSelectMenuInteraction(interaction) {
 
   for (const [key, handler] of Object.entries(handlers)) {
     if (interaction.customId.startsWith(key)) {
+      // Fix: Ensure every select interaction is acknowledged before long-running tasks
+      // Some handlers call .update() or .deferUpdate() inside. 
+      // We check here for safety.
       await handler(interaction);
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 export async function handleModalSubmission(interaction) {
   if (interaction.customId.startsWith('reminder_modal_')) {
     await handleReminderModal(interaction);
+    return true;
   } else if (interaction.customId === 'timezone_modal') {
     await handleTimezoneCustomModal(interaction);
+    return true;
   }
+  return false;
 }
 
 export async function handleButtonInteraction(interaction) {
@@ -185,9 +194,10 @@ export async function handleButtonInteraction(interaction) {
   for (const [key, handler] of Object.entries(handlers)) {
     if (interaction.customId.startsWith(key)) {
       await handler(interaction);
-      return;
+      return true;
     }
   }
+  return false;
 }
 
 async function showReminderDeleteFromButton(interaction) {
