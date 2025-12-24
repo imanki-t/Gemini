@@ -129,7 +129,7 @@ You're like that friend who's genuinely there for people - not trying too hard, 
   ],
   
   defaultServerSettings: {
-    selectedModel: "gemini-3-flash",
+    selectedModel: "gemini-2.5-flash",
     responseFormat: "Normal",
     showActionButtons: false,
     continuousReply: false,
@@ -141,7 +141,7 @@ You're like that friend who's genuinely there for people - not trying too hard, 
   },
   
   defaultUserSettings: {
-    selectedModel: "gemini-3-flash",
+    selectedModel: "gemini-2.5-flash",
     responseFormat: "Normal",
     showActionButtons: false,
     continuousReply: true,
