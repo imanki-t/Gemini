@@ -438,7 +438,7 @@ async function showUserSettings(interaction, isUpdate = false) {
     new StringSelectMenuOptionBuilder()
       .setLabel('Gemini 3.0 Flash')
       .setDescription('Latest AI model - Pro-level intelligence at Flash speed')
-      .setValue('gemini-3-flash')
+      .setValue('gemini-2.5-flash')
       .setEmoji('⚡')
       .setDefault(true)
   );
@@ -667,7 +667,7 @@ async function showServerSettings(interaction, isUpdate = false) {
     new StringSelectMenuOptionBuilder()
       .setLabel('Gemini 3.0 Flash')
       .setDescription('Latest AI model - Pro-level intelligence at Flash speed')
-      .setValue('gemini-3-flash')
+      .setValue('gemini-2.5-flash')
       .setEmoji('⚡')
       .setDefault(true)
   );
