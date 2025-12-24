@@ -81,10 +81,7 @@ const commands = [
       }
     ]
   },
-  {
-    name: "game",
-    description: "Play interactive games with AI"
-  },
+
   {
     name: "timezone",
     description: "Set your timezone for time-based features."
