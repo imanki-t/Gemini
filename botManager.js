@@ -148,7 +148,7 @@ async function withRetry(apiCall) {
         await new Promise(r => setTimeout(r, 100));
       } else if (is429Error) {
         // 429 quota errors: short delay
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 300));
       } else if (is500Error) {
         // Server errors: slightly longer delay
         await new Promise(r => setTimeout(r, 1000));
@@ -899,4 +899,5 @@ process.exit(0);
 
 
 });
+
 
